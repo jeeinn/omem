@@ -31,7 +31,7 @@ omem 是 git 原生的个人级 AI 记忆层（V0.1，TypeScript，Node ≥ 22.5
 | `src/cli.ts` `src/cli-args.ts` | 命令分发。被 import 时不得自行 `process.exit`（`OMEM_CLI_ENTRY`） |
 | `src/commands/` | 一个命令一个文件，返回退出码 |
 | `src/core/` | 条目、路径、配置、存储、索引、检索、生命周期、档案、脱敏、快照 |
-| `src/collect/` | 会话采集。已注册 `claude-code`、`workbuddy`、`cursor`，都只读 |
+| `src/collect/` | 会话采集。已注册 `claude-code`、`workbuddy`、`cursor`，都只读。新平台见下方「技能」 |
 | `src/process/` | 加工：`rules`（默认）/ `pipeline` / `guide`（agent）/ `api`（默认关） |
 | `src/mcp/` | stdio MCP server 与工具实现 |
 | `src/install/` | 客户端注册表、配置写入、TOML 子集 |
@@ -60,8 +60,16 @@ Node 使用内建 `node:sqlite`，不要引入 `better-sqlite3` 或其他原生�
 - 文件头用一行中文注释说明职责，并在必要时引用规格章节（`规格 §x.y`）。用户可见文案用简体中文。
 - 持久化写入走 `atomicWrite`（临时文件 + `rename`）。CLI 与 MCP 路径用同步 IO。
 - 新命令：在 `src/commands/` 实现，在 `src/cli.ts` 的 `COMMANDS` 注册 `desc` / `usage` / `run`，补单元测试。
-- 新同步后端或采集器：实现接口并在注册表加一行；未交付的 id 返回可操作错误，不要留空实现。
-- 产品行为不要自行发明。V0.1 不做时间衰减、不做 WebDAV/本地目录同步、不做 Claude Code 以外的采集器、不做 MCP sampling。
+- 新同步后端或采集器：实现接口并在注册表加一行；未交付的 id 返回可操作错误，不要留空实现。新的会话采集器先读 `.agents/skills/add-session-collector/SKILL.md`。
+- 产品行为不要自行发明。V0.1 不做时间衰减、不做 WebDAV/本地目录同步、不做 MCP sampling。
+
+## 技能
+
+仓库根的 `.agents/skills/<name>/SKILL.md` 是跨客户端技能目录（[Agent Skills](https://agentskills.io/specification)）。Cursor、Claude Code、Codex 等都从这里发现技能。不要把项目技能放进 `.cursor/skills/`。
+
+| 技能 | 何时读 |
+| --- | --- |
+| `.agents/skills/add-session-collector/SKILL.md` | 为 Qoder、Kimi 或其他 Agent 增加只读会话采集 |
 
 ## 测试
 
