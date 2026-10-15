@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+
+# 测试运行期数据（smoke 用）
+.omem-test/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+
+# 工具内部状态（非项目源码）
+.workbuddy/

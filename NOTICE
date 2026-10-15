@@ -1,0 +1,38 @@
+omem NOTICE
+===========
+
+omem 本体以 MIT 许可分发。以下是本项目包含或借鉴的第三方材料及其许可证。
+
+## 运行时依赖
+
+- @modelcontextprotocol/sdk — MIT License, © Anthropic, PBC.
+  用于 src/mcp/server.ts 的 MCP stdio server 实现（Server + StdioServerTransport）。
+
+## 代码模式借鉴
+
+- lore（github.com/xenoaitham/heirloom 前身账号下的 lore 项目）— MIT License.
+  src/core/redact.ts 的密钥检测正则模式吸收自其 redact.py：
+  Anthropic (sk-ant-)、OpenAI (sk-)、GitHub (ghp_/gho_/ghu_/ghs_/ghr_)、
+  AWS (AKIA)、JWT、PEM 头尾及通用口令赋值语句的识别模式。
+  仅借鉴正则表达式这一检测模式，未使用其任何源码文件。
+
+## 开发期依赖（不随 npm 包分发）
+
+- TypeScript — Apache License 2.0, © Microsoft Corporation.
+- Vitest — MIT License, © 2021-PRESENT Vitest contributors.
+- @types/node — MIT License, © Node.js contributors.
+
+## 设计参照（无代码复用）
+
+- Basic Memory（AGPL-3.0）：Markdown 事实源 + MCP 的形态参照。
+  许可证不兼容，未吸收任何代码。
+- codegraph（github.com/colbymchenry/codegraph）：零配置安装、最小 MCP 工具面、
+  文件监听增量同步、staleness 显式暴露等工程实践的参照。
+- Heirloom（MIT）：采集器接口与加密 SQLite 存储的对照参考
+  （omem 明确采用相反的明文 Markdown 事实源路线）。
+
+## 商标
+
+"Claude"、"Claude Code" 是 Anthropic 的商标；"GitHub"、"Cursor"、"Codex"、
+"OpenAI" 等分别为各自所有者的商标。本项目与上述实体无关联，
+客户端名称仅用于标识配置文件格式的兼容对象。

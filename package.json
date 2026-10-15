@@ -1,0 +1,43 @@
+{
+  "name": "omem",
+  "version": "0.1.0",
+  "description": "git 原生的个人级 AI 记忆层：Markdown 事实源 + MCP + FTS5 trigram 检索",
+  "keywords": [
+    "memory",
+    "mcp",
+    "markdown",
+    "ai-agent",
+    "fts5"
+  ],
+  "type": "module",
+  "bin": {
+    "omem": "bin/omem.js"
+  },
+  "main": "dist/cli.js",
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "bash tests/smoke.sh",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.7"
+  },
+  "license": "MIT"
+}

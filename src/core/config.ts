@@ -1,0 +1,212 @@
+// config.toml —— 唯一配置入口（规格 §2.1）。
+// 实现为 TOML 子集解析/序列化：章节 + key=value + 字符串/数字/布尔/字符串数组。
+// 只保证对 omem 自己写出的文件无损往返；遇无法解析的行整体报错（调用方降级提示）。
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { atomicWrite } from './util.js';
+
+export type Profile = 'home' | 'work';
+export type SyncBackendId = 'git' | 'webdav' | 'dir';
+export type Tier = 'rules' | 'agent' | 'api';
+
+export interface OmemConfig {
+  general: { profile: Profile; paused: boolean };
+  collect: { claude_projects: string; exclude_paths: string[]; exclude_keywords: string[] };
+  process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
+  search: { top_k: number };
+  sync: { backend: SyncBackendId; auto_snapshot: boolean; git: { remote: string } };
+  install: { command: string };
+  profile_work: { locked: boolean };
+}
+
+export function defaultConfig(): OmemConfig {
+  return {
+    general: { profile: 'home', paused: false },
+    collect: {
+      claude_projects: '~/.claude/projects',
+      exclude_paths: [],
+      exclude_keywords: [],
+    },
+    process: {
+      default_tier: 'rules',
+      stale_after_days: 180, // 规格 §11 开放问题 7：V0.1 保守值 180 天
+      stale_weight: 0.5, // 规格 §4.2：L2 冷却降权 ×0.5
+      max_content_chars: 2000,
+    },
+    search: { top_k: 3 },
+    sync: { backend: 'git', auto_snapshot: true, git: { remote: '' } },
+    install: { command: 'omem' },
+    profile_work: { locked: false },
+  };
+}
+
+export function configPath(home: string): string {
+  return join(home, 'config.toml');
+}
+
+export function loadConfig(home: string): OmemConfig {
+  const p = configPath(home);
+  if (!existsSync(p)) return defaultConfig();
+  return fromParsed(parseTomlSubset(readFileSync(p, 'utf8')));
+}
+
+export function saveConfig(home: string, c: OmemConfig): void {
+  atomicWrite(configPath(home), serializeConfig(c));
+}
+
+// ── 解析 ──
+
+function stripComment(line: string): string {
+  let inStr: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inStr) {
+      if (ch === inStr) inStr = null;
+    } else if (ch === '"' || ch === "'") {
+      inStr = ch;
+    } else if (ch === '#') {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+export function parseTomlSubset(text: string): Record<string, any> {
+  const root: Record<string, any> = {};
+  let current: Record<string, any> = root;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = stripComment(raw).trim();
+    if (!line) continue;
+    const sec = line.match(/^\[([^\]]+)\]$/);
+    if (sec) {
+      current = root;
+      for (const part of sec[1].split('.').map((s) => s.trim())) {
+        current[part] ??= {};
+        current = current[part];
+      }
+      continue;
+    }
+    const kv = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!kv) throw new Error(`config: 无法解析的行: ${line}`);
+    current[kv[1]] = parseTomlValue(kv[2].trim());
+  }
+  return root;
+}
+
+function parseTomlValue(v: string): any {
+  if (v.startsWith('"') && v.endsWith('"')) return JSON.parse(v);
+  if (v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1);
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  const arr = v.match(/^\[(.*)\]$/);
+  if (arr) {
+    const inner = arr[1].trim();
+    if (!inner) return [];
+    // 按不在引号内的逗号切分
+    const items: string[] = [];
+    let buf = '';
+    let inStr: string | null = null;
+    for (const ch of inner) {
+      if (inStr) {
+        buf += ch;
+        if (ch === inStr) inStr = null;
+      } else if (ch === '"' || ch === "'") {
+        inStr = ch;
+        buf += ch;
+      } else if (ch === ',') {
+        items.push(buf);
+        buf = '';
+      } else {
+        buf += ch;
+      }
+    }
+    if (buf.trim()) items.push(buf);
+    return items.map((s) => parseTomlValue(s.trim()));
+  }
+  return v; // 裸字符串兜底
+}
+
+// ── 解析结果 → 类型化配置（枚举校验，防配置笔误击穿运行时） ──
+
+function fromParsed(p: Record<string, any>): OmemConfig {
+  const d = defaultConfig();
+  // 数字同样要防笔误：越界（含负数/NaN/字符串）一律回退默认，与枚举同等纪律
+  const numIn = (v: any, min: number, max: number, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? v : fallback;
+  const strArr = (v: any): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  const tier = p?.process?.default_tier;
+  const backend = p?.sync?.backend;
+  return {
+    general: {
+      profile: p?.general?.profile === 'work' ? 'work' : 'home',
+      paused: Boolean(p?.general?.paused),
+    },
+    collect: {
+      claude_projects: typeof p?.collect?.claude_projects === 'string' ? p.collect.claude_projects : d.collect.claude_projects,
+      exclude_paths: strArr(p?.collect?.exclude_paths),
+      exclude_keywords: strArr(p?.collect?.exclude_keywords),
+    },
+    process: {
+      default_tier: tier === 'agent' || tier === 'api' ? tier : 'rules',
+      stale_after_days: numIn(p?.process?.stale_after_days, 1, 3650, d.process.stale_after_days),
+      stale_weight: numIn(p?.process?.stale_weight, 0, 1, d.process.stale_weight),
+      max_content_chars: numIn(p?.process?.max_content_chars, 100, 100_000, d.process.max_content_chars),
+    },
+    search: { top_k: numIn(p?.search?.top_k, 1, 50, d.search.top_k) },
+    sync: {
+      backend: backend === 'webdav' || backend === 'dir' ? backend : 'git',
+      auto_snapshot: p?.sync?.auto_snapshot === undefined ? true : Boolean(p.sync.auto_snapshot),
+      git: { remote: typeof p?.sync?.git?.remote === 'string' ? p.sync.git.remote : '' },
+    },
+    install: { command: typeof p?.install?.command === 'string' ? p.install.command : d.install.command },
+    profile_work: { locked: Boolean(p?.profile_work?.locked) },
+  };
+}
+
+// ── 序列化（固定字段序，往返稳定） ──
+
+function tomlStr(s: string): string {
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+function tomlArr(a: string[]): string {
+  return `[${a.map(tomlStr).join(', ')}]`;
+}
+
+export function serializeConfig(c: OmemConfig): string {
+  return [
+    '# omem 配置（由 omem 管理，可手改；未知键被忽略）',
+    '',
+    '[general]',
+    `profile = ${tomlStr(c.general.profile)}`,
+    `paused = ${c.general.paused}`,
+    '',
+    '[collect]',
+    `claude_projects = ${tomlStr(c.collect.claude_projects)}`,
+    `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
+    `exclude_keywords = ${tomlArr(c.collect.exclude_keywords)}`,
+    '',
+    '[process]',
+    `default_tier = ${tomlStr(c.process.default_tier)}`,
+    `stale_after_days = ${c.process.stale_after_days}`,
+    `stale_weight = ${c.process.stale_weight}`,
+    `max_content_chars = ${c.process.max_content_chars}`,
+    '',
+    '[search]',
+    `top_k = ${c.search.top_k}`,
+    '',
+    '[sync]',
+    `backend = ${tomlStr(c.sync.backend)}`,
+    `auto_snapshot = ${c.sync.auto_snapshot}`,
+    '',
+    '[sync.git]',
+    `remote = ${tomlStr(c.sync.git.remote)}`,
+    '',
+    '[install]',
+    `command = ${tomlStr(c.install.command)}`,
+    '',
+    '[profile.work]',
+    `locked = ${c.profile_work.locked}`,
+    '',
+  ].join('\n');
+}
