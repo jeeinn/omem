@@ -6,7 +6,7 @@ import { nowIso, parseSince } from '../core/util.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
-import { scanSessions } from '../collect/collector.js';
+import { scanSessions, type ScanResult } from '../collect/collector.js';
 import { extractFromDigest } from './rules.js';
 import { printGuide } from './guide.js';
 import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
@@ -55,10 +55,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   const since = opts.since ? parseSince(opts.since) : undefined;
   const scan = scanSessions(index, config, { since, sessionId: opts.sessionId });
   report.skipped = scan.skipped;
-  if (!scan.rootExists) {
-    report.notes.push(`未找到 Claude Code 会话目录: ${scan.root}（可用 OMEM_CLAUDE_PROJECTS 指定）`);
-    return report;
-  }
+  if (!noteMissingRoots(report, scan)) return report;
 
   // ── 档 2：Agent 协作（打印引导，不落盘） ──
   if (tier === 'agent') {
@@ -118,10 +115,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   const since = opts.since ? parseSince(opts.since) : undefined;
   const scan = scanSessions(index, config, { since, sessionId: opts.sessionId });
   report.skipped = scan.skipped;
-  if (!scan.rootExists) {
-    report.notes.push(`未找到 Claude Code 会话目录: ${scan.root}`);
-    return report;
-  }
+  if (!noteMissingRoots(report, scan)) return report;
   for (const digest of scan.digests) {
     report.sessions++;
     report.messages += digest.messages.length;
@@ -143,6 +137,22 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   if (!opts.dryRun) generateMemoryIndex(home, index);
   appendLog(home, 'run', { tier: 'api', sessions: report.sessions, written: report.written.length });
   return report;
+}
+
+const ROOT_ENV: Record<string, string> = {
+  'claude-code': 'OMEM_CLAUDE_PROJECTS',
+  workbuddy: 'OMEM_WORKBUDDY_PROJECTS',
+  cursor: 'OMEM_CURSOR_PROJECTS',
+};
+
+/** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */
+function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
+  for (const r of scan.roots) {
+    if (r.exists) continue;
+    const env = ROOT_ENV[r.id] ?? '对应环境变量';
+    report.notes.push(`未找到 ${r.id} 会话目录: ${r.root}（可用 ${env} 指定）`);
+  }
+  return scan.roots.some((r) => r.exists);
 }
 
 /** 单候选走 commitEntry。热层由 run 结束时统一刷新。 */

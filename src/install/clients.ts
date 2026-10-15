@@ -57,7 +57,7 @@ export const CLIENTS: ClientSpec[] = [
     kind: 'json-mcp',
     configPath: (h) => join(h, '.cursor', 'mcp.json'),
     detect: (h) => existsSync(join(h, '.cursor')),
-    verified: false,
+    verified: true, // 本机已核实：~/.cursor/mcp.json
     note: '亦支持项目级 .cursor/mcp.json',
   },
   {

@@ -11,6 +11,7 @@ import { files } from '../../src/core/paths.js';
 import { makeHome, cleanupHome, withConfig } from './helpers.js';
 
 const FIXTURE_ROOT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects');
+const ABSENT = join(FIXTURE_ROOT, 'nonexistent');
 
 let home: string;
 let index: OmemIndex;
@@ -24,9 +25,15 @@ afterEach(() => {
   cleanupHome(home);
 });
 
+function isolateOthers(config: ReturnType<typeof defaultConfig>) {
+  config.collect.workbuddy_projects = ABSENT;
+  config.collect.cursor_projects = ABSENT;
+}
+
 function cfgWithFixture() {
   const config = defaultConfig();
   config.collect.claude_projects = FIXTURE_ROOT;
+  isolateOthers(config);
   saveConfig(home, config);
   return config;
 }
@@ -77,6 +84,7 @@ describe('pipeline: runPipeline（档 0）', () => {
     const config = withConfig(home, (c) => {
       c.general.paused = true;
       c.collect.claude_projects = FIXTURE_ROOT;
+      isolateOthers(c);
     });
     const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(0);
@@ -86,6 +94,7 @@ describe('pipeline: runPipeline（档 0）', () => {
   it('禁区关键词排除', () => {
     const config = withConfig(home, (c) => {
       c.collect.claude_projects = FIXTURE_ROOT;
+      isolateOthers(c);
       c.collect.exclude_keywords = ['踩坑'];
     });
     const report = runPipeline(home, config, index, {});
@@ -96,11 +105,14 @@ describe('pipeline: runPipeline（档 0）', () => {
 
   it('会话目录不存在时给出可操作提示', () => {
     const config = withConfig(home, (c) => {
-      c.collect.claude_projects = join(FIXTURE_ROOT, 'nonexistent');
+      c.collect.claude_projects = ABSENT;
+      isolateOthers(c);
     });
     const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(0);
-    expect(report.notes[0]).toContain('OMEM_CLAUDE_PROJECTS');
+    expect(report.notes.some((n) => n.includes('OMEM_CLAUDE_PROJECTS'))).toBe(true);
+    expect(report.notes.some((n) => n.includes('OMEM_WORKBUDDY_PROJECTS'))).toBe(true);
+    expect(report.notes.some((n) => n.includes('OMEM_CURSOR_PROJECTS'))).toBe(true);
   });
 
   it('MEMORY-INDEX 在 run 后重生成', () => {

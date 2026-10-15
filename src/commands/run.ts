@@ -1,4 +1,4 @@
-// omem run：加工会话（规格 §7；V0.1 只采集 Claude Code）。
+// omem run：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor，都只读。
 // --since 7d|YYYY-MM-DD · --session <id> · --tier rules|agent|api · --dry-run
 import { openCtx } from '../core/ctx.js';
 import { runPipeline, runPipelineAsync } from '../process/pipeline.js';

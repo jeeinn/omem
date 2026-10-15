@@ -1,9 +1,13 @@
-// 采集器测试：Claude Code JSONL 解析、过滤规则、项目指纹（评估 4.5 采集器）。
-import { describe, it, expect } from 'vitest';
+// 采集器测试：Claude Code JSONL 解析、过滤规则、项目指纹，以及三采集器扫描（评估 4.5 采集器）。
+import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseSessionFile, listSessionFiles, resolveProjectFp } from '../../src/collect/claude-code.js';
+import { COLLECTOR_IDS, getCollector, scanSessions } from '../../src/collect/collector.js';
+import { defaultConfig } from '../../src/core/config.js';
+import { OmemIndex } from '../../src/core/index.js';
+import { makeHome, cleanupHome } from './helpers.js';
 
 const FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', '-x-demo-project', 'sess-fixture-1.jsonl');
 
@@ -69,5 +73,52 @@ describe('collector: Claude Code JSONL', () => {
     expect(resolveProjectFp(undefined)).toBe('unknown');
     const fp = resolveProjectFp(tmpdir());
     expect(fp.startsWith('local:')).toBe(true);
+  });
+});
+
+describe('collector: 注册表', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('注册 claude-code / workbuddy / cursor，未知 id 报错', () => {
+    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor']);
+    const config = defaultConfig();
+    expect(getCollector('workbuddy', config).id).toBe('workbuddy');
+    expect(getCollector('cursor', config).id).toBe('cursor');
+    expect(() => getCollector('codex', config)).toThrow(/未知采集器/);
+  });
+
+  it('scanSessions 同时扫到三种会话，缺目录不挡住其余', () => {
+    const home = makeHome();
+    dirs.push(home);
+    const index = new OmemIndex(home);
+    try {
+    const root = join(tmpdir(), 'omem-scan-' + Date.now());
+    dirs.push(root);
+    const claude = join(root, 'claude', 'proj');
+    const workbuddy = join(root, 'wb', 'proj');
+    const cursor = join(root, 'cursor', 'p1', 'agent-transcripts', 'cur-1');
+    mkdirSync(claude, { recursive: true });
+    mkdirSync(workbuddy, { recursive: true });
+    mkdirSync(cursor, { recursive: true });
+    writeFileSync(join(claude, 's1.jsonl'), '{"type":"user","message":{"role":"user","content":"claude 以后都用手写 SQL"},"uuid":"u","timestamp":"2026-10-10T09:00:00Z","sessionId":"s1"}\n');
+    writeFileSync(join(workbuddy, 'wb-1.jsonl'), '{"type":"message","id":"u1","sessionId":"wb-1","timestamp":"2026-10-15T01:00:01.000Z","role":"user","content":[{"type":"input_text","text":"workbuddy 以后都用手写 SQL"}]}\n');
+    writeFileSync(join(cursor, 'cur-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"cursor 以后都用手写 SQL"}]}}\n');
+    const config = defaultConfig();
+    config.collect.claude_projects = join(root, 'claude');
+    config.collect.workbuddy_projects = join(root, 'wb');
+    config.collect.cursor_projects = join(root, 'absent-cursor');
+    let scan = scanSessions(index, config, {});
+    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'workbuddy']);
+    expect(scan.roots.find((r) => r.id === 'cursor')?.exists).toBe(false);
+
+    config.collect.cursor_projects = join(root, 'cursor');
+    scan = scanSessions(index, config, {});
+    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'cursor', 'workbuddy']);
+    } finally {
+      index.close();
+    }
   });
 });

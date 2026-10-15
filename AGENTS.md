@@ -31,7 +31,7 @@ omem 是 git 原生的个人级 AI 记忆层（V0.1，TypeScript，Node ≥ 22.5
 | `src/cli.ts` `src/cli-args.ts` | 命令分发。被 import 时不得自行 `process.exit`（`OMEM_CLI_ENTRY`） |
 | `src/commands/` | 一个命令一个文件，返回退出码 |
 | `src/core/` | 条目、路径、配置、存储、索引、检索、生命周期、档案、脱敏、快照 |
-| `src/collect/` | 会话采集。V0.1 只有 `claude-code` |
+| `src/collect/` | 会话采集。已注册 `claude-code`、`workbuddy`、`cursor`，都只读 |
 | `src/process/` | 加工：`rules`（默认）/ `pipeline` / `guide`（agent）/ `api`（默认关） |
 | `src/mcp/` | stdio MCP server 与工具实现 |
 | `src/install/` | 客户端注册表、配置写入、TOML 子集 |

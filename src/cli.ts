@@ -44,7 +44,7 @@ const COMMANDS: Record<string, Command> = {
     run: cmdInstall,
   },
   run: {
-    desc: '加工会话（V0.1 仅 Claude Code；四档加工）',
+    desc: '加工会话（Claude Code / WorkBuddy / Cursor；四档加工）',
     usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier rules|agent|api] [--dry-run]',
     run: cmdRun,
   },

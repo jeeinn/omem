@@ -11,7 +11,13 @@ export type Tier = 'rules' | 'agent' | 'api';
 
 export interface OmemConfig {
   general: { profile: Profile; paused: boolean };
-  collect: { claude_projects: string; exclude_paths: string[]; exclude_keywords: string[] };
+  collect: {
+    claude_projects: string;
+    workbuddy_projects: string;
+    cursor_projects: string;
+    exclude_paths: string[];
+    exclude_keywords: string[];
+  };
   process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
   search: { top_k: number };
   sync: { backend: SyncBackendId; auto_snapshot: boolean; git: { remote: string } };
@@ -24,6 +30,8 @@ export function defaultConfig(): OmemConfig {
     general: { profile: 'home', paused: false },
     collect: {
       claude_projects: '~/.claude/projects',
+      workbuddy_projects: '~/.workbuddy/projects',
+      cursor_projects: '~/.cursor/projects',
       exclude_paths: [],
       exclude_keywords: [],
     },
@@ -144,6 +152,8 @@ function fromParsed(p: Record<string, any>): OmemConfig {
     },
     collect: {
       claude_projects: typeof p?.collect?.claude_projects === 'string' ? p.collect.claude_projects : d.collect.claude_projects,
+      workbuddy_projects: typeof p?.collect?.workbuddy_projects === 'string' ? p.collect.workbuddy_projects : d.collect.workbuddy_projects,
+      cursor_projects: typeof p?.collect?.cursor_projects === 'string' ? p.collect.cursor_projects : d.collect.cursor_projects,
       exclude_paths: strArr(p?.collect?.exclude_paths),
       exclude_keywords: strArr(p?.collect?.exclude_keywords),
     },
@@ -183,6 +193,8 @@ export function serializeConfig(c: OmemConfig): string {
     '',
     '[collect]',
     `claude_projects = ${tomlStr(c.collect.claude_projects)}`,
+    `workbuddy_projects = ${tomlStr(c.collect.workbuddy_projects)}`,
+    `cursor_projects = ${tomlStr(c.collect.cursor_projects)}`,
     `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
     `exclude_keywords = ${tomlArr(c.collect.exclude_keywords)}`,
     '',

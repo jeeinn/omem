@@ -7,6 +7,9 @@ OMEM=(node "$ROOT/bin/omem.js")
 export OMEM_HOME="$ROOT/.omem-test/home"
 export OMEM_CLAUDE_PROJECTS="$ROOT/tests/fixtures/claude-projects"
 rm -rf "$ROOT/.omem-test"
+mkdir -p "$ROOT/.omem-test/empty-projects"
+export OMEM_WORKBUDDY_PROJECTS="$ROOT/.omem-test/empty-projects"
+export OMEM_CURSOR_PROJECTS="$ROOT/.omem-test/empty-projects"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }

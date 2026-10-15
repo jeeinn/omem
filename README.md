@@ -59,7 +59,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | --- | --- |
 | `omem init` | 建数据仓骨架（`~/.omem`） |
 | `omem install --target <name>` | 写入客户端 MCP 配置（六条写入纪律） |
-| `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code 会话并加工记忆 |
+| `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code、WorkBuddy、Cursor 会话并加工记忆 |
 | `omem add <内容>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <词> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
 | `omem review [--confirm <id>]` | 审阅/确认候选 |

@@ -1,7 +1,7 @@
 // WorkBuddy 会话只读解析。
 // 目录形态与 Claude Code 相同（projects/<encoded-cwd>/<session>.jsonl），行格式不同：
 // type=message，role 在顶层，正文是 input_text / output_text。
-// 默认 `omem run` 仍只扫 Claude Code。本解析器供测试与显式副本验证使用，避免把本机会话扫进记忆库。
+// 已注册进采集器。`omem run` 只读扫描，不改会话文件。
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { resolveProjectFp } from './claude-code.js';
