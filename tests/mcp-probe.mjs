@@ -2,6 +2,8 @@
 // 不依赖 MCP SDK——直接走 stdio JSON-RPC，顺带验证 stdout 无日志污染（协议纪律）。
 // 用法: node tests/mcp-probe.mjs <bin/omem.js 路径>
 import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const bin = process.argv[2];
 if (!bin) {
@@ -84,11 +86,35 @@ try {
   const sv2 = await waitFor(5);
   results.push(['save_memory 重复内容幂等去重', (sv2.result?.content?.[0]?.text ?? '').includes('未重复写入')]);
 
+  const home = process.env.OMEM_HOME;
+  if (home && existsSync(join(home, 'knowledge'))) {
+    const md = walkMd(join(home, 'knowledge'));
+    if (md.length > 0) {
+      appendFileSync(md[0], '\n外部编辑探针 catchup-probe-marker-77\n');
+      send({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'search_memory', arguments: { query: 'catchup-probe-marker-77' } } });
+      const edited = await waitFor(6);
+      const editedText = edited.result?.content?.[0]?.text ?? '';
+      results.push(['不重连即可看到外部编辑', editedText.includes('catchup-probe-marker-77')]);
+    } else {
+      results.push(['不重连即可看到外部编辑（知识库为空）', false]);
+    }
+  }
+
   results.push(['stdout 无日志污染（纯协议）', stdoutClean]);
 } catch (e) {
   results.push([`probe 异常: ${e.message}`, false]);
 } finally {
   child.kill();
+}
+
+function walkMd(dir, acc = []) {
+  if (!existsSync(dir)) return acc;
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) walkMd(path, acc);
+    else if (name.endsWith('.md') && !name.endsWith('.conflict.md')) acc.push(path);
+  }
+  return acc;
 }
 
 let ok = true;

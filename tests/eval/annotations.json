@@ -1,0 +1,20 @@
+{
+  "kind": "synthetic",
+  "note": "合成 fixture，只验证度量管道。子串包含匹配是弱代理，不是 Q1。短摘录容易算命中，跨度也可能错位。真实会话另行标注，数字不进这份基线。",
+  "sessions": [
+    {
+      "session": "synthetic-sess-fixture-1.jsonl",
+      "extract": [
+        "这个项目以后都用手写 SQL，不要用 ORM",
+        "我决定把数据库连接池改成 20，因为默认 10 在高并发下会超时，所以调大",
+        "以后必须在提交前运行全部测试",
+        "注意我的 API key 是 sk-ant-abc123def456ghi789jkl012mno345pqr678 别提交到 git",
+        "踩坑记录：部署时 docker 镜像构建失败，原因是基础镜像拉取超时，改用国内镜像源解决"
+      ],
+      "reject": [
+        "sidechain-marker-xyz",
+        "好的，以后手写 SQL。"
+      ]
+    }
+  ]
+}

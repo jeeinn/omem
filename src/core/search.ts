@@ -1,7 +1,8 @@
 // 检索引擎（规格 §8；spike 结论 2026-10-15）：
 // - 查询各词 ≥3 字符 → FTS5 trigram MATCH，多词加引号得 AND 语义（子串/短语匹配）
 // - 存在 <3 字符的词（如 2 字中文关键词）→ LIKE 兜底（trigram 对短词无效）
-// - stale 条目按 stale_weight 降权（规格 §4.2 L2 冷却 ×0.5）， archived 默认排除（--all 才含）
+// - stale 条目按 stale_weight 降权（规格 §4.2 L2 冷却 ×0.5）
+// - archived 与 superseded 默认排除（--all 才含）
 import type { OmemIndex, EntryRow } from './index.js';
 
 export interface SearchQuery {
@@ -32,7 +33,7 @@ export function searchEntries(index: OmemIndex, q: SearchQuery): EntryRow[] {
 
   // 过滤条件按 SQL 占位符顺序收集参数
   const buildFilters = (): { sql: string; params: any[] } => {
-    let sql = q.all ? '1=1' : "e.status != 'archived'";
+    let sql = q.all ? '1=1' : "e.status NOT IN ('archived', 'superseded')";
     const params: any[] = [];
     if (q.domain) {
       sql += ' AND e.domain = ?';

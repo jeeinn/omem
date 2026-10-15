@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omem V0.1 端到端冒烟（对应实施计划 §6.1 冒烟清单 S1–S14）。
+# omem V0.1 端到端冒烟（对应实施计划 §6.1 的 S1–S14，另加 S15 supersede）。
 # 全程使用隔离的 OMEM_HOME 与合成 fixture，不触碰真实 ~/.omem。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -117,6 +117,28 @@ ls "$OMEM_HOME/snapshots" 2>/dev/null | grep -q "$(date +%Y-%m-%d)" && ok "当�
 echo "== S14 MCP 探针（握手 + 工具调用） =="
 OUT=$(node "$ROOT/tests/mcp-probe.mjs" "$ROOT/bin/omem.js"); CODE=$?
 [ $CODE -eq 0 ] && ok "MCP 握手与工具调用全部通过" || { bad "MCP 探针失败"; echo "$OUT" | sed 's/^/    /'; }
+
+echo "== S15 supersede 显式入口 =="
+OUT=$(run add "S15旧约定使用本地磁盘保存日志 s15-old-marker")
+OLD=$(printf '%s\n' "$OUT" | sed -n 's/^已保存 id: //p' | head -1)
+[ -n "$OLD" ] && ok "旧条目 id=$OLD" || bad "未解析旧 id: $OUT"
+OUT=$(run add "S15新约定日志改走标准输出 s15-new-marker" --supersedes "$OLD")
+echo "$OUT" | grep -q "已取代" && ok "add --supersedes 声明取代" || bad "未声明取代: $OUT"
+OUT=$(run search "s15-old-marker")
+echo "$OUT" | grep -q "未找到" && ok "默认检索排除 superseded" || bad "默认检索仍返回旧条目: $OUT"
+OUT=$(run search "s15-old-marker" --all)
+echo "$OUT" | grep -q "s15-old-marker" && ok "--all 带回 superseded" || bad "--all 未带回: $OUT"
+OUT=$(run search "s15-new-marker")
+echo "$OUT" | grep -q "s15-new-marker" && ok "新条目仍可检索" || bad "新条目未命中: $OUT"
+REV=$(run review)
+CAND=$(printf '%s\n' "$REV" | sed -n 's/^- `\([^`]*\)`.*/\1/p' | head -1)
+if [ -n "$CAND" ]; then
+  OUT=$(run review --confirm "$CAND" --supersedes "$OLD")
+  echo "$OUT" | grep -q "已确认" && ok "review --confirm --supersedes 确认" || bad "review 未确认: $OUT"
+  echo "$OUT" | grep -q "已取代" && ok "review 声明取代" || bad "review 未取代: $OUT"
+else
+  bad "review 队列为空，无法验证 --supersedes"
+fi
 
 echo ""
 echo "═══════════════════════════════════════"

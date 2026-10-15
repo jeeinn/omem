@@ -26,11 +26,11 @@ export async function cmdSearch(args: ParsedArgs): Promise<number> {
 
   if (hits.length === 0) {
     console.log(`未找到与「${query}」相关的记忆。`);
-    console.log('提示：中文关键词建议 ≥3 字符（FTS5 trigram 限制，短词已自动走 LIKE 兜底）；可加 --all 含归档。');
+    console.log('提示：中文关键词建议 ≥3 字符（FTS5 trigram 限制，短词已自动走 LIKE 兜底）；可加 --all 含归档与已取代。');
     return 0;
   }
 
-  console.log(`找到 ${hits.length} 条${all ? '（含归档）' : ''}：\n`);
+  console.log(`找到 ${hits.length} 条${all ? '（含归档与已取代）' : ''}：\n`);
   hits.forEach((row, i) => {
     console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
     console.log(`   #${row.type} #${row.domain} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);

@@ -4,16 +4,12 @@
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import type { MemoryType } from '../core/entry.js';
-import { newFrontmatter } from '../core/entry.js';
-import { writeEntry } from '../core/store.js';
 import { readEntryFile } from '../core/store.js';
-import { contentHash, newId, nowIso, truncate } from '../core/util.js';
-import { redactSecrets } from '../core/redact.js';
-import { currentProfile } from '../core/profile.js';
+import { truncate } from '../core/util.js';
 import { searchEntries } from '../core/search.js';
-import { formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
+import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
-import { inferDomain } from '../process/rules.js';
+import { commitEntry } from '../core/commit.js';
 import type { EntryRow } from '../core/index.js';
 
 export interface ToolCtx {
@@ -61,6 +57,11 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           domain: { type: 'string', description: '如 coding / general' },
           tags: { type: 'array', items: { type: 'string' } },
           project: { type: 'string', description: '项目指纹（可选）' },
+          supersedes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '仅在明确取代某条旧记忆时传旧条目 id；会把旧条目标成 superseded',
+          },
         },
         required: ['content'],
       },
@@ -144,43 +145,40 @@ async function toolSearch(args: Record<string, any>, ctx: ToolCtx): Promise<stri
   return lines.join('\n');
 }
 
+function idList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+  if (typeof v === 'string') return v.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+}
+
 function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
   let content = String(args.content ?? '').trim();
   if (!content) throw new Error('content 不能为空');
   if ([...content].length > ctx.config.process.max_content_chars) {
     content = content.slice(0, ctx.config.process.max_content_chars) + '…';
   }
-  const { text, hits } = redactSecrets(content);
-  if (hits > 0) appendLog(ctx.home, 'mcp.save.redacted', { hits });
-  const hash = contentHash(text);
-  const dup = ctx.index.getByBodyHash(hash);
-  if (dup) {
-    appendLog(ctx.home, 'mcp.save', { dedup: true, id: dup.id });
-    return `内容已存在（id: ${dup.id}），未重复写入。`;
-  }
   const type = (['preference', 'fact', 'decision', 'experience'] as MemoryType[]).includes(args.type)
     ? (args.type as MemoryType)
     : 'fact';
-  const entry = {
-    fm: newFrontmatter({
-      id: newId(text),
-      type,
-      domain: typeof args.domain === 'string' && args.domain ? args.domain : inferDomain(text),
-      profile: currentProfile(ctx.config),
-      status: 'active' as const,
-      confidence: 0.6, // Agent 主动保存：高于规则候选，低于人工确认
-      verified: false,
-      source: 'agent' as const,
-      project: typeof args.project === 'string' && args.project ? args.project : undefined,
-      tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
-    }),
-    body: text,
-  };
-  const { path, content: fileContent } = writeEntry(ctx.home, entry);
-  ctx.index.upsert(entry, path, fileContent);
-  generateMemoryIndex(ctx.home, ctx.index);
-  appendLog(ctx.home, 'mcp.save', { id: entry.fm.id, domain: entry.fm.domain, type });
-  return `已保存（id: ${entry.fm.id}，${entry.fm.domain}/${entry.fm.type}）。未验证条目，待 omem review 确认。`;
+  const supersedes = idList(args.supersedes);
+  const result = commitEntry(ctx.home, ctx.config, ctx.index, {
+    content,
+    type,
+    domain: typeof args.domain === 'string' && args.domain ? args.domain : undefined,
+    project: typeof args.project === 'string' && args.project ? args.project : undefined,
+    tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
+    source: 'agent',
+    confidence: 0.6,
+    verified: false,
+    supersedes,
+  });
+  if (result.status === 'deduped') return `内容已存在（id: ${result.id}），未重复写入。`;
+  if (result.status === 'excluded' || result.status === 'redacted-empty') return `未写入：${result.reason}`;
+  const saved = result.path ? readEntryFile(result.path) : null;
+  const domain = saved?.fm.domain ?? 'general';
+  const savedType = saved?.fm.type ?? type;
+  const replaced = supersedes.length > 0 ? ` 已取代: ${supersedes.join(', ')}。` : '';
+  return `已保存（id: ${result.id}，${domain}/${savedType}）。未验证条目，待 omem review 确认。${replaced}`;
 }
 
 function toolFeedback(args: Record<string, any>, ctx: ToolCtx): string {

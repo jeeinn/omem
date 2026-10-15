@@ -32,7 +32,7 @@ omem init
 
 ```bash
 # 1. 接一个 AI 客户端（自动检测 + 写入 MCP 配置，只 merge 不覆盖，先备份）
-omem install --client claude-code     # 也支持 workbuddy / cursor / codex / zed ...
+omem install --target claude-code    # 也支持 workbuddy / cursor / codex / zed ...
 
 # 2. 从历史会话加工候选记忆（档 0：规则抽取，零配置）
 omem run --since 30d
@@ -58,12 +58,12 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | 命令 | 作用 |
 | --- | --- |
 | `omem init` | 建数据仓骨架（`~/.omem`） |
-| `omem install --client <name>` | 写入客户端 MCP 配置（六条写入纪律） |
+| `omem install --target <name>` | 写入客户端 MCP 配置（六条写入纪律） |
 | `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code 会话并加工记忆 |
 | `omem add <内容>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <词> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
 | `omem review [--confirm <id>]` | 审阅/确认候选 |
-| `omem gc [--apply]` | 标记 stale（只标记，永不自动删除） |
+| `omem gc [--days N]` | 标记 stale（直接标记，只标记不删除） |
 | `omem rebuild` | 从 Markdown 全量重建索引（删 db 也能恢复） |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 导出记忆为客户端上下文 |
 | `omem sync [status\|remote <url>\|pull\|push\|use <backend>]` | git 同步（V0.1 唯一后端） |

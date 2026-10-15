@@ -11,6 +11,15 @@ import { buildTools, handleTool } from './tools.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 
+/** 工具调用前对账。长驻 server 不重连也能吸收会话中途的外部编辑。 */
+export function prepareToolCall(home: string, index: OmemIndex): void {
+  const catchUp = index.catchUp();
+  if (catchUp.reindexed > 0 || catchUp.removed > 0) {
+    generateMemoryIndex(home, index);
+    console.error(`[omem] tool-call catch-up: 扫描 ${catchUp.scanned}，重索引 ${catchUp.reindexed}，移除 ${catchUp.removed}`);
+  }
+}
+
 export async function startMcpServer(home: string): Promise<void> {
   const config = loadConfig(home);
   const index = new OmemIndex(home);
@@ -29,6 +38,7 @@ export async function startMcpServer(home: string): Promise<void> {
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: buildTools() }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    prepareToolCall(home, index);
     const { name, arguments: args } = request.params;
     return handleTool(name, (args ?? {}) as Record<string, any>, { home, config, index });
   });

@@ -1,22 +1,61 @@
 // omem review：待确认队列（规格 §7）。默认列出 unverified 候选 + stale 提示。
-// --confirm <id> 确认刷新 · --dismiss <id> 归档（可逆）· --stale <id> 手动冷却
+// --confirm <id> 确认刷新 · --confirm <id> --supersedes <old> 确认并取代
+// --dismiss <id> 归档（可逆）· --stale <id> 手动冷却
 import { openCtx } from '../core/ctx.js';
-import { listEntries, moveToArchive, updateEntry } from '../core/store.js';
-import { reconfirm, formatStaleness } from '../core/lifecycle.js';
+import { findById, listEntries, moveToArchive, updateEntry } from '../core/store.js';
+import { applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
 import { deriveTitle, serializeEntry } from '../core/entry.js';
 import { truncate, UsageError } from '../core/util.js';
 import { flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 
+function idList(raw: string | undefined): string[] {
+  return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 export async function cmdReview(args: ParsedArgs): Promise<number> {
-  const { home, config, index } = openCtx();
+  const ctx = openCtx();
+  const { home, config, index } = ctx;
+  try {
+    return await reviewBody(args, home, config, index);
+  } finally {
+    index.close();
+  }
+}
+
+async function reviewBody(
+  args: ParsedArgs,
+  home: string,
+  config: ReturnType<typeof openCtx>['config'],
+  index: ReturnType<typeof openCtx>['index'],
+): Promise<number> {
   const confirmId = flagStr(args.flags, 'confirm');
   const dismissId = flagStr(args.flags, 'dismiss');
   const staleId = flagStr(args.flags, 'stale');
+  const supersedes = idList(flagStr(args.flags, 'supersedes'));
+  if (supersedes.length > 0 && !confirmId) {
+    throw new UsageError('用法: omem review --confirm <id> --supersedes <old-id>');
+  }
 
   if (confirmId) {
+    if (supersedes.length > 0) {
+      const missing = supersedes.filter((id) => !findById(home, id, { includeArchived: true }));
+      if (missing.length > 0) throw new UsageError(`未找到旧条目: ${missing.join(', ')}`);
+    }
     const loc = reconfirm(home, index, confirmId);
     if (!loc) throw new UsageError(`未找到条目: ${confirmId}`);
+    if (supersedes.length > 0) {
+      const updated = updateEntry(home, confirmId, (fm) => {
+        fm.supersedes = supersedes;
+      });
+      if (!updated) throw new UsageError(`未找到条目: ${confirmId}`);
+      index.upsert(updated.entry, updated.path, serializeEntry(updated.entry));
+      const n = applySupersedes(home, index, updated);
+      generateMemoryIndex(home, index);
+      console.log(`已确认: ${confirmId}（verified=true，confirmations=${updated.entry.fm.confirmations}）`);
+      console.log(`已取代 ${n} 条: ${supersedes.join(', ')}`);
+      return 0;
+    }
     console.log(`已确认: ${confirmId}（verified=true，confirmations=${loc.entry.fm.confirmations}）`);
     return 0;
   }
@@ -63,6 +102,6 @@ export async function cmdReview(args: ParsedArgs): Promise<number> {
     if (stale.length > 20) console.log(`  …另有 ${stale.length - 20} 条`);
     console.log('');
   }
-  console.log('操作：omem review --confirm <id> | --dismiss <id>（归档）| --stale <id>');
+  console.log('操作：omem review --confirm <id> [--supersedes <old-id>] | --dismiss <id>（归档）| --stale <id>');
   return 0;
 }

@@ -1,9 +1,10 @@
 // MCP 工具面测试（规格 §8）：search/save/feedback、幂等去重、env 门控、返回格式。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { buildTools, handleTool } from '../../src/mcp/tools.js';
+import { prepareToolCall } from '../../src/mcp/server.js';
 import { writeEntry, readEntryFile } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import { defaultConfig } from '../../src/core/config.js';
@@ -134,6 +135,21 @@ describe('mcp: handleTool', () => {
   it('memory_feedback 未知 id 报错', async () => {
     const r = await handleTool('memory_feedback', { id: 'nope', helpful: true }, ctx);
     expect(r.isError).toBe(true);
+  });
+
+  it('save_memory.supersedes 出现在 schema', () => {
+    const save = buildTools({}).find((t) => t.name === 'save_memory')!;
+    const props = (save.inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props.supersedes).toBeTruthy();
+  });
+
+  it('工具调用前 catch-up 能看到外部编辑', async () => {
+    await handleTool('save_memory', { content: '外部编辑前的正文 catchup-base' }, ctx);
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    appendFileSync(row.path, '\n外部追加 catchup-probe-marker-77\n');
+    prepareToolCall(home, index);
+    const r = await handleTool('search_memory', { query: 'catchup-probe-marker-77' }, ctx);
+    expect(textOf(r)).toContain('catchup-probe-marker-77');
   });
 
   it('未知工具报错', async () => {

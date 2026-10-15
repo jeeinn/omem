@@ -2,20 +2,15 @@
 // 顺序：抽取（档 0/2/3）→ 脱敏 → 禁区过滤 → profile 过滤（work 排除代码类）→ content-hash 去重 → 落盘 + 索引。
 import type { OmemConfig, Tier } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
-import type { Entry } from '../core/entry.js';
-import { newFrontmatter } from '../core/entry.js';
-import { writeEntry } from '../core/store.js';
-import { contentHash, nowIso, newId, parseSince } from '../core/util.js';
-import { redactSecrets } from '../core/redact.js';
-import { currentProfile, isCodeHeavy } from '../core/profile.js';
-import { generateMemoryIndex, applySupersedes } from '../core/lifecycle.js';
+import { nowIso, parseSince } from '../core/util.js';
+import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
+import { commitEntry } from '../core/commit.js';
 import { scanSessions } from '../collect/collector.js';
 import { extractFromDigest } from './rules.js';
 import { printGuide } from './guide.js';
 import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
 import type { Candidate } from './rules.js';
-import type { SessionDigest } from '../collect/types.js';
 
 export interface RunOpts {
   since?: string; // '7d' | 'YYYY-MM-DD'
@@ -80,8 +75,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
     const candidates = extractFromDigest(digest);
     report.candidates += candidates.length;
     for (const c of candidates) {
-      const outcome = commitCandidate(home, config, index, c, digest, opts.dryRun ?? false, report);
-      if (outcome) report.written.push(outcome);
+      commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
     }
     if (!opts.dryRun) {
       index.putSession({
@@ -134,8 +128,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     const candidates = await extractWithApi(digest);
     report.candidates += candidates.length;
     for (const c of candidates) {
-      const outcome = commitCandidate(home, config, index, c, digest, opts.dryRun ?? false, report);
-      if (outcome) report.written.push(outcome);
+      commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
     }
     if (!opts.dryRun) {
       index.putSession({
@@ -152,70 +145,28 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   return report;
 }
 
-/** 单候选 → 条目：脱敏 / 过滤 / 去重 / 落盘。返回新条目 id 或 null（跳过）。 */
+/** 单候选走 commitEntry。热层由 run 结束时统一刷新。 */
 function commitCandidate(
   home: string,
   config: OmemConfig,
   index: OmemIndex,
   c: Candidate,
-  digest: SessionDigest,
   dryRun: boolean,
   report: RunReport,
-): string | null {
-  // 1. 脱敏
-  const { text, hits } = redactSecrets(c.content);
-  if (hits > 0) {
-    report.redacted++;
-    if (!text.replace(/[*REDACTED*]/g, '').trim()) {
-      report.excluded++;
-      return null; // 整条都是密钥，丢弃
-    }
-  }
-
-  // 2. 禁区关键词
-  for (const kw of config.collect.exclude_keywords) {
-    if (kw && text.includes(kw)) {
-      report.excluded++;
-      return null;
-    }
-  }
-
-  // 3. work profile 排除代码类条目
-  const profile = currentProfile(config);
-  if (profile === 'work' && isCodeHeavy(text)) {
-    report.excluded++;
-    return null;
-  }
-
-  // 4. content-hash 去重（双通道/重复加工的保证）
-  const hash = contentHash(text);
-  if (index.getByBodyHash(hash)) {
-    report.deduped++;
-    return null;
-  }
-
-  if (dryRun) return null;
-
-  // 5. 落盘 + 索引
-  const entry: Entry = {
-    fm: newFrontmatter({
-      id: newId(text + digest.session_id),
-      type: c.type,
-      domain: c.domain,
-      profile,
-      status: 'active',
-      confidence: c.confidence,
-      verified: false, // 自动加工产物恒为未验证（规格 §2.2）
-      source: c.source,
-      session_id: c.session_id,
-      project: c.project_fp,
-      tags: c.tags,
-    }),
-    body: text,
-  };
-  const { path, content } = writeEntry(home, entry);
-  const located = { entry, path, location: 'knowledge' as const };
-  index.upsert(entry, path, content);
-  applySupersedes(home, index, located);
-  return entry.fm.id;
+): void {
+  const result = commitEntry(home, config, index, {
+    content: c.content,
+    type: c.type,
+    domain: c.domain,
+    tags: c.tags,
+    project: c.project_fp,
+    session_id: c.session_id,
+    source: c.source,
+    confidence: c.confidence,
+    verified: false,
+  }, { dryRun, refreshIndex: false });
+  if ((result.redacted ?? 0) > 0) report.redacted++;
+  if (result.status === 'excluded' || result.status === 'redacted-empty') report.excluded++;
+  if (result.status === 'deduped') report.deduped++;
+  if (result.status === 'written' && result.id) report.written.push(result.id);
 }

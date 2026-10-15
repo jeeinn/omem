@@ -21,6 +21,7 @@ import { cmdRedact } from './commands/redact.js';
 import { cmdSnapshot } from './commands/snapshot.js';
 import { cmdServe } from './commands/serve.js';
 import { cmdAudit } from './commands/audit.js';
+import { cmdEval } from './commands/eval.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version: string };
@@ -49,7 +50,7 @@ const COMMANDS: Record<string, Command> = {
   },
   add: {
     desc: '手动写入一条记忆（verified）',
-    usage: 'omem add <内容> [--type X] [--domain Y] [--tags a,b] [--project fp]',
+    usage: 'omem add <内容> [--type X] [--domain Y] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]',
     run: cmdAdd,
   },
   search: {
@@ -59,7 +60,7 @@ const COMMANDS: Record<string, Command> = {
   },
   review: {
     desc: '待确认队列（unverified 候选 + stale 提示）',
-    usage: 'omem review [--confirm <id>] [--dismiss <id>] [--stale <id>]',
+    usage: 'omem review [--confirm <id> [--supersedes <old-id>]] [--dismiss <id>] [--stale <id>]',
     run: cmdReview,
   },
   gc: {
@@ -116,6 +117,11 @@ const COMMANDS: Record<string, Command> = {
     desc: '使用日志（调用率可观测）',
     usage: 'omem audit [--tail N]',
     run: cmdAudit,
+  },
+  eval: {
+    desc: '抽取评估：子串召回基线（弱代理）与人工标注导出',
+    usage: 'omem eval recall [--golden <dir>] [--write-baseline] [--min-recall <n>] | omem eval sample [--n 20] [--out <file>]',
+    run: cmdEval,
   },
 };
 
