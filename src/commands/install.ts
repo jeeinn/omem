@@ -1,11 +1,11 @@
 // omem install：自动检测并接线本机 Agent（规格 §6；对齐 codegraph 的自动接线）。
 // --list 列出支持的客户端 · --print-config <id> 只打印配置片段 · --target a,b 指定目标
 // --command <cmd> 自定义 MCP 启动命令（默认 omem）
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CLIENTS, getClient } from '../install/clients.js';
-import { writeClientConfig, writeMarkerSection } from '../install/writer.js';
+import { writeClientConfig, writeMarkerSection, renderClientConfig } from '../install/writer.js';
 import { loadConfig } from '../core/config.js';
 import { omemHome } from '../core/paths.js';
 import { UsageError } from '../core/util.js';
@@ -29,16 +29,22 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     return 0;
   }
 
+  // --print-config：只读预览将写入的配置（纯内存渲染，不落盘、不备份）
   const printId = flagStr(args.flags, 'print-config');
   if (printId) {
     const spec = getClient(printId);
-    const out = writeClientConfig(spec, command);
-    if (out.ok) {
-      // 刚写入的文件内容即配置片段；直接读回展示
-      const { readFileSync } = await import('node:fs');
-      console.log(readFileSync(out.path, 'utf8'));
-    } else if (out.manual) {
-      console.log(out.manual);
+    const path = spec.configPath(homedir());
+    const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
+    const rendered = renderClientConfig(spec, command, raw);
+    console.log(`# 目标文件: ${path}${raw === null ? '（不存在，安装时将新建）' : ''}`);
+    if (rendered.text !== undefined) {
+      console.log(rendered.text);
+    } else {
+      console.log(`# 无法自动生成：${rendered.reason}`);
+      if (rendered.manual) {
+        console.log('# 请手工添加以下片段：');
+        console.log(rendered.manual);
+      }
     }
     return 0;
   }

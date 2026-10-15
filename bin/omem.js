@@ -12,6 +12,7 @@ const main = join(here, '..', 'dist', 'cli.js');
 if (!process.execArgv.includes('--experimental-sqlite')) {
   const res = spawnSync(process.execPath, ['--experimental-sqlite', main, ...process.argv.slice(2)], {
     stdio: 'inherit',
+    env: { ...process.env, OMEM_CLI_ENTRY: '1' },
   });
   if (res.error) {
     console.error(`omem: 启动失败: ${res.error.message}`);
@@ -21,4 +22,5 @@ if (!process.execArgv.includes('--experimental-sqlite')) {
 }
 
 // 动态 import 必须走 file:// URL——Windows 绝对路径（X:\...）会被 ESM 当作 URL 协议解析而崩溃
+process.env.OMEM_CLI_ENTRY = '1';
 await import(pathToFileURL(main).href);

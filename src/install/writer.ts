@@ -20,6 +20,12 @@ export interface WriteOutcome {
   manual?: string; // 降级时给用户的手工片段
 }
 
+export interface RenderOutcome {
+  text?: string; // 写入后的完整文件内容（纯内存生成，无副作用）
+  manual?: string; // 降级：手工片段
+  reason?: string;
+}
+
 export function omemEntry(command: string): { command: string; args: string[] } {
   return { command, args: ['serve'] };
 }
@@ -68,64 +74,63 @@ function mergeInto(obj: any, spec: ClientSpec, command: string): void {
   }
 }
 
-export function writeClientConfig(spec: ClientSpec, command: string): WriteOutcome {
-  const path = spec.configPath(homedir());
-  const outcome: WriteOutcome = { ok: false, client: spec.id, path };
+/**
+ * 纯函数：生成"写入 omem 条目后"的完整文件内容（raw = 原文件内容，null = 文件不存在）。
+ * writeClientConfig 与 install --print-config 共用；后者只读不写。
+ */
+export function renderClientConfig(spec: ClientSpec, command: string, raw: string | null): RenderOutcome {
   const entry = omemEntry(command);
   const manual =
     spec.kind === 'toml-mcp'
       ? `[mcp_servers.omem]\ncommand = "${entry.command}"\nargs = ["serve"]`
       : JSON.stringify({ [spec.kind === 'json-zed' ? 'context_servers' : 'mcpServers']: { omem: entry } }, null, 2);
 
-  if (!existsSync(path)) {
-    // 新文件：按客户端形态写最小配置
+  if (raw === null) {
+    // 新文件：按客户端形态生成最小配置
     const fresh: any = spec.kind === 'json-array-mcp' ? { mcpServers: [] } : {};
     mergeInto(fresh, spec, command);
-    const text = spec.kind === 'toml-mcp' ? serializeOmemToml(fresh) : JSON.stringify(fresh, null, 2) + '\n';
-    mkdirSync(dirname(path), { recursive: true });
-    atomicWrite(path, text);
-    outcome.ok = true;
-    return outcome;
+    return { text: spec.kind === 'toml-mcp' ? serializeOmemToml(fresh) : JSON.stringify(fresh, null, 2) + '\n' };
   }
-
-  const raw = readFileSync(path, 'utf8');
 
   if (spec.kind === 'toml-mcp') {
     let parsed: any;
     try {
       parsed = parseTomlSubset(raw);
     } catch (e: any) {
-      outcome.reason = `TOML 解析失败: ${e.message}`;
-      outcome.manual = manual;
-      return outcome;
+      return { reason: `TOML 解析失败: ${e.message}`, manual };
     }
-    // 备份 + merge + 原子写
-    const backup = backupFile(path);
     mergeInto(parsed, spec, command);
-    atomicWrite(path, serializeOmemToml(parsed));
-    outcome.ok = true;
-    outcome.backup = backup;
-    return outcome;
+    return { text: serializeOmemToml(parsed) };
   }
 
   const parsed = parseJsonc(raw);
   if (!parsed.ok) {
-    // 纪律 5：解析失败 → 降级，不报错退出
-    outcome.reason = `解析失败（可能是 JSON5/JSONC 变体）: ${parsed.error}`;
-    outcome.manual = manual;
-    return outcome;
+    // 纪律 5：解析失败 → 降级，给手工片段
+    return { reason: `解析失败（可能是 JSON5/JSONC 变体）: ${parsed.error}`, manual };
   }
-  const backup = backupFile(path);
   try {
     mergeInto(parsed.value, spec, command);
   } catch (e: any) {
-    outcome.reason = e.message;
-    outcome.manual = manual;
+    return { reason: e.message, manual };
+  }
+  return { text: JSON.stringify(parsed.value, null, 2) + '\n' };
+}
+
+export function writeClientConfig(spec: ClientSpec, command: string): WriteOutcome {
+  const path = spec.configPath(homedir());
+  const outcome: WriteOutcome = { ok: false, client: spec.id, path };
+  const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
+
+  const rendered = renderClientConfig(spec, command, raw);
+  if (rendered.text === undefined) {
+    outcome.reason = rendered.reason;
+    outcome.manual = rendered.manual;
     return outcome;
   }
-  atomicWrite(path, JSON.stringify(parsed.value, null, 2) + '\n');
+  // 备份 + 原子写（新文件无备份）
+  if (raw !== null) outcome.backup = backupFile(path);
+  atomicWrite(path, rendered.text);
   outcome.ok = true;
-  outcome.backup = backup;
   return outcome;
 }
 

@@ -1,7 +1,7 @@
 // omem CLI 入口：命令分发、帮助、退出码（规格 §7：0 成功 / 1 用法错误 / 2 后端不可用或策略拒绝）。
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from './cli-args.js';
 import type { ParsedArgs } from './cli-args.js';
 import { UsageError, BackendUnavailableError, ProfileBlockedError } from './core/util.js';
@@ -134,11 +134,24 @@ export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const cmd = args._[0];
 
-  if (!cmd || cmd === 'help') {
+  if (!cmd) {
+    // 顶层旗标：显式求助/查版本不是错误（退出码 0）；裸调用是用法错误（1）
+    if (args.flags.help || args.flags.h) {
+      printHelp();
+      return 0;
+    }
+    if (args.flags.version || args.flags.v) {
+      console.log(pkg.version);
+      return 0;
+    }
     printHelp();
-    return cmd ? 0 : 1;
+    return 1;
   }
-  if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
+  if (cmd === 'help') {
+    printHelp();
+    return 0;
+  }
+  if (cmd === 'version') {
     console.log(pkg.version);
     return 0;
   }
@@ -176,5 +189,18 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-const code = await main(process.argv.slice(2));
-process.exit(code);
+// 自动执行仅限"作为进程入口"启动（bin/omem.js 链或直接 node dist/cli.js）；
+// 被 import（如单元测试）时不产生副作用——main() 可独立调用验证分发与退出码。
+function isProcessEntry(): boolean {
+  if (process.env.OMEM_CLI_ENTRY === '1') return true;
+  try {
+    return process.argv[1] ? fileURLToPath(import.meta.url) === resolve(process.argv[1]) : false;
+  } catch {
+    return false;
+  }
+}
+
+if (isProcessEntry()) {
+  const code = await main(process.argv.slice(2));
+  process.exit(code);
+}

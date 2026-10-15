@@ -9,6 +9,7 @@ import {
   markerSection,
   parseJsonc,
   omemEntry,
+  renderClientConfig,
 } from '../../src/install/writer.js';
 import type { ClientSpec } from '../../src/install/clients.js';
 
@@ -128,6 +129,51 @@ describe('install: 写入纪律', () => {
 
   it('omemEntry 形状符合规格 §6.3', () => {
     expect(omemEntry('omem')).toEqual({ command: 'omem', args: ['serve'] });
+  });
+});
+
+describe('install: renderClientConfig 纯渲染（--print-config 只读预览）', () => {
+  it('raw=null：生成新建形态的完整配置', () => {
+    const rendered = renderClientConfig(jsonSpec(), 'omem', null);
+    expect(rendered.text).toBeDefined();
+    expect(JSON.parse(rendered.text!).mcpServers.omem).toEqual({ command: 'omem', args: ['serve'] });
+  });
+
+  it('merge 已有配置：其他键保留在渲染结果里', () => {
+    const spec = jsonSpec();
+    const raw = JSON.stringify({ mcpServers: { other: { command: 'x' } }, keep: 1 });
+    const rendered = renderClientConfig(spec, 'omem', raw);
+    const parsed = JSON.parse(rendered.text!);
+    expect(parsed.mcpServers.other).toEqual({ command: 'x' });
+    expect(parsed.keep).toBe(1);
+    expect(parsed.mcpServers.omem.args).toEqual(['serve']);
+  });
+
+  it('TOML 形态渲染含 [mcp_servers.omem]', () => {
+    const spec: ClientSpec = {
+      id: 'codex',
+      name: 'Codex',
+      kind: 'toml-mcp',
+      configPath: () => join(dir, 'config.toml'),
+      detect: () => true,
+      verified: false,
+    };
+    const rendered = renderClientConfig(spec, 'omem', 'model = "gpt-5"\n');
+    expect(rendered.text).toContain('[mcp_servers.omem]');
+    expect(rendered.text).toContain('model = "gpt-5"');
+  });
+
+  it('解析失败：返回 reason + manual，text 为 undefined（调用方不得落盘）', () => {
+    const rendered = renderClientConfig(jsonSpec(), 'omem', '{ 坏 JSON');
+    expect(rendered.text).toBeUndefined();
+    expect(rendered.reason).toContain('解析失败');
+    expect(rendered.manual).toContain('mcpServers');
+  });
+
+  it('渲染无副作用：同一 raw 渲染两次结果一致', () => {
+    const spec = jsonSpec();
+    const raw = JSON.stringify({ mcpServers: {} });
+    expect(renderClientConfig(spec, 'omem', raw).text).toBe(renderClientConfig(spec, 'omem', raw).text);
   });
 });
 
