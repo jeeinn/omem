@@ -1,7 +1,7 @@
 # 记忆可信度标记：人工验证与终端 Agent 操作手册
 
 > 适用范围：omem V0.1。实测环境：Windows 11 / Node v22.22.2 / 项目根 `X:/omem`。
-> 姊妹篇：`docs/手动测试指南.md`（CLI 全量手工测试）。本文只聚焦**「可信度」这一条线**：怎么手工测、怎么借 Cursor / CodeBuddy 这类终端 Agent 批量核实。
+> 姊妹篇：`docs/手动测试指南.md`（CLI 全量手工测试）、`docs/knowledge验证与Agent自动接入指南.md`（knowledge 里有什么、怎么让 omem 被自动调用、Cursor prompt 模板）。本文只聚焦**「可信度」这一条线**：怎么手工测、怎么借 Cursor / CodeBuddy 这类终端 Agent 批量核实。
 > 本文所有命令与输出均在隔离 `OMEM_HOME` 下实测通过，标注「实测」的行为已秋季验证；未标注的为代码推断。
 
 ---

@@ -96,7 +96,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | `omem pause` / `omem redact --id <id>` / `omem redact --source <s> [--yes]` | 暂停加工 / 硬删一条 / 按来源批量硬删（**默认只预览，必须 `--yes` 才删**） |
 | `omem snapshot` | 手动快照（push 前自动快照，滚动保留 7 份） |
 | `omem serve` | MCP server（stdio；由 install 写入的配置自动拉起） |
-| `omem audit` | 安全审计（脱敏命中、禁区、低权候选统计） |
+| `omem audit [--tail N]` | 使用日志尾部（默认 20 条 JSONL：commit / redact / run / sync 等事件） |
 
 退出码：`0` 成功（含冲突已处理）/ `1` 用法错误 / `2` 后端不可用或策略拒绝（如 work profile 禁导出）。
 
