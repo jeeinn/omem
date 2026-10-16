@@ -101,10 +101,9 @@ describe('session ingest', () => {
     expect(searchSessions(index, '手写 SQL').length).toBeGreaterThan(0);
   });
 
-  it('exclude keywords do not drop the session file', () => {
+  it('session text is stored verbatim: no keyword filter remains', () => {
+    // exclude_keywords 已从配置移除。业务敏感词会原样落盘（已知取舍，见 README「已知取舍」）。
     const config = fixtureConfig();
-    config.collect.exclude_keywords = ['踩坑'];
-    saveConfig(home, config);
     runPipeline(home, config, index, {});
     expect(readFileSync(join(home, 'sessions', 'claude-code', 'sess-fixture-1.md'), 'utf8')).toContain('踩坑');
   });

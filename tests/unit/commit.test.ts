@@ -67,16 +67,20 @@ describe('commitEntry', () => {
     expect(b.id).toBe(a.id);
   });
 
-  it('exclude_keywords no longer blocks a write', () => {
-    const config = withConfig(home, (c) => { c.collect.exclude_keywords = ['薪资']; });
-    const saved = commitEntry(home, config, index, {
-      content: '讨论薪资结构时可以写进记忆',
+  it('redacts secrets but leaves domain-sensitive words (no keyword filter remains)', () => {
+    const saved = commitEntry(home, base(), index, {
+      content: '我的 key 是 sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456，另外记下了薪资结构',
       type: 'fact',
       source: 'manual',
       confidence: 0.9,
       verified: true,
     });
     expect(saved.status).toBe('written');
+    const stored = listEntries(home).find((l) => l.entry.fm.id === saved.id);
+    expect(stored?.entry.body).toContain('***REDACTED***');
+    expect(stored?.entry.body).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456');
+    // exclude_keywords 已从配置移除：脱敏只覆盖密钥形态，中文业务敏感词原样落盘
+    expect(stored?.entry.body).toContain('薪资结构');
   });
 
   it('work profile excludes code; home and force do not', () => {

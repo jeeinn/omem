@@ -16,7 +16,6 @@ export interface OmemConfig {
     workbuddy_projects: string;
     cursor_projects: string;
     exclude_paths: string[];
-    exclude_keywords: string[];
   };
   process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
   search: { top_k: number };
@@ -33,7 +32,6 @@ export function defaultConfig(): OmemConfig {
       workbuddy_projects: '~/.workbuddy/projects',
       cursor_projects: '~/.cursor/projects',
       exclude_paths: [],
-      exclude_keywords: [],
     },
     process: {
       default_tier: 'agent',
@@ -60,6 +58,31 @@ export function loadConfig(home: string): OmemConfig {
 
 export function saveConfig(home: string, c: OmemConfig): void {
   atomicWrite(configPath(home), serializeConfig(c));
+}
+
+// 已从配置中移除的键。仍写在 config.toml 里会被静默忽略（unknown keys are ignored），
+// 用户却会以为它生效——所以在 init 时点名提示，让他自己删掉那一行。
+const REMOVED_KEYS: { section: string; key: string; note: string }[] = [
+  {
+    section: 'collect',
+    key: 'exclude_keywords',
+    note: 'removed; it no longer filters entries or session text. Only secret-pattern redaction (keys/tokens/JWT/PEM) applies.',
+  },
+];
+
+/** 返回 config.toml 里残留的已移除键（人类可读描述），供 init 提示；解析失败时返回空。 */
+export function findRemovedConfigKeys(home: string): string[] {
+  const p = configPath(home);
+  if (!existsSync(p)) return [];
+  let parsed: Record<string, any>;
+  try {
+    parsed = parseTomlSubset(readFileSync(p, 'utf8'));
+  } catch {
+    return []; // 配置本身解析不了时由别的路径报错，这里不重复干扰
+  }
+  return REMOVED_KEYS.filter((k) => parsed?.[k.section]?.[k.key] !== undefined).map(
+    (k) => `[${k.section}] ${k.key} — ${k.note}`,
+  );
 }
 
 // ── 解析 ──
@@ -185,7 +208,6 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       workbuddy_projects: typeof p?.collect?.workbuddy_projects === 'string' ? p.collect.workbuddy_projects : d.collect.workbuddy_projects,
       cursor_projects: typeof p?.collect?.cursor_projects === 'string' ? p.collect.cursor_projects : d.collect.cursor_projects,
       exclude_paths: strArr(p?.collect?.exclude_paths),
-      exclude_keywords: strArr(p?.collect?.exclude_keywords),
     },
     process: {
       default_tier: tier === 'api' ? 'api' : 'agent',
@@ -226,7 +248,6 @@ export function serializeConfig(c: OmemConfig): string {
     `workbuddy_projects = ${tomlStr(c.collect.workbuddy_projects)}`,
     `cursor_projects = ${tomlStr(c.collect.cursor_projects)}`,
     `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
-    `exclude_keywords = ${tomlArr(c.collect.exclude_keywords)}`,
     '',
     '[process]',
     `default_tier = ${tomlStr(c.process.default_tier)}`,

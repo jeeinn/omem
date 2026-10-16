@@ -146,6 +146,17 @@ else
   bad "review queue empty, cannot verify --supersedes"
 fi
 
+echo "== S16 redact --source previews first, --yes deletes =="
+run add "S16 批量删除确认 s16-batch-marker" >/dev/null
+OUT=$(run redact --source manual)
+echo "$OUT" | grep -q "Dry run" && ok "previews by default" || bad "no dry-run output: $OUT"
+grep -rq "s16-batch-marker" "$OMEM_HOME/knowledge" 2>/dev/null && ok "nothing deleted without --yes" || bad "deleted without --yes"
+echo "$OUT" | grep -q -- "--yes" && ok "re-run command shown" || bad "no re-run hint"
+OUT=$(run redact --source manual --yes)
+echo "$OUT" | grep -q "Hard deleted" && ok "--yes performs the delete" || bad "--yes did not delete: $OUT"
+OUT=$(run redact --source llm)
+echo "$OUT" | grep -q "No entries match" && ok "zero matches is a no-op" || bad "unexpected zero-match output: $OUT"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "Result: $PASS passed / $FAIL failed"

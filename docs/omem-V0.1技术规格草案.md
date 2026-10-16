@@ -306,7 +306,7 @@ omem install                     自动接线 agent（§6）
 omem run [--since D] [--tier agent|api]
                                  采集原文；默认 agent 只写 PROCESS.md
                                  --tier rules 已移除
-omem redact --source rules       按来源批量硬删（旧规则碎片）
+omem redact --source <s> [--yes] 按来源批量硬删（默认只预览，--yes 才删）
 omem search <q> [--detail] [--all] [--sessions]
 omem review                      待确认队列（含 stale 提示）
 omem gc                          ★ 标记 stale，只报告不删除
@@ -397,7 +397,7 @@ MCP 规范里有个正好为此设计的原语：**sampling**（`sampling/create
 | **3. 自带 API key**（可选，默认关） | 配置 OpenAI 兼容 key + 轻模型批量加工 | 需 key，¥5–20/月 | 高 | ⭕ 可选开关 |
 | **4. MCP sampling**（未来） | 借宿主模型 | 零 | 高 | ❌ V0.1 不可用；**持续跟踪 claude-code Issue #1785** |
 
-**关键承诺**：首次运行不出现任何 key 提示。默认产物是会话原文，不是规则片段。结论由 Agent 写回，`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。新结论要淘汰旧结论时必须带 `supersedes`；未带则两条同时有效，本阶段不自动判断对错。已落盘的规则碎片用 `omem redact --source rules` 硬删。`exclude_keywords` 不再拦截写入。
+**关键承诺**：首次运行不出现任何 key 提示。默认产物是会话原文，不是规则片段。结论由 Agent 写回，`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。新结论要淘汰旧结论时必须带 `supersedes`；未带则两条同时有效，本阶段不自动判断对错。已落盘的规则碎片用 `omem redact --source rules --yes` 硬删（不加 `--yes` 只预览）。`exclude_keywords` 已从配置删除，不再拦截条目或会话写入。
 
 ### 9.5 开放问题
 

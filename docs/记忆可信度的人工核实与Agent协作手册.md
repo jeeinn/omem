@@ -301,3 +301,5 @@ rm -rf $OMEM_HOME   # 收尾
 | **P1** | CLI 没有设置 `confidence` 的参数，也没有批量筛选/分页 | 771 条队列无法有效人肉处理 | 借 Agent（路径 A）或 `sed` 批量（路径 C） |
 | **P2** | `review` 输出不含正文预览 | Agent 必须额外读 md 全文 | prompt 模板里已强制要求第 2 步读全文 |
 | **P2** | `omem eval sample` 依赖 golden 目录的 `annotations.json`，无法导出当前 store 的未验证候选 | 没有官方的「待确认清单导出」 | 用 `omem review` 输出 + `xargs` 落到文件 |
+| **P2** | 批量硬删的筛选维度只有 `source`（`--source rules\|agent\|llm\|manual`），不能按 domain / 日期 / confidence 批量删 | 想清掉「某个域名下的低质条目」做不到 | 先 grep 出 id 列表再逐条 `omem redact --id`，或走路径 C 改 md |
+| **P2** | `omem redact --source` 不加 `--yes` 时**只预览不删**（防误触设计） | 以为跑了就会删，实际什么都没发生 | 预览末尾会打印 `Re-run to actually delete: … --yes`，照抄即可 |

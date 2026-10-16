@@ -2,7 +2,7 @@
 // --no-scan 跳过首次扫描；--no-git 跳过数据仓初始化。
 import { existsSync } from 'node:fs';
 import { ensureHome, files } from '../core/paths.js';
-import { loadConfig, saveConfig } from '../core/config.js';
+import { loadConfig, saveConfig, findRemovedConfigKeys } from '../core/config.js';
 import { OmemIndex } from '../core/index.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { getBackend } from '../sync/backend.js';
@@ -20,6 +20,12 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
   const index = new OmemIndex(home);
 
   console.log(`omem data directory: ${home}${fresh ? ' (created)' : ' (already exists)'}`);
+
+  // config.toml 里残留的已移除键：不自动改文件（会丢掉用户手写的未知键），只点名让他删
+  for (const r of findRemovedConfigKeys(home)) {
+    console.log(`config.toml: ignoring removed key ${r}`);
+    console.log(`  → delete that line from ${files.config(home)} to avoid confusion.`);
+  }
 
   // git 数据仓（SyncBackend 抽象的第一实现；规格 §5.3）
   if (flagBool(args.flags, 'no-git')) {

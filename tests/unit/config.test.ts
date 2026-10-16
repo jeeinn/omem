@@ -9,6 +9,7 @@ import {
   saveConfig,
   configPath,
   splitTomlPath,
+  findRemovedConfigKeys,
 } from '../../src/core/config.js';
 import { makeHome, cleanupHome, withConfig } from './helpers.js';
 
@@ -21,14 +22,14 @@ describe('config: TOML subset', () => {
         'profile = "work"  # 行尾注释',
         'paused = true',
         '[collect]',
-        'exclude_keywords = ["薪资", "密码"]',
+        'exclude_paths = ["node_modules", ".git"]',
         '[sync.git]',
         'remote = ""',
       ].join('\n'),
     );
     expect(p.general.profile).toBe('work');
     expect(p.general.paused).toBe(true);
-    expect(p.collect.exclude_keywords).toEqual(['薪资', '密码']);
+    expect(p.collect.exclude_paths).toEqual(['node_modules', '.git']);
     expect(p.sync.git.remote).toBe('');
   });
 
@@ -38,13 +39,13 @@ describe('config: TOML subset', () => {
       const c = defaultConfig();
       c.general.profile = 'work';
       c.process.stale_after_days = 90;
-      c.collect.exclude_keywords = ['机密', 'secret'];
+      c.collect.exclude_paths = ['机密', 'secret'];
       c.sync.git.remote = 'git@example.com:o/r.git';
       saveConfig(home, c);
       const back = loadConfig(home);
       expect(back.general.profile).toBe('work');
       expect(back.process.stale_after_days).toBe(90);
-      expect(back.collect.exclude_keywords).toEqual(['机密', 'secret']);
+      expect(back.collect.exclude_paths).toEqual(['机密', 'secret']);
       expect(back.sync.git.remote).toBe('git@example.com:o/r.git');
     } finally {
       cleanupHome(home);
@@ -149,5 +150,38 @@ describe('splitTomlPath: quoted segments', () => {
 
   it('tolerates spaces around dots', () => {
     expect(splitTomlPath('a . b')).toEqual(['a', 'b']);
+  });
+});
+
+describe('removed config keys are reported, not silently honoured', () => {
+  it('flags a leftover exclude_keywords line', () => {
+    const home = makeHome();
+    try {
+      saveConfig(home, defaultConfig());
+      // 模拟 beta.1 用户升级后 config.toml 里的残留行
+      const p = `${home}/config.toml`;
+      const withLegacy = readFileSync(p, 'utf8').replace(
+        '[collect]',
+        '[collect]\nexclude_keywords = ["薪资"]',
+      );
+      writeFileSync(p, withLegacy);
+      const found = findRemovedConfigKeys(home);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain('exclude_keywords');
+      // 关键：残留行不影响运行时——字段已从类型里移除，loadConfig 不再有它
+      expect((loadConfig(home).collect as any).exclude_keywords).toBeUndefined();
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('reports nothing for a current config', () => {
+    const home = makeHome();
+    try {
+      saveConfig(home, defaultConfig());
+      expect(findRemovedConfigKeys(home)).toEqual([]);
+    } finally {
+      cleanupHome(home);
+    }
   });
 });

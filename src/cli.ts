@@ -99,8 +99,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdResume,
   },
   redact: {
-    desc: 'Hard delete (the only way)',
-    usage: 'omem redact --id <id> | omem redact --source rules|agent|llm|manual',
+    desc: 'Hard delete (the only way); --source previews by default, --yes deletes',
+    usage: 'omem redact --id <id> | omem redact --source rules|agent|llm|manual [--yes]',
     run: cmdRedact,
   },
   snapshot: {
