@@ -11,6 +11,23 @@ export type ContextTarget = 'claude-code' | 'cursor' | 'codex' | 'plain';
 
 export const CONTEXT_TARGETS: ContextTarget[] = ['claude-code', 'cursor', 'codex', 'plain'];
 
+// 行为指令段（beta.3：修复「规则文件只带索引、不带写回指令」的 P1 缺口，
+// 让读/写两条链路都自动触发；marker 供未来工具定位替换）。
+export const INSTRUCTIONS_START = '<!-- OMEM:INSTRUCTIONS:START -->';
+export const INSTRUCTIONS_END = '<!-- OMEM:INSTRUCTIONS:END -->';
+
+export const INSTRUCTIONS: string = [
+  INSTRUCTIONS_START,
+  '## omem usage instructions (auto-generated, do not edit)',
+  '',
+  '**Read:** the index above is this user\'s long-term memory (preferences / facts / decisions / experiences). When the user mentions past preferences, historical decisions, previous project experience, or environment configuration — or whenever you are unsure whether they told you something before — get details via MCP `search_memory` or `omem search "<keywords>"` before answering. If nothing matches, say so; do not invent.',
+  '',
+  '**Write:** when this session produces a stable preference / decision / environment configuration / pitfall lesson — and when wrapping up a substantive session — call MCP `save_memory` without waiting to be asked. One conclusion per entry, 3-10 sentences; keep conclusions, drop process. If the user asks you to organize memories, first read `~/.omem/PROCESS.md` (it lists up to 5 sessions without conclusions), then distill those sessions via `save_memory`; `evidence` must be at least 12 characters copied verbatim from that session\'s `## user` section.',
+  '',
+  'Never mark an entry verified yourself; `verified` comes only from `omem add` or `omem review --confirm`.',
+  INSTRUCTIONS_END,
+].join('\n');
+
 export function exportContext(home: string, index: OmemIndex, target: string): string {
   if (!CONTEXT_TARGETS.includes(target as ContextTarget)) {
     throw new UsageError(`Unknown --for target: ${target} (supported: ${CONTEXT_TARGETS.join(' / ')})`);
@@ -22,12 +39,12 @@ export function exportContext(home: string, index: OmemIndex, target: string): s
 
   switch (target as ContextTarget) {
     case 'claude-code':
-      return body + '\n';
+      return body + '\n\n' + INSTRUCTIONS + '\n';
     case 'cursor':
-      return ['---', 'description: omem personal memory index (auto-generated, do not edit)', 'alwaysApply: true', '---', '', body, ''].join('\n');
+      return ['---', 'description: omem personal memory index (auto-generated, do not edit)', 'alwaysApply: true', '---', '', body, '', INSTRUCTIONS, ''].join('\n');
     case 'codex':
-      return ['<!-- OMEM:START -->', '## omem (personal memory)', '', body, '', '<!-- OMEM:END -->', ''].join('\n');
+      return ['<!-- OMEM:START -->', '## omem (personal memory)', '', body, '', INSTRUCTIONS, '', '<!-- OMEM:END -->', ''].join('\n');
     case 'plain':
-      return ['# omem personal memory index', '', body, ''].join('\n');
+      return ['# omem personal memory index', '', body, '', INSTRUCTIONS, ''].join('\n');
   }
 }

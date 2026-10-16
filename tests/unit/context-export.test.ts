@@ -31,28 +31,39 @@ describe('context: export four targets', () => {
     expect(CONTEXT_TARGETS).toEqual(['claude-code', 'cursor', 'codex', 'plain']);
   });
 
-  it('claude-code: INDEX verbatim', () => {
+  it('claude-code: INDEX + instructions', () => {
     const text = exportContext(home, index, 'claude-code');
     expect(text).toContain('MEMORY-INDEX');
     expect(text).toContain('手写 SQL 的约定');
+    expect(text).toContain('<!-- OMEM:INSTRUCTIONS:START -->');
+    expect(text).toContain('## omem usage instructions');
   });
 
-  it('cursor: .mdc frontmatter + alwaysApply', () => {
+  it('cursor: .mdc frontmatter + alwaysApply + instructions', () => {
     const text = exportContext(home, index, 'cursor');
     expect(text.startsWith('---')).toBe(true);
     expect(text).toContain('alwaysApply: true');
     expect(text).toContain('手写 SQL 的约定');
+    expect(text).toContain('<!-- OMEM:INSTRUCTIONS:START -->');
+    expect(text).toContain('<!-- OMEM:INSTRUCTIONS:END -->');
+    expect(text).toContain('save_memory');
+    expect(text).toContain('## user');
   });
 
-  it('codex: AGENTS.md marker section', () => {
+  it('codex: AGENTS.md marker section with instructions inside', () => {
     const text = exportContext(home, index, 'codex');
     expect(text).toContain('<!-- OMEM:START -->');
     expect(text).toContain('<!-- OMEM:END -->');
+    const start = text.indexOf('<!-- OMEM:START -->');
+    const end = text.indexOf('<!-- OMEM:END -->');
+    const inner = text.slice(start, end);
+    expect(inner).toContain('<!-- OMEM:INSTRUCTIONS:START -->');
   });
 
-  it('plain: system prompt text', () => {
+  it('plain: system prompt text with instructions', () => {
     const text = exportContext(home, index, 'plain');
     expect(text).toContain('# omem personal memory index');
+    expect(text).toContain('<!-- OMEM:INSTRUCTIONS:START -->');
   });
 
   it('auto-regenerates when INDEX is missing', () => {

@@ -92,6 +92,8 @@ alwaysApply: true
 
 `alwaysApply: true` 意味着**每次对话都自动注入**，不需要你开口。热层有 ≤80 行上限，代价可控。
 
+**beta.3 起，规则文件不再只是索引快照**：文件末尾附带一段 marker-fenced 的「omem usage instructions」，明确告诉 Agent 两件事——①提到历史偏好/决策/环境配置时先查记忆再回答；②会话收尾时主动回顾并把稳定结论调 `save_memory` 写回（含 `PROCESS.md` 与 evidence 规则）。也就是说，**「自动总结」的触发信号现在跟着规则文件走**，不再只依赖 MCP 工具描述。
+
 **缺点**：这是**快照**，不是实时的。记忆变了要重跑一次命令。想让它在每个项目都生效，得在每个仓库各放一份（或在 §4 的 User Rules 里加一条「启动时先跑 `omem context --for cursor`」）。
 
 其他客户端：
@@ -195,13 +197,15 @@ User Rules 是 UI 里的文本，没有文件路径，所以要手动粘贴一�
 
 | 级别 | 缺口 | 影响 | 规避 |
 |---|---|---|---|
-| **P1** | MCP 工具描述里没提 `PROCESS.md` | 档 2 蒸馏不会自动触发 | 用 §3 模板 1，或 §4 User Rules 里那句「先读 PROCESS.md」 |
+| ~~P1~~ | ~~MCP 工具描述里没提 `PROCESS.md`~~ | — | **已修复**（beta.3）：`save_memory` 描述补了「会话收尾主动回顾」与 `PROCESS.md` 指引 |
+| ~~P1~~ | ~~`omem context` 输出不带写回指令~~ | — | **已修复**（beta.3）：四个 target 的输出都附带 marker-fenced 指令段（读条件 / 写条件 / evidence 规则 / verified 边界） |
 | **P1** | `omem install` 只写 MCP 配置，**不写任何客户端的规则文件**（claude-code 的 CLAUDE.md marker 段是唯一例外，且只在选中它时写） | Cursor / WorkBuddy 装完只有工具、没有指令 | 手工跑 `omem context --for cursor --out .cursor/rules/omem.mdc` |
+| **P2** | 指令段是「提示」不是「强制」：模型仍可能不执行写回（尤其会话被用户直接关掉时） | 自动总结不保证 100% 触发 | 关键内容用 §3 模板 3 明确问一句；或 User Rules（§4）双保险 |
 | **P2** | `omem context --for cursor` 是快照，记忆更新后不会自动同步 | 规则文件会过期 | 重跑一次；或在项目里加个 git hook |
 | **P2** | `memory_feedback` 默认不暴露（要 `OMEM_MCP_TOOLS=feedback`），且 `helpful: false` 只写日志不降权 | 「负面反馈」是空承诺 | 需要降权用 `omem review --stale` / `--dismiss` |
 | **P2** | 热层 MEMORY-INDEX 上限 80 条 | 记忆多了以后 `alwaysApply` 的规则文件会变长 | 归档老条目，或只放高置信度条目 |
 
-如果想让 P1 真正自动化，改法是给 `buildTools()` 里 `search_memory` 的描述补一句触发条件（约 2 行 + 单测）。这会改变所有客户端的行为，属于产品决策——**要改的话单独开一轮，别混在文档里**。
+> 修订记录（beta.3）：原两条 P1 缺口（MCP 描述缺 `PROCESS.md`、规则文件不带指令）已按「方案 A」修复——`src/context/export.ts` 增加 `INSTRUCTIONS` 常量段并注入全部四个 target，`src/mcp/tools.ts` 的 `save_memory` 描述补触发条件；测试同步更新（202 个单测全绿）。本表的 install 写规则文件缺口仍在。
 
 ---
 

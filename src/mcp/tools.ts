@@ -52,8 +52,11 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       description:
         'Write a piece of information worth remembering across sessions into the personal memory store. ' +
         'Call when the user explicitly asks to remember something, or when the session produces a stable ' +
-        'preference / decision / environment configuration / pitfall experience. Organize content as ' +
-        '"one item per entry", 3-10 sentences. Idempotent dedup: duplicate content is not written twice.',
+        'preference / decision / environment configuration / pitfall experience — review the session and call ' +
+        'this proactively when wrapping up, without waiting for an explicit request. When the user asks you to ' +
+        'organize memories, first read ~/.omem/PROCESS.md (it lists up to 5 sessions without conclusions) and ' +
+        'distill them via this tool. Organize content as "one item per entry", 3-10 sentences. ' +
+        'Idempotent dedup: duplicate content is not written twice.',
       inputSchema: {
         type: 'object',
         properties: {

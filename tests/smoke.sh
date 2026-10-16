@@ -85,6 +85,7 @@ OUT=$(run context --for claude-code); CODE=$?
 echo "$OUT" | grep -q "MEMORY-INDEX" && ok "claude-code exports INDEX" || bad "claude-code export abnormal"
 OUT=$(run context --for cursor)
 echo "$OUT" | grep -q "alwaysApply: true" && ok "cursor .mdc export" || bad "cursor export abnormal"
+echo "$OUT" | grep -q "OMEM:INSTRUCTIONS:START" && ok "cursor export carries instructions" || bad "instructions section missing"
 OUT=$(run context --for codex)
 echo "$OUT" | grep -q "OMEM:START" && ok "codex AGENTS.md section export" || bad "codex export abnormal"
 
