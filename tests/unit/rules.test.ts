@@ -17,11 +17,11 @@ function userMsg(content: string, overrides: Partial<UnifiedMessage> = {}): Unif
 }
 
 describe('rules: tier-0 rule extraction', () => {
-  it('preference-positive / preference-negative', () => {
+  it('preference-positive does not slice 别 out of a longer word', () => {
     const pos = extractCandidates(userMsg('以后都用手写 SQL，不要用 ORM'));
     expect(pos.some((c) => c.type === 'preference' && c.content.includes('用手写 SQL'))).toBe(true);
-    const neg = extractCandidates(userMsg('以后别再滥用全局变量了'));
-    expect(neg.some((c) => c.type === 'preference' && c.content.includes('别'))).toBe(true);
+    const cut = extractCandidates(userMsg('请分别提交即可，别把密钥写进仓库'));
+    expect(cut.some((c) => c.content.startsWith('别'))).toBe(false);
   });
 
   it('decision / correction / lesson / warning', () => {

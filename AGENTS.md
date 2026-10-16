@@ -15,7 +15,7 @@ Runtime data lives in `OMEM_HOME` (default `~/.omem`). Development, tests, and s
 - **Markdown is the source of truth.** `store` never caches; it reads from disk every time. External edits (e.g. Obsidian) are absorbed by connect-time catch-up: `(size, mtime)` fast path, file content hash slow path.
 - **Do not mix the two hashes.** The file content hash detects external edits; the normalized-body `contentHash` (`body_hash`) provides idempotent dedup across the three write paths.
 - **Automatically processed output is always `verified: false`.** Only an explicit `omem add` / `review --confirm` marks an entry confirmed (and raises confidence to 0.9). `save_memory` `confirm_ids` caps confidence at 0.8 and does not set verified. Imperative tone ("必须 / 一律 / 永远") halves confidence and adds the `low-weight` tag.
-- **Redact before writing.** All ingest paths must pass through `redactSecrets`. Exclusion zones are `exclude_paths` and `exclude_keywords`.
+- **Redact before writing.** All ingest paths must pass through `redactSecrets`. `exclude_paths` still skips paths. `exclude_keywords` is no longer applied. Rule extraction (`--tier rules`) is removed.
 - **The work profile blocks sync and export by default** (`ProfileBlockedError`, exit code 2). Only `OMEM_ALLOW_WORK_EXPORT=1` allows it. `OMEM_PROFILE_LOCKED=1` locks the profile.
 - **MCP stdout carries protocol only.** Logs go to stderr or `logs/omem.log`. Default tools are only `search_memory` / `save_memory`; `memory_feedback` is enabled via `OMEM_MCP_TOOLS=feedback`. Do not expand the default tool surface.
 - **install's six write disciplines:** merge only `mcpServers.omem` (or that client's single corresponding key), back up first, write atomically, update idempotently, print a manual snippet instead of overwriting when parsing fails, and close with a restart-client reminder.
@@ -32,7 +32,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/commands/` | One file per command, returns an exit code |
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots |
 | `src/collect/` | Read-only session collection (`claude-code`, `workbuddy`, `cursor`). Transcripts land in `sessions/`. New platforms: see "Skills" |
-| `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `rules` (explicit `--tier rules`) / `api` (off by default) |
+| `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `api` (off by default). `rules` is removed |
 | `src/mcp/` | stdio MCP server and tool implementations |
 | `src/install/` | Client registry, config writing, TOML subset |
 | `src/sync/` | `SyncBackend`. V0.1 implements only `GitBackend`; `webdav` / `dir` throw "not yet delivered" |

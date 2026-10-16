@@ -67,25 +67,16 @@ describe('commitEntry', () => {
     expect(b.id).toBe(a.id);
   });
 
-  it('excluded keyword blocks, force bypasses', () => {
+  it('exclude_keywords no longer blocks a write', () => {
     const config = withConfig(home, (c) => { c.collect.exclude_keywords = ['薪资']; });
-    const blocked = commitEntry(home, config, index, {
-      content: '讨论薪资结构时不要写进记忆',
+    const saved = commitEntry(home, config, index, {
+      content: '讨论薪资结构时可以写进记忆',
       type: 'fact',
       source: 'manual',
       confidence: 0.9,
       verified: true,
     });
-    expect(blocked.status).toBe('excluded');
-    expect(blocked.reason).toContain('薪资');
-    const forced = commitEntry(home, config, index, {
-      content: '讨论薪资结构时不要写进记忆',
-      type: 'fact',
-      source: 'manual',
-      confidence: 0.9,
-      verified: true,
-    }, { force: true });
-    expect(forced.status).toBe('written');
+    expect(saved.status).toBe('written');
   });
 
   it('work profile excludes code; home and force do not', () => {

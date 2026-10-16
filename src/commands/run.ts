@@ -9,8 +9,11 @@ import type { Tier } from '../core/config.js';
 
 export async function cmdRun(args: ParsedArgs): Promise<number> {
   const tierArg = flagStr(args.flags, 'tier');
-  if (tierArg && !['rules', 'agent', 'api'].includes(tierArg)) {
-    throw new UsageError(`Unknown --tier: ${tierArg} (supported: rules / agent / api)`);
+  if (tierArg === 'rules') {
+    throw new UsageError('Rule extraction (--tier rules) has been removed. omem run only ingests transcripts. Write conclusions with save_memory or omem add.');
+  }
+  if (tierArg && !['agent', 'api'].includes(tierArg)) {
+    throw new UsageError(`Unknown --tier: ${tierArg} (supported: agent / api)`);
   }
   const tier = (tierArg as Tier | undefined) ?? undefined;
   const { home, config, index } = openCtx();

@@ -44,8 +44,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdInstall,
   },
   run: {
-    desc: 'Ingest session transcripts; --tier rules|api also writes conclusions',
-    usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier rules|agent|api] [--dry-run]',
+    desc: 'Ingest session transcripts (conclusions are not extracted)',
+    usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run]',
     run: cmdRun,
   },
   add: {
@@ -100,7 +100,7 @@ const COMMANDS: Record<string, Command> = {
   },
   redact: {
     desc: 'Hard delete (the only way)',
-    usage: 'omem redact --id <id>',
+    usage: 'omem redact --id <id> | omem redact --source rules|agent|llm|manual',
     run: cmdRedact,
   },
   snapshot: {

@@ -188,7 +188,7 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       exclude_keywords: strArr(p?.collect?.exclude_keywords),
     },
     process: {
-      default_tier: tier === 'agent' || tier === 'api' || tier === 'rules' ? tier : d.process.default_tier,
+      default_tier: tier === 'api' ? 'api' : 'agent',
       stale_after_days: numIn(p?.process?.stale_after_days, 1, 3650, d.process.stale_after_days),
       stale_weight: numIn(p?.process?.stale_weight, 0, 1, d.process.stale_weight),
       max_content_chars: numIn(p?.process?.max_content_chars, 100, 100_000, d.process.max_content_chars),

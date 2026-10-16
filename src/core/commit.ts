@@ -1,6 +1,6 @@
 // 统一写入（改进计划 P0-2）：add / save_memory / pipeline 的唯一提交点。
-// 顺序：脱敏 → 禁区关键词 → work 代码密度 → content-hash 去重 → 落盘 → upsert → 可选刷新热层 → 日志。
-// force 只跳过禁区与代码密度；脱敏与去重不跳过。refreshIndex 默认 true，批量加工传 false。
+// 顺序：脱敏 → work 代码密度 → content-hash 去重 → 落盘 → upsert → 可选刷新热层 → 日志。
+// force 只跳过代码密度；脱敏与去重不跳过。exclude_keywords 不再拦截写入。refreshIndex 默认 true，批量加工传 false。
 import type { OmemConfig } from './config.js';
 import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, MemoryType, Profile } from './entry.js';
@@ -78,11 +78,6 @@ export function commitEntry(
 
   const profile = input.profile ?? currentProfile(config);
   if (!opts.force) {
-    for (const kw of config.collect.exclude_keywords) {
-      if (kw && text.includes(kw)) {
-        return finish(home, { status: 'excluded', redacted, reason: `Excluded keyword "${kw}"` }, input, opts);
-      }
-    }
     if (profile === 'work' && isCodeHeavy(text)) {
       return finish(home, { status: 'excluded', redacted, reason: 'Code-heavy entries excluded under work profile' }, input, opts);
     }

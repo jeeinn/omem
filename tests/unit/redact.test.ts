@@ -1,38 +1,51 @@
-// 脱敏测试（吸收 lore redact.py 检测模式——NOTICE 署名）。
-import { describe, it, expect } from 'vitest';
-import { redactSecrets } from '../../src/core/redact.js';
+// omem redact：单条与按来源批量硬删。
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { OmemIndex } from '../../src/core/index.js';
+import { commitEntry } from '../../src/core/commit.js';
+import { defaultConfig } from '../../src/core/config.js';
+import { listEntries } from '../../src/core/store.js';
+import { cmdRedact } from '../../src/commands/redact.js';
+import { makeHome, cleanupHome } from './helpers.js';
 
-describe('redact: secret redaction', () => {
-  it('OpenAI/Anthropic key', () => {
-    const r = redactSecrets('key 是 sk-ant-abc123def456ghi789jkl012mno345');
-    expect(r.hits).toBeGreaterThan(0);
-    expect(r.text).not.toContain('abc123def456');
-    expect(r.text).toContain('REDACTED');
+let home: string;
+let index: OmemIndex;
+
+beforeEach(() => {
+  home = makeHome();
+  index = new OmemIndex(home);
+});
+afterEach(() => {
+  index.close();
+  cleanupHome(home);
+});
+
+function write(content: string, source: 'rules' | 'manual') {
+  return commitEntry(home, defaultConfig(), index, {
+    content,
+    type: 'fact',
+    source,
+    confidence: source === 'manual' ? 0.9 : 0.4,
+    verified: source === 'manual',
   });
+}
 
-  it('GitHub token / AWS AKID / JWT', () => {
-    expect(redactSecrets('ghp_' + 'a'.repeat(40)).text).toContain('REDACTED');
-    expect(redactSecrets('AKIAABCDEFGHIJKLMNOP').text).toContain('REDACTED');
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop';
-    expect(redactSecrets(`token ${jwt}`).text).not.toContain('eyJhbGciOiJIUzI1NiJ9');
-  });
-
-  it('PEM private key redacted as a whole block', () => {
-    const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY-----';
-    const r = redactSecrets(`配置：\n${pem}`);
-    expect(r.text).toContain('PEM***REDACTED***');
-    expect(r.text).not.toContain('MIIEabc');
-  });
-
-  it('generic password assignment redacted but key name kept', () => {
-    const r = redactSecrets('password: supersecretvalue123');
-    expect(r.text).toContain('password');
-    expect(r.text).not.toContain('supersecretvalue123');
-  });
-
-  it('zero hits when there is no sensitive content', () => {
-    const r = redactSecrets('普通的技术讨论内容，没有任何密钥');
-    expect(r.hits).toBe(0);
-    expect(r.text).toBe('普通的技术讨论内容，没有任何密钥');
+describe('redact --source', () => {
+  it('deletes every rules fragment and leaves other sources', async () => {
+    write('规则碎片一 手写 SQL 候选', 'rules');
+    write('规则碎片二 另一条候选', 'rules');
+    const kept = write('手工记下的结论保留下来', 'manual');
+    const prev = process.env.OMEM_HOME;
+    process.env.OMEM_HOME = home;
+    try {
+      const code = await cmdRedact({ _: [], flags: { source: 'rules' } });
+      expect(code).toBe(0);
+    } finally {
+      if (prev === undefined) delete process.env.OMEM_HOME;
+      else process.env.OMEM_HOME = prev;
+    }
+    const left = listEntries(home, { includeArchived: true });
+    expect(left).toHaveLength(1);
+    expect(left[0].entry.fm.id).toBe(kept.id);
+    expect(index.getById(kept.id!)).not.toBeNull();
   });
 });

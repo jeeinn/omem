@@ -50,20 +50,21 @@ echo "$OUT" | grep -q "Index fully rebuilt" && ok "rebuild reports output" || ba
 OUT=$(run search "Postgres 而非")
 echo "$OUT" | grep -q "Postgres" && ok "search recovered after rebuild" || bad "search not recovered after rebuild"
 
-echo "== S6 omem run (synthetic fixture, tier 0 rules + redaction) =="
-OUT=$(run run --tier rules); CODE=$?
+echo "== S6 omem run (ingest transcripts; rules tier removed) =="
+OUT=$(run run); CODE=$?
 [ $CODE -eq 0 ] && ok "run exit code 0" || bad "run exit code $CODE: $OUT"
-echo "$OUT" | grep -qE "candidates [0-9]{1,2}" && ok "candidates extracted" || bad "no candidates: $OUT"
-echo "$OUT" | grep -qE "written (1?[0-9]|[2-9][0-9])" && ok "candidates written" || bad "nothing written: $OUT"
-grep -rl "source: rules" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "rule candidates written" || bad "no rule candidates written"
-if grep -rq "sk-ant-abc123" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "secrets not redacted"; else ok "secrets redacted"; fi
-grep -rq "sk-ant-\*\*\*REDACTED\*\*\*" "$OMEM_HOME/knowledge" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
-if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
-if grep -rq "会话摘要" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
-grep -rl "low-weight" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "imperative tone tagged low-weight" || bad "imperative tone not tagged"
+echo "$OUT" | grep -q "tier agent" && ok "default tier is agent" || bad "not agent: $OUT"
+find "$OMEM_HOME/sessions" -name '*.md' | grep -q . && ok "session file written" || bad "no session file"
+if grep -rq "source: rules" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "rule fragments written"; else ok "no rule fragments"; fi
+if grep -rq "sk-ant-abc123" "$OMEM_HOME/sessions" 2>/dev/null; then bad "secrets not redacted"; else ok "secrets redacted"; fi
+grep -rq "REDACTED" "$OMEM_HOME/sessions" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
+if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/sessions" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
+if grep -rq "会话摘要" "$OMEM_HOME/sessions" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
+BAD=$(run run --tier rules); CODE=$?
+[ $CODE -eq 1 ] && ok "tier rules rejected" || bad "tier rules exit $CODE: $BAD"
 
 echo "== S7 omem review --confirm =="
-RID=$(grep -rl "source: rules" "$OMEM_HOME/knowledge" | head -1 | xargs basename | sed 's/\.md$//')
+RID=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1 | xargs basename | sed 's/\.md$//')
 OUT=$(run review --confirm "$RID"); CODE=$?
 [ $CODE -eq 0 ] && ok "confirm exit code 0" || bad "confirm exit code $CODE: $OUT"
 echo "$OUT" | grep -q "Confirmed" && ok "confirm takes effect" || bad "confirm not effective"
@@ -71,7 +72,7 @@ F=$(find "$OMEM_HOME/knowledge" -name "$RID.md")
 grep -q "verified: true" "$F" && ok "verified promotion written" || bad "verified not promoted"
 
 echo "== S8 omem gc (mark stale only) =="
-F=$(grep -rl "source: rules" "$OMEM_HOME/knowledge" | head -1)
+F=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1)
 sed -i 's/^last_confirmed:.*/last_confirmed: 2026-01-01T00:00:00.000Z/' "$F"
 OUT=$(run gc); CODE=$?
 [ $CODE -eq 0 ] && ok "gc exit code 0" || bad "gc exit code $CODE: $OUT"
@@ -119,6 +120,7 @@ OUT=$(run snapshot); CODE=$?
 ls "$OMEM_HOME/snapshots" 2>/dev/null | grep -q "$(date +%Y-%m-%d)" && ok "today's snapshot created" || bad "snapshot missing"
 
 echo "== S14 MCP probe (handshake + tool calls) =="
+run add "这个项目以后都用手写 SQL" --type preference >/dev/null
 OUT=$(node "$ROOT/tests/mcp-probe.mjs" "$ROOT/bin/omem.js"); CODE=$?
 [ $CODE -eq 0 ] && ok "MCP handshake and tool calls all pass" || { bad "MCP probe failed"; echo "$OUT" | sed 's/^/    /'; }
 

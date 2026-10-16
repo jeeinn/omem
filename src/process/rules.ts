@@ -17,10 +17,7 @@ interface RuleSpec {
 const RULES: RuleSpec[] = [
   { id: 'decision', re: /(我决定|决定采用|最终选择|最终选定|拍板|结论是|就(?:定|选)它|选定|定下来了?)[^。！？\n]{2,90}/, type: 'decision', conf: 0.45 },
   { id: 'pref-pos', re: /(?:以后|今后|往后|默认|倾向于|偏好|更喜欢|习惯(?:性)?地?)[^。！？\n]{2,90}/, type: 'preference', conf: 0.4 },
-  // warning 先于 pref-neg：「注意这个端口别暴露到公网」是警告（fact），不是被「别」抢成的偏好。
-  // 高显著性框架词（注意/警告/切记/小心）优先于否定式偏好匹配。
   { id: 'warning', re: /(?:注意|警告|切记|小心|千万别|remember that)[^。！？\n]{2,90}/, type: 'fact', conf: 0.35 },
-  { id: 'pref-neg', re: /(?:以后|今后|往后)?(?:都)?(?:不要|别|禁止|不准|杜绝|避免)[^。！？\n]{2,90}/, type: 'preference', conf: 0.4 },
   { id: 'correction', re: /(改成|换成|替换为|改为|修正为|调整为|迁移到|回退到)[^。！？\n]{2,90}/, type: 'decision', conf: 0.4 },
   {
     id: 'lesson',

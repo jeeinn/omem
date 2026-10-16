@@ -1,6 +1,5 @@
 // 加工流水线：先把对话写入 sessions/，再按档位处理。
-// 默认档 agent 只写原文和 PROCESS.md，不把规则片段写入 knowledge。
-// 规则抽取只在本次命令显式 --tier rules 时发生。config 里残留的 rules 不再自动抽取。
+// 默认档 agent 只写原文和 PROCESS.md。规则抽取已移除，不再写入 knowledge。
 import type { OmemConfig, Tier } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import { nowIso, parseSince } from '../core/util.js';
@@ -11,14 +10,12 @@ import { commitEntry } from '../core/commit.js';
 import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
 import {
-  keywordHit,
   prepareDialogue,
   sessionKey,
   splitSessionKey,
   writeSessionFile,
 } from '../collect/session-store.js';
 import type { SessionDigest } from '../collect/types.js';
-import { extractFromDigest } from './rules.js';
 import { GUIDE_BATCH, renderGuide, writeProcessGuide, type GuideSession } from './guide.js';
 import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
 import type { Candidate } from './rules.js';
@@ -44,19 +41,15 @@ export interface RunReport {
   notes: string[];
 }
 
-/** 显式 --tier 优先。配置里的 rules 视为旧默认，改走 agent 并提示。 */
-export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier; legacyRules: boolean } {
-  if (explicit) return { tier: explicit, legacyRules: false };
-  if (config.process.default_tier === 'rules') return { tier: 'agent', legacyRules: true };
-  return { tier: config.process.default_tier, legacyRules: false };
+/** 显式 --tier 优先。rules 已从产品路径移除，残留配置按 agent 处理。 */
+export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier } {
+  const requested = explicit ?? config.process.default_tier;
+  return { tier: requested === 'rules' ? 'agent' : requested };
 }
 
 export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): RunReport {
-  const { tier, legacyRules } = resolveTier(config, opts.tier);
+  const { tier } = resolveTier(config, opts.tier);
   const report = emptyReport(tier);
-  if (legacyRules) {
-    report.notes.push('config default_tier=rules no longer auto-extracts; this run only ingests transcripts. Use omem run --tier rules to extract');
-  }
   if (config.general.paused) {
     report.notes.push('Collection paused (run omem resume to resume)');
     return report;
@@ -65,20 +58,8 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
-  const blocked = ingest(home, config, index, scan.digests, opts.dryRun ?? false, report);
-  const open = scan.digests.filter((d) => !blocked.has(sessionKey(d.agent, d.session_id)));
-
-  if (tier === 'agent') {
-    publishGuide(home, index, opts.dryRun ?? false, report);
-    finish(home, index, report, opts.dryRun ?? false);
-    return report;
-  }
-
-  for (const digest of open) {
-    const candidates = extractFromDigest(digest);
-    report.candidates += candidates.length;
-    for (const c of candidates) commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
-  }
+  ingest(home, index, scan.digests, opts.dryRun ?? false, report);
+  publishGuide(home, index, opts.dryRun ?? false, report);
   finish(home, index, report, opts.dryRun ?? false);
   return report;
 }
@@ -98,8 +79,8 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
-  const blocked = ingest(home, config, index, scan.digests, opts.dryRun ?? false, report);
-  for (const digest of scan.digests.filter((d) => !blocked.has(sessionKey(d.agent, d.session_id)))) {
+  ingest(home, index, scan.digests, opts.dryRun ?? false, report);
+  for (const digest of scan.digests) {
     const candidates = await extractWithApi(digest);
     report.candidates += candidates.length;
     for (const c of candidates) commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
@@ -131,24 +112,15 @@ function scanHome(config: OmemConfig, index: OmemIndex, opts: RunOpts): ScanResu
 /** 把本批变化的对话写入 sessions/，并更新会话索引。 */
 function ingest(
   home: string,
-  config: OmemConfig,
   index: OmemIndex,
   digests: SessionDigest[],
   dryRun: boolean,
   report: RunReport,
-): Set<string> {
-  const blocked = new Set<string>();
+): void {
   for (const digest of digests) {
     report.sessions++;
     report.messages += digest.messages.length;
     const { body, hash } = prepareDialogue(digest);
-    const kw = keywordHit(body, config.collect.exclude_keywords);
-    if (kw) {
-      blocked.add(sessionKey(digest.agent, digest.session_id));
-      report.excluded++;
-      report.notes.push(`Session ${digest.agent}:${digest.session_id} hit exclude keyword "${kw}"; not written to sessions/`);
-      continue;
-    }
     if (dryRun) continue;
     const { path, text } = writeSessionFile(home, digest, body, hash);
     index.putSession({
@@ -162,7 +134,6 @@ function ingest(
       processed_at: nowIso(),
     }, text);
   }
-  return blocked;
 }
 
 function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport): void {

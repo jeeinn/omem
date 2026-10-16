@@ -101,14 +101,12 @@ describe('session ingest', () => {
     expect(searchSessions(index, '手写 SQL').length).toBeGreaterThan(0);
   });
 
-  it('exclude keyword keeps the session out of sessions/', () => {
+  it('exclude keywords do not drop the session file', () => {
     const config = fixtureConfig();
     config.collect.exclude_keywords = ['踩坑'];
     saveConfig(home, config);
-    const report = runPipeline(home, config, index, { tier: 'rules' });
-    expect(report.excluded).toBeGreaterThan(0);
-    expect(listEntries(home)).toHaveLength(0);
-    expect(searchSessions(index, '手写 SQL')).toHaveLength(0);
+    runPipeline(home, config, index, {});
+    expect(readFileSync(join(home, 'sessions', 'claude-code', 'sess-fixture-1.md'), 'utf8')).toContain('踩坑');
   });
 });
 

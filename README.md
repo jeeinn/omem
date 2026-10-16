@@ -71,7 +71,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | --- | --- |
 | `omem init` | 建数据仓并默认采集会话原文到 `sessions/`（`--no-scan` 只建库） |
 | `omem install` | 交互勾选客户端并写入 MCP 配置（六条写入纪律）；`--target a,b` 跳过交互、`--print-config <id\|generic>` 只预览、`--list` 列全部 |
-| `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集对话到 `sessions/`。默认 agent 写 `PROCESS.md`；`--tier rules` 或 `api` 才把结论写入 `knowledge/` |
+| `omem run [--since 7d] [--tier agent\|api]` | 采集对话到 `sessions/` 并写 `PROCESS.md`。`--tier rules` 已移除 |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <query> [--detail] [--sessions] [--domain X]` | 默认只查结论；`--sessions` 只查对话原文 |
 | `omem review [--confirm <id>]` | 审阅队列。`--confirm` 把该条标为已确认并把置信度提到 0.9 |
@@ -80,7 +80,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | `omem context --for claude-code\|cursor\|codex\|plain` | 导出记忆为客户端上下文 |
 | `omem sync [status\|remote <url>\|pull\|push\|use <backend>]` | git 同步（V0.1 唯一后端） |
 | `omem profile [home\|work]` | 档案切换；work 档默认禁同步/导出 |
-| `omem pause` / `omem redact <id>` | 暂停加工 / 唯一硬删（同步删除索引行） |
+| `omem pause` / `omem redact --id <id>` / `--source rules` | 暂停加工 / 硬删一条 / 按来源批量硬删旧规则碎片 |
 | `omem snapshot` | 手动快照（push 前自动快照，滚动保留 7 份） |
 | `omem serve` | MCP server（stdio；由 install 写入的配置自动拉起） |
 | `omem audit` | 安全审计（脱敏命中、禁区、低权候选统计） |
@@ -111,13 +111,13 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 
 1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
 2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
-3. 结论只从三条路进入 `knowledge/`：Agent 调用 `save_memory`、人执行 `omem add`、或显式 `omem run --tier rules` / `--tier api`。带 `supersedes` 时旧结论变为 `superseded`，默认检索不再返回。两条相反结论不会自动分出对错。
+3. 结论只从 `save_memory`、`omem add`，或显式 `omem run --tier api` 进入 `knowledge/`。带 `supersedes` 时旧结论变为 `superseded`，默认检索不再返回。两条相反结论不会自动分出对错。已经落盘的规则碎片用 `omem redact --source rules` 一次性硬删。
 4. `omem init` / `omem run` 把尚未产生结论的会话写入 `PROCESS.md`（每批最多 5 个）。omem 不调用模型。下一次打开客户端时，按 install 写入的说明去读这个文件并 `save_memory`。
 5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
 
 ## 加工四档（默认零配置）
 
-1. **规则抽取**（显式 `omem run --tier rules`）：正则从 user 消息提取 `verified:false` 候选。不再作为默认。配置文件里残留的 `default_tier = "rules"` 也不会自动抽取。
+1. **规则抽取已移除。** `omem run --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 不再拦截写入。
 2. **Agent 主动保存**（默认开）：MCP `save_memory`。有依据时自动打分，仍是未确认。
 3. **Agent 协作引导**（默认档）：采集原文并写 `PROCESS.md`，由本地 Agent 读文件后写回结论。
 4. **自带 API key**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口。
@@ -129,7 +129,7 @@ MCP sampling 在 V0.1 不可用。
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # vitest：198 个单元用例（23 个文件）
+npm test           # vitest：195 个单元用例（23 个文件）
 npm run smoke      # 端到端冒烟：54 项断言（隔离 OMEM_HOME）
 ```
 
@@ -138,7 +138,7 @@ npm run smoke      # 端到端冒烟：54 项断言（隔离 OMEM_HOME）
 ## 安全基线
 
 - 写入前脱敏：Anthropic/OpenAI key、GitHub token、AWS AKIA、JWT、PEM、通用口令（正则吸收 lore 的检测模式，MIT，见 NOTICE）
-- 禁区：`exclude_paths` / `exclude_keywords` 双通道过滤
+- 禁区路径：`exclude_paths`。`exclude_keywords` 不再过滤条目或会话
 - work profile 默认禁同步/导出（退出码 2），`OMEM_PROFILE_LOCKED` 锁定
 - 指令式语气低权 + 同会话多重印证封顶 0.6——候选信号低但可用
 - 冲突只报告不自动合并；远端版另存 `.conflict.md`，本地版保留

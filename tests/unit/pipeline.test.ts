@@ -38,43 +38,35 @@ function cfgWithFixture() {
   return config;
 }
 
-describe('pipeline: runPipeline (tier 0)', () => {
-  it('extracts candidates and writes them (verified:false, source: rules)', () => {
+describe('pipeline: runPipeline (ingest only)', () => {
+  it('does not write rule fragments into knowledge', () => {
     const config = cfgWithFixture();
     const report = runPipeline(home, config, index, { tier: 'rules' });
+    expect(report.tier).toBe('agent');
     expect(report.sessions).toBe(1);
-    expect(report.candidates).toBeGreaterThanOrEqual(6);
-    expect(report.written.length).toBeGreaterThanOrEqual(6);
-    const entries = listEntries(home);
-    expect(entries.length).toBeGreaterThanOrEqual(6);
-    for (const l of entries) {
-      expect(l.entry.fm.verified).toBe(false);
-      expect(l.entry.fm.source).toBe('rules');
-      expect(l.entry.fm.status).toBe('active');
-      expect(l.entry.fm.session_id).toBe('sess-fixture-1');
-    }
+    expect(report.candidates).toBe(0);
+    expect(report.written).toHaveLength(0);
+    expect(listEntries(home)).toHaveLength(0);
   });
 
-  it('secrets are redacted before ingest', () => {
+  it('secrets are redacted in the session file', () => {
     const config = cfgWithFixture();
-    const report = runPipeline(home, config, index, { tier: 'rules' });
-    expect(report.redacted).toBe(1);
-    const bodies = listEntries(home).map((l) => l.entry.body).join('\n');
-    expect(bodies).not.toContain('sk-ant-abc123');
-    expect(bodies).toContain('REDACTED');
+    runPipeline(home, config, index, {});
+    const text = readFileSync(join(home, 'sessions', 'claude-code', 'sess-fixture-1.md'), 'utf8');
+    expect(text).not.toContain('sk-ant-abc123');
+    expect(text).toContain('REDACTED');
   });
 
-  it('candidates are searchable (trigram)', () => {
+  it('dialogue is searchable via --sessions, not as a conclusion', () => {
     const config = cfgWithFixture();
-    runPipeline(home, config, index, { tier: 'rules' });
-    const hits = searchEntries(index, { query: '手写 SQL' });
-    expect(hits.length).toBeGreaterThan(0);
+    runPipeline(home, config, index, {});
+    expect(searchEntries(index, { query: '手写 SQL' })).toHaveLength(0);
   });
 
   it('second run: unchanged sessions skipped (sessions ledger)', () => {
     const config = cfgWithFixture();
-    runPipeline(home, config, index, { tier: 'rules' });
-    const r2 = runPipeline(home, config, index, { tier: 'rules' });
+    runPipeline(home, config, index, {});
+    const r2 = runPipeline(home, config, index, {});
     expect(r2.sessions).toBe(0);
     expect(r2.skipped).toBe(1);
     expect(r2.written).toHaveLength(0);
@@ -86,21 +78,9 @@ describe('pipeline: runPipeline (tier 0)', () => {
       c.collect.claude_projects = FIXTURE_ROOT;
       isolateOthers(c);
     });
-    const report = runPipeline(home, config, index, { tier: 'rules' });
+    const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(0);
     expect(report.notes[0]).toContain('Collection paused');
-  });
-
-  it('excluded keywords are blocked', () => {
-    const config = withConfig(home, (c) => {
-      c.collect.claude_projects = FIXTURE_ROOT;
-      isolateOthers(c);
-      c.collect.exclude_keywords = ['踩坑'];
-    });
-    const report = runPipeline(home, config, index, { tier: 'rules' });
-    expect(report.excluded).toBeGreaterThan(0);
-    const bodies = listEntries(home).map((l) => l.entry.body).join('\n');
-    expect(bodies).not.toContain('踩坑');
   });
 
   it('missing session directories give actionable hints', () => {
@@ -108,7 +88,7 @@ describe('pipeline: runPipeline (tier 0)', () => {
       c.collect.claude_projects = ABSENT;
       isolateOthers(c);
     });
-    const report = runPipeline(home, config, index, { tier: 'rules' });
+    const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(0);
     expect(report.notes.some((n) => n.includes('OMEM_CLAUDE_PROJECTS'))).toBe(true);
     expect(report.notes.some((n) => n.includes('OMEM_WORKBUDDY_PROJECTS'))).toBe(true);
@@ -117,7 +97,7 @@ describe('pipeline: runPipeline (tier 0)', () => {
 
   it('MEMORY-INDEX regenerated after run', () => {
     const config = cfgWithFixture();
-    runPipeline(home, config, index, { tier: 'rules' });
+    runPipeline(home, config, index, {});
     const text = readFileSync(files.memoryIndex(home), 'utf8');
     expect(text).toContain('MEMORY-INDEX');
     expect(text).toContain('active');
