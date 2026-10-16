@@ -7,7 +7,7 @@ import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { MemoryType } from '../core/entry.js';
 
-const USAGE = '用法: omem add <内容> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]';
+const USAGE = 'Usage: omem add <content> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]';
 
 export async function cmdAdd(args: ParsedArgs): Promise<number> {
   const content = args._.join(' ').trim();
@@ -33,22 +33,22 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     }, { force: flagBool(args.flags, 'force') });
 
     if ((result.redacted ?? 0) > 0 && result.status !== 'redacted-empty') {
-      console.log(`已脱敏 ${result.redacted} 处敏感内容`);
+      console.log(`Redacted ${result.redacted} sensitive spot(s)`);
     }
     if (result.status === 'deduped') {
-      console.log(`内容已存在（id: ${result.id}），未重复写入。`);
+      console.log(`Content already exists (id: ${result.id}); not written again.`);
       return 0;
     }
     if (result.status === 'excluded' || result.status === 'redacted-empty') {
-      console.log(`未写入：${result.reason}`);
-      if (!flagBool(args.flags, 'force') && result.status === 'excluded' && result.reason !== '内容为空' && !result.reason?.startsWith('未找到')) {
-        console.log('若仍要记下这条，可加 --force（不绕过脱敏与去重）。');
+      console.log(`Not written: ${result.reason}`);
+      if (!flagBool(args.flags, 'force') && result.status === 'excluded' && result.reason !== 'Content is empty' && !result.reason?.startsWith('Old entries not found')) {
+        console.log('To record it anyway, add --force (does not bypass redaction or dedup).');
       }
       return 0;
     }
-    console.log(`已保存 id: ${result.id}`);
-    console.log(`文件: ${result.path}`);
-    if (supersedes.length > 0) console.log(`已取代: ${supersedes.join(', ')}`);
+    console.log(`Saved id: ${result.id}`);
+    console.log(`File: ${result.path}`);
+    if (supersedes.length > 0) console.log(`Supersedes: ${supersedes.join(', ')}`);
     return 0;
   } finally {
     ctx.index.close();

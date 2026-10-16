@@ -15,7 +15,7 @@ if (!process.execArgv.includes('--experimental-sqlite')) {
     env: { ...process.env, OMEM_CLI_ENTRY: '1' },
   });
   if (res.error) {
-    console.error(`omem: 启动失败: ${res.error.message}`);
+    console.error(`omem: startup failed: ${res.error.message}`);
     process.exit(1);
   }
   process.exit(res.status ?? 1);

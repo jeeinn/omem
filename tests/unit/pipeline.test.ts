@@ -38,8 +38,8 @@ function cfgWithFixture() {
   return config;
 }
 
-describe('pipeline: runPipeline（档 0）', () => {
-  it('抽取候选并落盘（verified:false, source: rules）', () => {
+describe('pipeline: runPipeline (tier 0)', () => {
+  it('extracts candidates and writes them (verified:false, source: rules)', () => {
     const config = cfgWithFixture();
     const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(1);
@@ -55,7 +55,7 @@ describe('pipeline: runPipeline（档 0）', () => {
     }
   });
 
-  it('密钥被脱敏后入库', () => {
+  it('secrets are redacted before ingest', () => {
     const config = cfgWithFixture();
     const report = runPipeline(home, config, index, {});
     expect(report.redacted).toBe(1);
@@ -64,14 +64,14 @@ describe('pipeline: runPipeline（档 0）', () => {
     expect(bodies).toContain('REDACTED');
   });
 
-  it('候选可被检索（trigram）', () => {
+  it('candidates are searchable (trigram)', () => {
     const config = cfgWithFixture();
     runPipeline(home, config, index, {});
     const hits = searchEntries(index, { query: '手写 SQL' });
     expect(hits.length).toBeGreaterThan(0);
   });
 
-  it('二次运行：未变化会话被跳过（sessions 台账）', () => {
+  it('second run: unchanged sessions skipped (sessions ledger)', () => {
     const config = cfgWithFixture();
     runPipeline(home, config, index, {});
     const r2 = runPipeline(home, config, index, {});
@@ -80,7 +80,7 @@ describe('pipeline: runPipeline（档 0）', () => {
     expect(r2.written).toHaveLength(0);
   });
 
-  it('paused 时直接返回', () => {
+  it('returns immediately when paused', () => {
     const config = withConfig(home, (c) => {
       c.general.paused = true;
       c.collect.claude_projects = FIXTURE_ROOT;
@@ -88,10 +88,10 @@ describe('pipeline: runPipeline（档 0）', () => {
     });
     const report = runPipeline(home, config, index, {});
     expect(report.sessions).toBe(0);
-    expect(report.notes[0]).toContain('暂停');
+    expect(report.notes[0]).toContain('Collection paused');
   });
 
-  it('禁区关键词排除', () => {
+  it('excluded keywords are blocked', () => {
     const config = withConfig(home, (c) => {
       c.collect.claude_projects = FIXTURE_ROOT;
       isolateOthers(c);
@@ -103,7 +103,7 @@ describe('pipeline: runPipeline（档 0）', () => {
     expect(bodies).not.toContain('踩坑');
   });
 
-  it('会话目录不存在时给出可操作提示', () => {
+  it('missing session directories give actionable hints', () => {
     const config = withConfig(home, (c) => {
       c.collect.claude_projects = ABSENT;
       isolateOthers(c);
@@ -115,7 +115,7 @@ describe('pipeline: runPipeline（档 0）', () => {
     expect(report.notes.some((n) => n.includes('OMEM_CURSOR_PROJECTS'))).toBe(true);
   });
 
-  it('MEMORY-INDEX 在 run 后重生成', () => {
+  it('MEMORY-INDEX regenerated after run', () => {
     const config = cfgWithFixture();
     runPipeline(home, config, index, {});
     const text = readFileSync(files.memoryIndex(home), 'utf8');

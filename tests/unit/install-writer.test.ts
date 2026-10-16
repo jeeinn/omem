@@ -33,15 +33,15 @@ function jsonSpec(id = 'test-json'): ClientSpec {
   };
 }
 
-describe('install: 写入纪律', () => {
-  it('新文件：按形态写最小配置', () => {
+describe('install: write disciplines', () => {
+  it('new file: minimal config per shape', () => {
     const out = writeClientConfig(jsonSpec(), 'omem');
     expect(out.ok).toBe(true);
     const parsed = JSON.parse(readFileSync(out.path, 'utf8'));
     expect(parsed.mcpServers.omem).toEqual({ command: 'omem', args: ['serve'] });
   });
 
-  it('只 merge 不覆盖：其他 mcpServers 键保留', () => {
+  it('merge only, no overwrite: other mcpServers keys preserved', () => {
     const spec = jsonSpec();
     writeFileSync(spec.configPath(dir), JSON.stringify({ mcpServers: { other: { command: 'x' } }, userKey: 42 }));
     const out = writeClientConfig(spec, 'omem');
@@ -52,7 +52,7 @@ describe('install: 写入纪律', () => {
     expect(parsed.mcpServers.omem.args).toEqual(['serve']);
   });
 
-  it('幂等：重复写入内容一致', () => {
+  it('idempotent: repeated writes produce identical content', () => {
     const spec = jsonSpec();
     writeClientConfig(spec, 'omem');
     const out2 = writeClientConfig(spec, 'omem');
@@ -63,7 +63,7 @@ describe('install: 写入纪律', () => {
     expect(backups.length).toBe(1);
   });
 
-  it('JSONC 容错：注释 + 尾随逗号可解析', () => {
+  it('JSONC tolerant: comments + trailing commas parse', () => {
     const spec = jsonSpec();
     writeFileSync(
       spec.configPath(dir),
@@ -76,18 +76,18 @@ describe('install: 写入纪律', () => {
     expect(parsed.mcpServers.omem).toBeDefined();
   });
 
-  it('解析失败 → 降级打印手工片段，不动原文件', () => {
+  it('parse failure → degrade to a printed manual snippet, original file untouched', () => {
     const spec = jsonSpec();
     const original = '{ 这不是合法 JSON !!!';
     writeFileSync(spec.configPath(dir), original);
     const out = writeClientConfig(spec, 'omem');
     expect(out.ok).toBe(false);
-    expect(out.reason).toContain('解析失败');
+    expect(out.reason).toContain('Parse failed');
     expect(out.manual).toContain('mcpServers');
     expect(readFileSync(out.path, 'utf8')).toBe(original); // 原文件未动
   });
 
-  it('continue 数组形态：push 而非覆盖', () => {
+  it('continue array shape: push, not overwrite', () => {
     const spec: ClientSpec = {
       id: 'continue',
       name: 'Continue',
@@ -104,7 +104,7 @@ describe('install: 写入纪律', () => {
     expect(parsed.mcpServers[1]).toEqual({ name: 'omem', command: 'omem', args: ['serve'] });
   });
 
-  it('codex TOML 形态：往返保留其他键', () => {
+  it('codex TOML shape: round-trip preserves other keys', () => {
     const spec: ClientSpec = {
       id: 'codex',
       name: 'Codex',
@@ -122,24 +122,24 @@ describe('install: 写入纪律', () => {
     expect(text).toContain('model = "gpt-5"'); // 其他配置保留
   });
 
-  it('parseJsonc：合法 JSON / 非法输入', () => {
+  it('parseJsonc: valid JSON / invalid input', () => {
     expect(parseJsonc('{"a":1}').ok).toBe(true);
     expect(parseJsonc('{ bad').ok).toBe(false);
   });
 
-  it('omemEntry 形状符合规格 §6.3', () => {
+  it('omemEntry shape matches spec §6.3', () => {
     expect(omemEntry('omem')).toEqual({ command: 'omem', args: ['serve'] });
   });
 });
 
-describe('install: renderClientConfig 纯渲染（--print-config 只读预览）', () => {
-  it('raw=null：生成新建形态的完整配置', () => {
+describe('install: renderClientConfig pure render (--print-config read-only preview)', () => {
+  it('raw=null: generates the full config for a new file', () => {
     const rendered = renderClientConfig(jsonSpec(), 'omem', null);
     expect(rendered.text).toBeDefined();
     expect(JSON.parse(rendered.text!).mcpServers.omem).toEqual({ command: 'omem', args: ['serve'] });
   });
 
-  it('merge 已有配置：其他键保留在渲染结果里', () => {
+  it('merge existing config: other keys preserved in the render', () => {
     const spec = jsonSpec();
     const raw = JSON.stringify({ mcpServers: { other: { command: 'x' } }, keep: 1 });
     const rendered = renderClientConfig(spec, 'omem', raw);
@@ -149,7 +149,7 @@ describe('install: renderClientConfig 纯渲染（--print-config 只读预览）
     expect(parsed.mcpServers.omem.args).toEqual(['serve']);
   });
 
-  it('TOML 形态渲染含 [mcp_servers.omem]', () => {
+  it('TOML render contains [mcp_servers.omem]', () => {
     const spec: ClientSpec = {
       id: 'codex',
       name: 'Codex',
@@ -163,22 +163,22 @@ describe('install: renderClientConfig 纯渲染（--print-config 只读预览）
     expect(rendered.text).toContain('model = "gpt-5"');
   });
 
-  it('解析失败：返回 reason + manual，text 为 undefined（调用方不得落盘）', () => {
+  it('parse failure: returns reason + manual, text undefined (caller must not write)', () => {
     const rendered = renderClientConfig(jsonSpec(), 'omem', '{ 坏 JSON');
     expect(rendered.text).toBeUndefined();
-    expect(rendered.reason).toContain('解析失败');
+    expect(rendered.reason).toContain('Parse failed');
     expect(rendered.manual).toContain('mcpServers');
   });
 
-  it('渲染无副作用：同一 raw 渲染两次结果一致', () => {
+  it('render has no side effects: same raw renders identically twice', () => {
     const spec = jsonSpec();
     const raw = JSON.stringify({ mcpServers: {} });
     expect(renderClientConfig(spec, 'omem', raw).text).toBe(renderClientConfig(spec, 'omem', raw).text);
   });
 });
 
-describe('install: marker-fenced 指令段', () => {
-  it('新建文件写入 marker 段', () => {
+describe('install: marker-fenced instruction section', () => {
+  it('new file gets the marker section written', () => {
     const p = join(dir, 'CLAUDE.md');
     const { created } = writeMarkerSection(p);
     expect(created).toBe(true);
@@ -188,7 +188,7 @@ describe('install: marker-fenced 指令段', () => {
     expect(text).toContain('<!-- OMEM:END -->');
   });
 
-  it('幂等替换：重跑不重复，用户手写内容保留', () => {
+  it('idempotent replacement: rerun does not duplicate, user content preserved', () => {
     const p = join(dir, 'CLAUDE.md');
     writeFileSync(p, '# 我的手写规则\n\n保持原样\n');
     writeMarkerSection(p);
@@ -199,7 +199,7 @@ describe('install: marker-fenced 指令段', () => {
     expect(text).toContain('保持原样');
   });
 
-  it('markerSection 内容含四条指令', () => {
+  it('markerSection contains four instructions', () => {
     const s = markerSection();
     expect(s).toContain('omem search');
     expect(s).toContain('omem add');

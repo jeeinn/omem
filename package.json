@@ -1,7 +1,7 @@
 {
   "name": "omem",
   "version": "0.1.0",
-  "description": "git 原生的个人级 AI 记忆层：Markdown 事实源 + MCP + FTS5 trigram 检索",
+  "description": "A git-native personal AI memory layer: Markdown source of truth + MCP + FTS5 trigram search",
   "keywords": [
     "memory",
     "mcp",

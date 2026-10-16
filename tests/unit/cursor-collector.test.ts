@@ -14,7 +14,7 @@ const FIXTURE = [
 ].join('\n');
 
 describe('collector: Cursor transcript', () => {
-  it('只保留 text 块，丢掉 tool_use，源文件不变', () => {
+  it('keeps only text blocks, drops tool_use, source file unchanged', () => {
     const dir = join(tmpdir(), 'omem-cursor-' + Date.now());
     const path = join(dir, 'cursor-fixture-1.jsonl');
     try {
@@ -40,7 +40,7 @@ describe('collector: Cursor transcript', () => {
     }
   });
 
-  it('Claude Code 解析器不会把 Cursor 行当成用户消息', () => {
+  it('the Claude Code parser does not treat Cursor lines as user messages', () => {
     const dir = join(tmpdir(), 'omem-cursor-claude-' + Date.now());
     const path = join(dir, 'cursor-fixture-1.jsonl');
     try {

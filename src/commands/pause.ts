@@ -9,8 +9,8 @@ export async function cmdPause(): Promise<number> {
   config.general.paused = true;
   saveConfig(home, config);
   appendLog(home, 'pause', {});
-  console.log('采集已暂停：omem run 与后续 watcher 不再加工会话（MCP save_memory 等显式写入不受影响）。');
-  console.log('恢复: omem resume');
+  console.log('Collection paused: omem run and future watchers will no longer process sessions (explicit writes like MCP save_memory are unaffected).');
+  console.log('Resume: omem resume');
   return 0;
 }
 
@@ -19,7 +19,7 @@ export async function cmdResume(): Promise<number> {
   config.general.paused = false;
   saveConfig(home, config);
   appendLog(home, 'resume', {});
-  console.log('采集已恢复。');
+  console.log('Collection resumed.');
   return 0;
 }
 

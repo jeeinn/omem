@@ -13,7 +13,7 @@ export const CONTEXT_TARGETS: ContextTarget[] = ['claude-code', 'cursor', 'codex
 
 export function exportContext(home: string, index: OmemIndex, target: string): string {
   if (!CONTEXT_TARGETS.includes(target as ContextTarget)) {
-    throw new UsageError(`未知 --for 目标: ${target}（支持: ${CONTEXT_TARGETS.join(' / ')}）`);
+    throw new UsageError(`Unknown --for target: ${target} (supported: ${CONTEXT_TARGETS.join(' / ')})`);
   }
   // 保证派生视图最新（缺失或可疑时重生成）
   const indexPath = files.memoryIndex(home);
@@ -24,10 +24,10 @@ export function exportContext(home: string, index: OmemIndex, target: string): s
     case 'claude-code':
       return body + '\n';
     case 'cursor':
-      return ['---', 'description: omem 个人记忆索引（自动生成，勿手改）', 'alwaysApply: true', '---', '', body, ''].join('\n');
+      return ['---', 'description: omem personal memory index (auto-generated, do not edit)', 'alwaysApply: true', '---', '', body, ''].join('\n');
     case 'codex':
-      return ['<!-- OMEM:START -->', '## omem（个人记忆）', '', body, '', '<!-- OMEM:END -->', ''].join('\n');
+      return ['<!-- OMEM:START -->', '## omem (personal memory)', '', body, '', '<!-- OMEM:END -->', ''].join('\n');
     case 'plain':
-      return ['# omem 个人记忆索引', '', body, ''].join('\n');
+      return ['# omem personal memory index', '', body, ''].join('\n');
   }
 }

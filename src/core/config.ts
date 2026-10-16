@@ -95,7 +95,7 @@ export function parseTomlSubset(text: string): Record<string, any> {
       continue;
     }
     const kv = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
-    if (!kv) throw new Error(`config: 无法解析的行: ${line}`);
+    if (!kv) throw new Error(`config: cannot parse line: ${line}`);
     current[kv[1]] = parseTomlValue(kv[2].trim());
   }
   return root;
@@ -185,7 +185,7 @@ function tomlArr(a: string[]): string {
 
 export function serializeConfig(c: OmemConfig): string {
   return [
-    '# omem 配置（由 omem 管理，可手改；未知键被忽略）',
+    '# omem config (managed by omem; hand edits welcome; unknown keys are ignored)',
     '',
     '[general]',
     `profile = ${tomlStr(c.general.profile)}`,

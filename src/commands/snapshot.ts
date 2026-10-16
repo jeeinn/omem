@@ -7,7 +7,7 @@ export async function cmdSnapshot(): Promise<number> {
   const { home } = openCtx();
   const { path, pruned } = runSnapshot(home);
   appendLog(home, 'snapshot', { path, pruned: pruned.length });
-  console.log(`快照已创建: ${path}`);
-  if (pruned.length > 0) console.log(`已滚动清理: ${pruned.join(', ')}`);
+  console.log(`Snapshot created: ${path}`);
+  if (pruned.length > 0) console.log(`Pruned by rolling retention: ${pruned.join(', ')}`);
   return 0;
 }

@@ -14,21 +14,21 @@ export async function cmdProfile(args: ParsedArgs): Promise<number> {
   if (sub === 'use') {
     const next = args._[1];
     if (next !== 'work' && next !== 'home') {
-      throw new UsageError('用法: omem profile use <work|home>');
+      throw new UsageError('Usage: omem profile use <work|home>');
     }
     const current = currentProfile(config);
     if (next === current) {
-      console.log(`当前已是 ${next} profile`);
+      console.log(`Already on the ${next} profile`);
       return 0;
     }
     if (profileLocked(config)) {
       throw new UsageError(
-        `当前为 ${current} profile 且已锁定（OMEM_PROFILE_LOCKED=1 或 config profile.work.locked），无法切换。`,
+        `Currently on the ${current} profile, which is locked (OMEM_PROFILE_LOCKED=1 or config profile.work.locked); cannot switch.`,
       );
     }
     config.general.profile = next;
     saveConfig(home, config);
-    console.log(`已切换到 ${next} profile${next === 'work' ? '（导出/同步默认禁止）' : ''}`);
+    console.log(`Switched to the ${next} profile${next === 'work' ? ' (export/sync blocked by default)' : ''}`);
     return 0;
   }
 
@@ -38,10 +38,10 @@ export async function cmdProfile(args: ParsedArgs): Promise<number> {
   const all = listEntries(home);
   const work = all.filter((l) => l.entry.fm.profile === 'work').length;
   const homeCount = all.length - work;
-  console.log(`当前 profile: ${current}${locked ? '（已锁定）' : ''}`);
-  console.log(`条目分布: work ${work} · home ${homeCount}`);
+  console.log(`Current profile: ${current}${locked ? ' (locked)' : ''}`);
+  console.log(`Entry distribution: work ${work} · home ${homeCount}`);
   if (current === 'work') {
-    console.log('work profile：omem sync / omem context 默认禁止（OMEM_ALLOW_WORK_EXPORT=1 可临时放行）');
+    console.log('work profile: omem sync / omem context are blocked by default (OMEM_ALLOW_WORK_EXPORT=1 temporarily allows)');
   }
   void index;
   return 0;

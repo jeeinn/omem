@@ -15,7 +15,7 @@ export interface Ctx {
 export function openCtx(opts: { create?: boolean } = {}): Ctx {
   const home = omemHome();
   if (!existsSync(home) && !opts.create) {
-    throw new UsageError(`未初始化：${home} 不存在。先运行 omem init`);
+    throw new UsageError(`Not initialized: ${home} does not exist. Run omem init first`);
   }
   const config = loadConfig(home);
   const index = new OmemIndex(home);

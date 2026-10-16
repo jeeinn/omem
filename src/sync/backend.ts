@@ -40,7 +40,7 @@ export interface BackendConfig {
 export function getBackend(id: SyncBackendId, home: string, config: BackendConfig): SyncBackend {
   if (id === 'git') return new GitBackend(home, config);
   throw new BackendUnavailableError(
-    `同步后端 ${id} 尚未交付（V0.2：webdav 优先，dir 顺带）。`,
-    'V0.1 请使用 git 后端：omem sync use git',
+    `Sync backend ${id} is not yet delivered (V0.2: webdav first, dir alongside).`,
+    'For V0.1, use the git backend: omem sync use git',
   );
 }

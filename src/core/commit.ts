@@ -68,35 +68,35 @@ export function commitEntry(
   opts: CommitOpts = {},
 ): CommitResult {
   const raw = input.content.trim();
-  if (!raw) return finish(home, { status: 'excluded', reason: '内容为空' }, input, opts);
+  if (!raw) return finish(home, { status: 'excluded', reason: 'Content is empty' }, input, opts);
 
   const { text, hits } = redactSecrets(raw);
   const redacted = hits > 0 ? hits : undefined;
   if (hits > 0 && isRedactionShell(text)) {
-    return finish(home, { status: 'redacted-empty', redacted, reason: '整条均为密钥，已丢弃' }, input, opts);
+    return finish(home, { status: 'redacted-empty', redacted, reason: 'Entire entry is a secret; discarded' }, input, opts);
   }
 
   const profile = input.profile ?? currentProfile(config);
   if (!opts.force) {
     for (const kw of config.collect.exclude_keywords) {
       if (kw && text.includes(kw)) {
-        return finish(home, { status: 'excluded', redacted, reason: `禁区关键词「${kw}」` }, input, opts);
+        return finish(home, { status: 'excluded', redacted, reason: `Excluded keyword "${kw}"` }, input, opts);
       }
     }
     if (profile === 'work' && isCodeHeavy(text)) {
-      return finish(home, { status: 'excluded', redacted, reason: 'work profile 排除代码类条目' }, input, opts);
+      return finish(home, { status: 'excluded', redacted, reason: 'Code-heavy entries excluded under work profile' }, input, opts);
     }
   }
 
   const dup = index.getByBodyHash(contentHash(text));
   if (dup) {
-    return finish(home, { status: 'deduped', id: dup.id, redacted, reason: '内容已存在' }, input, opts);
+    return finish(home, { status: 'deduped', id: dup.id, redacted, reason: 'Content already exists' }, input, opts);
   }
 
   const supersedes = (input.supersedes ?? []).map((s) => s.trim()).filter(Boolean);
   const missing = supersedes.filter((id) => !findById(home, id, { includeArchived: true }));
   if (missing.length > 0) {
-    return finish(home, { status: 'excluded', redacted, reason: `未找到旧条目: ${missing.join(', ')}` }, input, opts);
+    return finish(home, { status: 'excluded', redacted, reason: `Old entries not found: ${missing.join(', ')}` }, input, opts);
   }
 
   if (opts.dryRun) {

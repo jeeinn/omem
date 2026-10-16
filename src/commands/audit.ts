@@ -9,7 +9,7 @@ export async function cmdAudit(args: ParsedArgs): Promise<number> {
   const n = Number(flagStr(args.flags, 'tail') ?? 20);
   const lines = tailLog(home, Number.isFinite(n) && n > 0 ? n : 20);
   if (lines.length === 0) {
-    console.log('暂无使用日志。');
+    console.log('No usage log yet.');
     return 0;
   }
   for (const l of lines) console.log(l);

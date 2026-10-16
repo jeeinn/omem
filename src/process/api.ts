@@ -4,17 +4,17 @@ import type { SessionDigest } from '../collect/types.js';
 import type { Candidate } from './rules.js';
 import { inferDomain } from './rules.js';
 
-export const EXTRACT_PROMPT_V1 = `你是个人记忆提炼器。从会话中提炼值得长期记住的条目。
-只输出 JSON 数组，不要输出其他文字。每项格式：
-{"type":"preference|fact|decision|experience","domain":"coding|general|...","content":"3-10句，忠实原文","confidence":0.0-1.0,"tags":["..."]}
-规则：结论入库、过程丢弃；不编造；指令式语气降置信；一条一事。`;
+export const EXTRACT_PROMPT_V1 = `You are a personal memory extractor. Distill entries worth remembering long-term from the session.
+Output a JSON array only, with no other text. Each item follows this format:
+{"type":"preference|fact|decision|experience","domain":"coding|general|...","content":"3-10 sentences, faithful to the original","confidence":0.0-1.0,"tags":["..."]}
+Rules: store conclusions and discard process; do not fabricate; lower confidence for imperative tone; one item per entry.`;
 
 export function apiConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.OMEM_API_KEY && env.OMEM_API_BASE && env.OMEM_API_MODEL);
 }
 
 export function apiSetupHint(): string {
-  return '档 3 未配置。设置 OMEM_API_KEY / OMEM_API_BASE / OMEM_API_MODEL（OpenAI 兼容端点）后重试；或使用默认档 0（零配置规则抽取）。';
+  return 'Tier 3 is not configured. Set OMEM_API_KEY / OMEM_API_BASE / OMEM_API_MODEL (OpenAI-compatible endpoint) and retry; or use the default tier 0 (zero-config rule extraction).';
 }
 
 /** 调用 OpenAI 兼容 chat completions 提炼一个会话 → 候选条目（source: 'llm'）。 */
@@ -33,13 +33,13 @@ export async function extractWithApi(digest: SessionDigest, env: NodeJS.ProcessE
       model: env.OMEM_API_MODEL,
       messages: [
         { role: 'system', content: EXTRACT_PROMPT_V1 },
-        { role: 'user', content: `会话（项目 ${digest.project_fp}）：\n${transcript}` },
+        { role: 'user', content: `Session (project ${digest.project_fp}):\n${transcript}` },
       ],
       temperature: 0.2,
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!res.ok) throw new Error(`档 3 API 调用失败: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Tier 3 API call failed: HTTP ${res.status}`);
   const data: any = await res.json();
   const text: string = data?.choices?.[0]?.message?.content ?? '';
   const m = text.match(/\[[\s\S]*\]/);

@@ -29,8 +29,8 @@ function sampleEntry(): Entry {
   };
 }
 
-describe('entry: frontmatter 契约', () => {
-  it('序列化 → 解析往返一致', () => {
+describe('entry: frontmatter contract', () => {
+  it('serialize → parse round-trip is identical', () => {
     const e = sampleEntry();
     const back = parseEntry(serializeEntry(e));
     expect(back).not.toBeNull();
@@ -44,7 +44,7 @@ describe('entry: frontmatter 契约', () => {
     expect(back!.body).toBe('这个项目以后都用手写 SQL，不要用 ORM。\n第二行补充说明。');
   });
 
-  it('序列化包含全部 15 字段且顺序稳定', () => {
+  it('serialization contains all 15 fields in stable order', () => {
     const text = serializeEntry(sampleEntry());
     const keys = text.split('\n').slice(1, text.split('\n').indexOf('---', 1));
     expect(keys[0]).toBe('id: 2026-10-15-a1b2c3');
@@ -54,11 +54,11 @@ describe('entry: frontmatter 契约', () => {
     expect(keys).toContain('tags: ["sql", "orm"]');
   });
 
-  it('无 frontmatter 的文本返回 null', () => {
+  it('text without frontmatter returns null', () => {
     expect(parseEntry('只是普通文本')).toBeNull();
   });
 
-  it('容错：未知 type/status/profile 回退默认值', () => {
+  it('tolerant: unknown type/status/profile fall back to defaults', () => {
     const back = parseEntry(
       ['---', 'id: x1', 'type: bogus', 'domain: coding', 'profile: mars', 'status: weird', 'confidence: 0.5', '---', '', '正文'].join('\n'),
     );
@@ -67,18 +67,18 @@ describe('entry: frontmatter 契约', () => {
     expect(back!.fm.profile).toBe('home');
   });
 
-  it('confidence 被裁剪到 [0,1]', () => {
+  it('confidence is clipped to [0,1]', () => {
     const back = parseEntry(['---', 'id: x1', 'type: fact', 'confidence: 7.5', '---', '', '正文'].join('\n'));
     expect(back!.fm.confidence).toBe(1);
   });
 
-  it('title 取首行并剥离 markdown 记号，超长截断', () => {
+  it('title takes the first line, strips markdown markers, truncates when long', () => {
     expect(deriveTitle('## 标题行\n第二行')).toBe('标题行');
     expect(deriveTitle('短标题')).toBe('短标题');
     expect([...deriveTitle('x'.repeat(100))].length).toBe(60);
   });
 
-  it('summary 取前两句', () => {
+  it('summary takes the first two sentences', () => {
     expect(deriveSummary('第一句。第二句！第三句？')).toBe('第一句。第二句！');
     expect([...deriveSummary('没有标点的很长内容'.repeat(20))].length).toBe(120);
   });

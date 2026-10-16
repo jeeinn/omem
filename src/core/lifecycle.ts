@@ -27,10 +27,10 @@ export function applySupersedes(home: string, index: OmemIndex, newEntry: Locate
 
 /** 时效标注（规格 §4.4）：把事实和时效一起给消费者，把判断权交给它。 */
 export function formatStaleness(fm: Frontmatter): string {
-  if (fm.verified) return `——${relTime(fm.last_confirmed)}确认`;
-  if (fm.status === 'superseded') return `——已被 ${fm.superseded_by ?? '新条目'} 取代`;
-  if (fm.status === 'stale') return `——记录于 ${relTime(fm.created)}，未再确认（已冷却）`;
-  return `——记录于 ${relTime(fm.created)}，未确认`;
+  if (fm.verified) return `— confirmed ${relTime(fm.last_confirmed)}`;
+  if (fm.status === 'superseded') return `— superseded by ${fm.superseded_by ?? 'a newer entry'}`;
+  if (fm.status === 'stale') return `— recorded ${relTime(fm.created)}, not reconfirmed (cooled)`;
+  return `— recorded ${relTime(fm.created)}, unconfirmed`;
 }
 
 /** gc：只标记 stale，只报告不删除（规格 §4.2/§7）。 */
@@ -90,10 +90,10 @@ export function generateMemoryIndex(home: string, index: OmemIndex): { path: str
 
   const MAX_LINES = 80;
   const lines: string[] = [
-    '# MEMORY-INDEX（omem 热层 · 自动生成，勿手改）',
+    '# MEMORY-INDEX (omem hot layer · auto-generated, do not edit)',
     '',
-    `> 生成于 ${nowIso()} · active ${active.length} / stale ${staleCount} / superseded ${supersededCount} / archived ${archivedCount}`,
-    '> 本文件是派生视图；详情用 `omem search "<关键词>"` 或 MCP search_memory。',
+    `> Generated ${nowIso()} · active ${active.length} / stale ${staleCount} / superseded ${supersededCount} / archived ${archivedCount}`,
+    '> This file is a derived view; use `omem search "<query>"` or MCP search_memory for details.',
     '',
   ];
   // 预算扣掉头部、截断提示行与尾部空行，保证总量 ≤80
@@ -105,7 +105,7 @@ export function generateMemoryIndex(home: string, index: OmemIndex): { path: str
     lines.push(`- [${(fm.created || '').slice(0, 10)}] ${title} ${formatStaleness(fm)} · ${tags} · \`${fm.id}\``);
   }
   if (active.length > budget) {
-    lines.push(`- …另有 ${active.length - budget} 条未展示（omem search 检索长尾）`);
+    lines.push(`- …${active.length - budget} more not shown (use omem search for the long tail)`);
   }
   lines.push('');
   const path = files.memoryIndex(home);

@@ -26,42 +26,42 @@ afterEach(() => {
   cleanupHome(home);
 });
 
-describe('context: 导出四目标', () => {
-  it('支持的目标列表', () => {
+describe('context: export four targets', () => {
+  it('supported target list', () => {
     expect(CONTEXT_TARGETS).toEqual(['claude-code', 'cursor', 'codex', 'plain']);
   });
 
-  it('claude-code：INDEX 原文', () => {
+  it('claude-code: INDEX verbatim', () => {
     const text = exportContext(home, index, 'claude-code');
     expect(text).toContain('MEMORY-INDEX');
     expect(text).toContain('手写 SQL 的约定');
   });
 
-  it('cursor：.mdc frontmatter + alwaysApply', () => {
+  it('cursor: .mdc frontmatter + alwaysApply', () => {
     const text = exportContext(home, index, 'cursor');
     expect(text.startsWith('---')).toBe(true);
     expect(text).toContain('alwaysApply: true');
     expect(text).toContain('手写 SQL 的约定');
   });
 
-  it('codex：AGENTS.md marker 段', () => {
+  it('codex: AGENTS.md marker section', () => {
     const text = exportContext(home, index, 'codex');
     expect(text).toContain('<!-- OMEM:START -->');
     expect(text).toContain('<!-- OMEM:END -->');
   });
 
-  it('plain：系统提示文本', () => {
+  it('plain: system prompt text', () => {
     const text = exportContext(home, index, 'plain');
-    expect(text).toContain('# omem 个人记忆索引');
+    expect(text).toContain('# omem personal memory index');
   });
 
-  it('INDEX 缺失时自动重生成', () => {
+  it('auto-regenerates when INDEX is missing', () => {
     rmSync(files.memoryIndex(home), { force: true });
     const text = exportContext(home, index, 'claude-code');
     expect(text).toContain('手写 SQL 的约定');
   });
 
-  it('未知目标抛 UsageError', () => {
-    expect(() => exportContext(home, index, 'vim')).toThrow(/未知 --for 目标/);
+  it('unknown target throws UsageError', () => {
+    expect(() => exportContext(home, index, 'vim')).toThrow(/Unknown --for target/);
   });
 });

@@ -48,7 +48,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   };
 
   if (config.general.paused) {
-    report.notes.push('采集已暂停（omem resume 恢复）');
+    report.notes.push('Collection paused (run omem resume to resume)');
     return report;
   }
 
@@ -62,7 +62,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
     printGuide(scan.digests);
     report.sessions = scan.digests.length;
     report.messages = scan.digests.reduce((n, d) => n + d.messages.length, 0);
-    report.notes.push('已打印加工引导；请由 Agent 提炼后调 save_memory / omem add 回写');
+    report.notes.push('Processing guide printed; have the Agent distill it and write back via save_memory / omem add');
     return report;
   }
 
@@ -107,7 +107,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     written: [], deduped: 0, redacted: 0, excluded: 0, notes: [],
   };
   if (config.general.paused) {
-    report.notes.push('采集已暂停（omem resume 恢复）');
+    report.notes.push('Collection paused (run omem resume to resume)');
     return report;
   }
   if (!apiConfigured()) throw new Error(apiSetupHint());
@@ -149,8 +149,8 @@ const ROOT_ENV: Record<string, string> = {
 function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
   for (const r of scan.roots) {
     if (r.exists) continue;
-    const env = ROOT_ENV[r.id] ?? '对应环境变量';
-    report.notes.push(`未找到 ${r.id} 会话目录: ${r.root}（可用 ${env} 指定）`);
+    const env = ROOT_ENV[r.id] ?? 'the corresponding environment variable';
+    report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${env})`);
   }
   return scan.roots.some((r) => r.exists);
 }

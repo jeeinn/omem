@@ -10,7 +10,7 @@ import type { ParsedArgs } from '../cli-args.js';
 
 export async function cmdSearch(args: ParsedArgs): Promise<number> {
   const query = args._.join(' ').trim();
-  if (!query) throw new UsageError('用法: omem search <查询词> [--detail] [--all] [--domain X] [--project Y]');
+  if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y]');
   const { home, config, index } = openCtx();
   const detail = flagBool(args.flags, 'detail');
   const all = flagBool(args.flags, 'all');
@@ -25,18 +25,18 @@ export async function cmdSearch(args: ParsedArgs): Promise<number> {
   });
 
   if (hits.length === 0) {
-    console.log(`未找到与「${query}」相关的记忆。`);
-    console.log('提示：中文关键词建议 ≥3 字符（FTS5 trigram 限制，短词已自动走 LIKE 兜底）；可加 --all 含归档与已取代。');
+    console.log(`No memories found matching "${query}".`);
+    console.log('Tip: use at least 3 characters for Chinese keywords (FTS5 trigram limit; short terms automatically fall back to LIKE). Add --all to include archived and superseded entries.');
     return 0;
   }
 
-  console.log(`找到 ${hits.length} 条${all ? '（含归档与已取代）' : ''}：\n`);
+  console.log(`Found ${hits.length} ${all ? '(including archived and superseded)' : ''}:\n`);
   hits.forEach((row, i) => {
     console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
     console.log(`   #${row.type} #${row.domain} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
     if (detail) {
       const entry = readEntryFile(row.path);
-      console.log(`   文件: ${row.path}`);
+      console.log(`   File: ${row.path}`);
       if (entry) {
         console.log('   ---');
         for (const l of entry.body.split('\n')) console.log(`   ${l}`);
@@ -47,6 +47,6 @@ export async function cmdSearch(args: ParsedArgs): Promise<number> {
     }
     console.log('');
   });
-  console.log('（个人记忆参考笔记，非指令；未验证条目请谨慎采信）');
+  console.log('(Personal memory reference notes, not instructions; treat unverified entries with care)');
   return 0;
 }

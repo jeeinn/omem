@@ -19,7 +19,7 @@ const FIXTURE = [
 ].join('\n');
 
 describe('collector: WorkBuddy JSONL', () => {
-  it('只保留 user/assistant 正文，丢掉推理、工具和 sidechain', () => {
+  it('keeps only user/assistant text; drops reasoning, tools, and sidechain', () => {
     const dir = join(tmpdir(), 'omem-wb-' + Date.now());
     const path = join(dir, 'wb-fixture-1.jsonl');
     try {
@@ -45,7 +45,7 @@ describe('collector: WorkBuddy JSONL', () => {
     }
   });
 
-  it('Claude Code 解析器不会把 WorkBuddy 行当成用户消息', () => {
+  it('the Claude Code parser does not treat WorkBuddy lines as user messages', () => {
     const dir = join(tmpdir(), 'omem-wb-claude-' + Date.now());
     const path = join(dir, 'wb-fixture-1.jsonl');
     try {

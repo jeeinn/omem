@@ -23,8 +23,8 @@ function entry(id: string, domain = 'coding', body = '测试条目正文') {
   };
 }
 
-describe('store: md 文件 CRUD', () => {
-  it('写入落在 knowledge/<domain>/<YYYY>/<id>.md', () => {
+describe('store: md file CRUD', () => {
+  it('writes land in knowledge/<domain>/<YYYY>/<id>.md', () => {
     const home = makeHome();
     try {
       const { path } = writeEntry(home, entry('2026-10-15-aaa111'));
@@ -38,7 +38,7 @@ describe('store: md 文件 CRUD', () => {
     }
   });
 
-  it('listEntries / findById / 归档隔离', () => {
+  it('listEntries / findById / archive isolation', () => {
     const home = makeHome();
     try {
       writeEntry(home, entry('2026-10-15-aaa111'));
@@ -58,7 +58,7 @@ describe('store: md 文件 CRUD', () => {
     }
   });
 
-  it('updateEntry 改 domain 时迁移文件位置', () => {
+  it('updateEntry migrates the file when domain changes', () => {
     const home = makeHome();
     try {
       writeEntry(home, entry('2026-10-15-aaa111', 'general'));
@@ -72,7 +72,7 @@ describe('store: md 文件 CRUD', () => {
     }
   });
 
-  it('deleteEntry 硬删除', () => {
+  it('deleteEntry hard-deletes', () => {
     const home = makeHome();
     try {
       const { path } = writeEntry(home, entry('2026-10-15-aaa111'));
@@ -84,7 +84,7 @@ describe('store: md 文件 CRUD', () => {
     }
   });
 
-  it('entryPath 年份取自 created', () => {
+  it('entryPath year comes from created', () => {
     const home = makeHome();
     try {
       const e = entry('2025-01-02-ccc333');
@@ -95,7 +95,7 @@ describe('store: md 文件 CRUD', () => {
     }
   });
 
-  it('序列化内容含 frontmatter 分隔符', () => {
+  it('serialized content contains frontmatter delimiters', () => {
     const home = makeHome();
     try {
       writeEntry(home, entry('2026-10-15-aaa111'));

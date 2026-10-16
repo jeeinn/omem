@@ -263,165 +263,165 @@ const configBefore = snapshotFiles(guardedConfigs());
 let sourceHashes = new Map();
 
 try {
-  console.log(`沙箱: ${sandbox}`);
-  console.log('== L1 检测客户端（只读） ==');
+  console.log(`Sandbox: ${sandbox}`);
+  console.log('== L1 detect clients (read-only) ==');
   const listed = omem(omemHome, roots, ['install', '--list']);
-  if (listed.code !== 0) bad('install --list 退出码 0', `code=${listed.code}`);
-  else ok('install --list 退出码 0');
+  if (listed.code !== 0) bad('install --list exit code 0', `code=${listed.code}`);
+  else ok('install --list exit code 0');
   const detected = (id) => listed.out.split(/\r?\n/).some((line) => line.includes(`[✓] ${id}`));
-  if (detected('claude-code')) ok('列出 Claude Code');
-  else bad('列出 Claude Code');
-  if (detected('workbuddy')) ok('列出 WorkBuddy');
-  else bad('列出 WorkBuddy');
-  if (detected('cursor')) ok('列出 Cursor');
-  else bad('列出 Cursor');
+  if (detected('claude-code')) ok('lists Claude Code');
+  else bad('lists Claude Code');
+  if (detected('workbuddy')) ok('lists WorkBuddy');
+  else bad('lists WorkBuddy');
+  if (detected('cursor')) ok('lists Cursor');
+  else bad('lists Cursor');
 
-  console.log('== L2 预览 MCP 配置（不落盘） ==');
+  console.log('== L2 preview MCP config (no writes) ==');
   for (const id of ['claude-code', 'workbuddy', 'cursor']) {
     const preview = omem(omemHome, roots, ['install', '--print-config', id]);
     if (preview.code !== 0) {
-      bad(`${id} print-config 退出码 0`, `code=${preview.code}`);
+      bad(`${id} print-config exit code 0`, `code=${preview.code}`);
       continue;
     }
     const jsonStart = preview.out.indexOf('{');
     if (jsonStart < 0) {
-      bad(`${id} print-config 含 JSON`);
+      bad(`${id} print-config contains JSON`);
       continue;
     }
     let parsed;
     try {
       parsed = JSON.parse(preview.out.slice(jsonStart));
     } catch (e) {
-      bad(`${id} print-config JSON 可解析`, String(e.message ?? e));
+      bad(`${id} print-config JSON parses`, String(e.message ?? e));
       continue;
     }
     const omemEntry = parsed?.mcpServers?.omem;
     if (omemEntry?.command && Array.isArray(omemEntry.args) && omemEntry.args.includes('serve')) {
-      ok(`${id} 预览含 omem serve`);
+      ok(`${id} preview contains omem serve`);
     } else {
-      bad(`${id} 预览含 omem serve`);
+      bad(`${id} preview contains omem serve`);
     }
     if (id === 'claude-code') {
       const names = Object.keys(parsed.mcpServers ?? {});
       if (names.includes('context7') && names.includes('codegraph') && names.includes('dbx')) {
-        ok('claude-code 预览保留原有 MCP 键');
+        ok('claude-code preview keeps existing MCP keys');
       } else {
-        bad('claude-code 预览保留原有 MCP 键', names.join(','));
+        bad('claude-code preview keeps existing MCP keys', names.join(','));
       }
     }
     if (id === 'cursor') {
       const names = Object.keys(parsed.mcpServers ?? {});
       const original = mcpServerNames(join(HOME, '.cursor', 'mcp.json'));
       const missing = original.filter((name) => !names.includes(name));
-      if (missing.length === 0 && original.length > 0) ok(`cursor 预览保留原有 MCP 键 ${original.join(',')}`);
-      else bad('cursor 预览保留原有 MCP 键', missing.join(',') || '原文件没有 mcpServers');
+      if (missing.length === 0 && original.length > 0) ok(`cursor preview keeps existing MCP keys ${original.join(',')}`);
+      else bad('cursor preview keeps existing MCP keys', missing.join(',') || 'original file has no mcpServers');
     }
   }
 
-  console.log('== L3 复制 Claude 会话并加工 ==');
+  console.log('== L3 copy Claude sessions and process ==');
   const claudeFiles = pickClaude(topLevelJsonl(CLAUDE_PROJECTS), 3);
-  if (claudeFiles.length === 0) bad('找到可解析的 Claude 会话');
-  else ok(`选中 ${claudeFiles.length} 个 Claude 会话副本`);
+  if (claudeFiles.length === 0) bad('found parsable Claude sessions');
+  else ok(`selected ${claudeFiles.length} Claude session copies`);
   for (const f of claudeFiles) {
     sourceHashes.set(f.path, sha256(f.path));
     copySession(f, claudeCopy);
   }
   const init = omem(omemHome, roots, ['init', '--no-scan']);
-  if (init.code === 0) ok('隔离目录 init');
-  else bad('隔离目录 init', `code=${init.code}`);
+  if (init.code === 0) ok('init in isolated directory');
+  else bad('init in isolated directory', `code=${init.code}`);
   const run = omem(omemHome, roots, ['run']);
-  const summary = run.out.split(/\r?\n/).find((l) => l.startsWith('加工完成')) ?? '';
-  if (run.code === 0 && /会话 [1-9]/.test(summary) && /消息 [1-9]/.test(summary)) {
-    ok(`Claude 副本加工 ${summary.replace(/^加工完成/, '').trim()}`);
+  const summary = run.out.split(/\r?\n/).find((l) => l.startsWith('Processing complete')) ?? '';
+  if (run.code === 0 && /sessions [1-9]/.test(summary) && /messages [1-9]/.test(summary)) {
+    ok(`Claude copy processed ${summary.replace(/^Processing complete/, '').trim()}`);
   } else {
-    bad('Claude 副本加工', `code=${run.code} ${summary || run.out.slice(0, 180)}`);
+    bad('Claude copy processed', `code=${run.code} ${summary || run.out.slice(0, 180)}`);
   }
   const secretHits = walkMd(join(omemHome, 'knowledge')).filter((p) => SECRET_RE.test(readFileSync(p, 'utf8')));
-  if (secretHits.length === 0) ok('隔离记忆库未见明文密钥形态');
-  else bad('隔离记忆库未见明文密钥形态', `${secretHits.length} 个文件`);
+  if (secretHits.length === 0) ok('no plaintext secret shapes in isolated store');
+  else bad('no plaintext secret shapes in isolated store', `${secretHits.length} files`);
 
   const marker = 'omem-live-marker-7f3a';
   const added = omem(omemHome, roots, ['add', `验证检索用标记 ${marker}`, '--type', 'fact']);
   const found = omem(omemHome, roots, ['search', marker]);
-  if (added.code === 0 && found.code === 0 && found.out.includes(marker)) ok('隔离库写入后可检索');
-  else bad('隔离库写入后可检索', `add=${added.code} search=${found.code}`);
+  if (added.code === 0 && found.code === 0 && found.out.includes(marker)) ok('searchable after isolated write');
+  else bad('searchable after isolated write', `add=${added.code} search=${found.code}`);
 
-  console.log('== L4 WorkBuddy 会话副本 ==');
+  console.log('== L4 WorkBuddy session copies ==');
   const wb = pickWorkbuddy(topLevelJsonl(WORKBUDDY_PROJECTS));
-  if (!wb) bad('找到含用户消息的 WorkBuddy 会话');
+  if (!wb) bad('found a WorkBuddy session with user messages');
   else {
     sourceHashes.set(wb.path, sha256(wb.path));
     const copied = copySession(wb, workbuddyCopy);
     const asClaude = parseSessionFile(copied);
-    if (!asClaude) ok('Claude 解析器不误读 WorkBuddy 副本');
-    else bad('Claude 解析器不误读 WorkBuddy 副本', `messages=${asClaude.messages.length}`);
+    if (!asClaude) ok('Claude parser does not misread the WorkBuddy copy');
+    else bad('Claude parser does not misread the WorkBuddy copy', `messages=${asClaude.messages.length}`);
     const digest = parseWorkbuddyFile(copied);
     const users = userCount(digest);
-    if (users > 0) ok(`WorkBuddy 副本解析出 ${users} 条用户消息 / 共 ${digest.messages.length} 条`);
-    else bad('WorkBuddy 副本解析出用户消息');
+    if (users > 0) ok(`WorkBuddy copy parsed ${users} user messages / ${digest.messages.length} total`);
+    else bad('WorkBuddy copy parsed user messages');
     if (digest) {
       const candidates = extractFromDigest(digest);
-      ok(`WorkBuddy 副本规则候选 ${candidates.length} 条（0 只说明这几句没踩中规则）`);
+      ok(`WorkBuddy copy rule candidates ${candidates.length} (0 just means these lines hit no rules)`);
     }
   }
 
-  console.log('== L4b Cursor 会话副本与上下文导出 ==');
+  console.log('== L4b Cursor session copies and context export ==');
   const cursorFile = pickCursor(listCursorTranscripts(CURSOR_PROJECTS));
-  if (!cursorFile) bad('找到含用户消息的 Cursor transcript');
+  if (!cursorFile) bad('found a Cursor transcript with user messages');
   else {
     sourceHashes.set(cursorFile.path, sha256(cursorFile.path));
     const copied = copySession(cursorFile, cursorCopy);
     const asClaude = parseSessionFile(copied);
-    if (!asClaude) ok('Claude 解析器不误读 Cursor 副本');
-    else bad('Claude 解析器不误读 Cursor 副本', `messages=${asClaude.messages.length}`);
+    if (!asClaude) ok('Claude parser does not misread the Cursor copy');
+    else bad('Claude parser does not misread the Cursor copy', `messages=${asClaude.messages.length}`);
     const digest = parseCursorTranscript(copied);
     const users = userCount(digest);
-    if (users > 0) ok(`Cursor 副本解析出 ${users} 条用户消息 / 共 ${digest.messages.length} 条`);
-    else bad('Cursor 副本解析出用户消息');
+    if (users > 0) ok(`Cursor copy parsed ${users} user messages / ${digest.messages.length} total`);
+    else bad('Cursor copy parsed user messages');
     if (digest) {
       const candidates = extractFromDigest(digest);
-      ok(`Cursor 副本规则候选 ${candidates.length} 条（0 只说明这几句没踩中规则）`);
+      ok(`Cursor copy rule candidates ${candidates.length} (0 just means these lines hit no rules)`);
     }
   }
   const again = omem(omemHome, roots, ['run']);
-  const againLine = again.out.split(/\r?\n/).find((l) => l.startsWith('加工完成')) ?? '';
-  if (again.code === 0 && /会话 2/.test(againLine) && /跳过未变化/.test(againLine)) {
-    ok(`run 扫到 WorkBuddy 与 Cursor 副本 ${againLine.replace(/^加工完成/, '').trim()}`);
+  const againLine = again.out.split(/\r?\n/).find((l) => l.startsWith('Processing complete')) ?? '';
+  if (again.code === 0 && /sessions 2/.test(againLine) && /skipped unchanged/.test(againLine)) {
+    ok(`run scanned WorkBuddy and Cursor copies ${againLine.replace(/^Processing complete/, '').trim()}`);
   } else {
-    bad('run 扫到 WorkBuddy 与 Cursor 副本', `code=${again.code} ${againLine || again.out.slice(0, 180)}`);
+    bad('run scanned WorkBuddy and Cursor copies', `code=${again.code} ${againLine || again.out.slice(0, 180)}`);
   }
   const exported = omem(omemHome, roots, ['context', '--for', 'cursor']);
   if (exported.code === 0 && exported.out.includes('alwaysApply: true') && exported.out.includes('MEMORY-INDEX')) {
-    ok('context --for cursor 导出 .mdc');
+    ok('context --for cursor exports .mdc');
   } else {
-    bad('context --for cursor 导出 .mdc', `code=${exported.code}`);
+    bad('context --for cursor exports .mdc', `code=${exported.code}`);
   }
 
-  console.log('== L5 源会话与客户端配置未改 ==');
+  console.log('== L5 source sessions and client configs unchanged ==');
   for (const [path, hash] of sourceHashes) {
     if (!existsSync(path)) {
-      bad(`源文件仍在 ${basename(path)}`);
+      bad(`source file still present ${basename(path)}`);
       continue;
     }
-    if (sha256(path) === hash) ok(`源文件哈希未变 ${basename(path)}`);
-    else bad(`源文件哈希未变 ${basename(path)}`);
+    if (sha256(path) === hash) ok(`source file hash unchanged ${basename(path)}`);
+    else bad(`source file hash unchanged ${basename(path)}`);
   }
   const configAfter = snapshotFiles(guardedConfigs());
   const changed = diffSnapshot(configBefore, configAfter);
-  if (changed.length === 0) ok('mcp.json / CLAUDE.md / .claude.json 未改');
-  else bad('mcp.json / CLAUDE.md / .claude.json 未改', changed.map((p) => relative(HOME, p)).join(', '));
+  if (changed.length === 0) ok('mcp.json / CLAUDE.md / .claude.json unchanged');
+  else bad('mcp.json / CLAUDE.md / .claude.json unchanged', changed.map((p) => relative(HOME, p)).join(', '));
 
   const homeReal = join(HOME, '.omem');
-  if (!existsSync(homeReal)) ok('未创建 ~/.omem');
-  else ok('未改用 ~/.omem（本轮只写临时目录）');
+  if (!existsSync(homeReal)) ok('did not create ~/.omem');
+  else ok('did not switch to ~/.omem (this run only wrote temp dirs)');
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
 }
 
 console.log('');
-console.log(`结果: ${pass.length} 通过 / ${fail.length} 失败`);
+console.log(`Result: ${pass.length} passed / ${fail.length} failed`);
 if (fail.length) {
-  console.log('失败项: ' + fail.join('；'));
+  console.log('Failures: ' + fail.join('; '));
   process.exit(1);
 }
-console.log('本机只读验证通过');
+console.log('Local read-only verification passed');

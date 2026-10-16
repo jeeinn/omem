@@ -52,7 +52,7 @@ function mergeInto(obj: any, spec: ClientSpec, command: string): void {
       break;
     case 'json-array-mcp':
       obj.mcpServers ??= [];
-      if (!Array.isArray(obj.mcpServers)) throw new Error('mcpServers 已存在且不是数组，跳过以免破坏配置');
+      if (!Array.isArray(obj.mcpServers)) throw new Error('mcpServers exists and is not an array; skipping to avoid corrupting the config');
       {
         const found = obj.mcpServers.find((x: any) => x && x.name === 'omem');
         if (found) {
@@ -97,7 +97,7 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
     try {
       parsed = parseTomlSubset(raw);
     } catch (e: any) {
-      return { reason: `TOML 解析失败: ${e.message}`, manual };
+      return { reason: `TOML parse failed: ${e.message}`, manual };
     }
     mergeInto(parsed, spec, command);
     return { text: serializeOmemToml(parsed) };
@@ -106,7 +106,7 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
   const parsed = parseJsonc(raw);
   if (!parsed.ok) {
     // 纪律 5：解析失败 → 降级，给手工片段
-    return { reason: `解析失败（可能是 JSON5/JSONC 变体）: ${parsed.error}`, manual };
+    return { reason: `Parse failed (possibly a JSON5/JSONC variant): ${parsed.error}`, manual };
   }
   try {
     mergeInto(parsed.value, spec, command);
@@ -153,11 +153,11 @@ export const MARKER_END = '<!-- OMEM:END -->';
 export function markerSection(): string {
   return [
     MARKER_START,
-    '## omem（个人记忆）',
-    '- 检索记忆：`omem search "<query>"`（等价于 MCP 的 search_memory）',
-    '- 保存记忆：`omem add "<content>"`',
-    '- 上下文导出：`omem context --for <agent>`',
-    '- MCP 工具 search_memory / save_memory 可用时优先用工具。',
+    '## omem (personal memory)',
+    '- Search memories: `omem search "<query>"` (equivalent to the MCP search_memory)',
+    '- Save a memory: `omem add "<content>"`',
+    '- Export context: `omem context --for <agent>`',
+    '- Prefer the MCP tools search_memory / save_memory when available.',
     MARKER_END,
   ].join('\n');
 }

@@ -40,7 +40,7 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
     const root = rootFrom(config.collect.cursor_projects, 'OMEM_CURSOR_PROJECTS', env);
     return { id, root: () => root, list: () => listCursorTranscripts(root), parse: (path) => parseCursorTranscript(path) };
   }
-  throw new Error(`未知采集器: ${id}（支持 ${COLLECTOR_IDS.join(' / ')}）`);
+  throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }
 
 export interface ScanRoot {

@@ -36,7 +36,7 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.claude.json'),
     detect: (h) => existsSync(join(h, '.claude')) || existsSync(join(h, '.claude.json')),
     verified: false,
-    note: '亦可用 claude mcp add 官方命令',
+    note: 'The official `claude mcp add` command also works',
   },
   {
     id: 'claude-desktop',
@@ -58,7 +58,7 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.cursor', 'mcp.json'),
     detect: (h) => existsSync(join(h, '.cursor')),
     verified: true, // 本机已核实：~/.cursor/mcp.json
-    note: '亦支持项目级 .cursor/mcp.json',
+    note: 'Project-level .cursor/mcp.json is also supported',
   },
   {
     id: 'workbuddy',
@@ -75,7 +75,7 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.codex', 'config.toml'),
     detect: (h) => existsSync(join(h, '.codex')),
     verified: false,
-    note: 'TOML 格式 [mcp_servers.omem]',
+    note: 'TOML format [mcp_servers.omem]',
   },
   {
     id: 'continue',
@@ -84,7 +84,7 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.continue', 'config.json'),
     detect: (h) => existsSync(join(h, '.continue')),
     verified: false,
-    note: 'mcpServers 为数组形态',
+    note: 'mcpServers is an array',
   },
   {
     id: 'zed',
@@ -93,7 +93,7 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.config', 'zed', 'settings.json'),
     detect: (h) => existsSync(join(h, '.config', 'zed')),
     verified: false,
-    note: 'context_servers 嵌套 command 对象；形态随版本漂移，待核',
+    note: 'context_servers nests a command object; format drifts across versions, unverified',
   },
   {
     id: 'windsurf',
@@ -116,12 +116,12 @@ export const CLIENTS: ClientSpec[] = [
     detect: () =>
       existsSync(join(APPDATA, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev')),
     verified: false,
-    note: 'VS Code 插件存储路径，随版本漂移，待核',
+    note: 'VS Code extension storage path; drifts across versions, unverified',
   },
 ];
 
 export function getClient(id: string): ClientSpec {
   const c = CLIENTS.find((x) => x.id === id);
-  if (!c) throw new Error(`未知客户端: ${id}（omem install --list 查看支持列表）`);
+  if (!c) throw new Error(`Unknown client: ${id} (run omem install --list to see supported clients)`);
   return c;
 }

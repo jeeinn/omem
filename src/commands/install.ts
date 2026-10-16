@@ -18,11 +18,11 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
   const command = flagStr(args.flags, 'command') ?? config.install.command;
 
   if (flagBool(args.flags, 'list')) {
-    console.log('支持的客户端（✓=本机检测到；路径状态以"待核"标注的随版本漂移）：\n');
+    console.log('Supported clients (✓ = detected on this machine; paths marked "unverified" may drift across versions):\n');
     for (const c of CLIENTS) {
       const detected = c.detect(homedir());
       const mark = detected ? '✓' : ' ';
-      const verified = c.verified ? '路径已核实' : '路径待核';
+      const verified = c.verified ? 'path verified' : 'path unverified';
       console.log(`  [${mark}] ${c.id.padEnd(15)} ${c.name.padEnd(16)} ${verified}  ${c.configPath(homedir())}`);
       if (c.note) console.log(`       └ ${c.note}`);
     }
@@ -36,13 +36,13 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     const path = spec.configPath(homedir());
     const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
     const rendered = renderClientConfig(spec, command, raw);
-    console.log(`# 目标文件: ${path}${raw === null ? '（不存在，安装时将新建）' : ''}`);
+    console.log(`# Target file: ${path}${raw === null ? ' (does not exist; will be created on install)' : ''}`);
     if (rendered.text !== undefined) {
       console.log(rendered.text);
     } else {
-      console.log(`# 无法自动生成：${rendered.reason}`);
+      console.log(`# Cannot auto-generate: ${rendered.reason}`);
       if (rendered.manual) {
-        console.log('# 请手工添加以下片段：');
+        console.log('# Please add the following snippet manually:');
         console.log(rendered.manual);
       }
     }
@@ -54,11 +54,11 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
   if (targets.length === 0) {
     targets = CLIENTS.filter((c) => c.detect(homedir())).map((c) => c.id);
     if (targets.length === 0) {
-      console.log('未检测到已安装的 Agent 客户端。');
-      console.log('可用 omem install --list 查看支持列表，或用 --target <id> 强制写入。');
+      console.log('No installed Agent clients detected.');
+      console.log('Run omem install --list to see supported clients, or use --target <id> to force.');
       return 0;
     }
-    console.log(`自动检测到 ${targets.length} 个客户端: ${targets.join(', ')}\n`);
+    console.log(`Auto-detected ${targets.length} client(s): ${targets.join(', ')}\n`);
   }
 
   let failures = 0;
@@ -66,13 +66,13 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     const spec = getClient(id);
     const out = writeClientConfig(spec, command);
     if (out.ok) {
-      console.log(`✓ ${spec.id} → ${out.path}${out.backup ? `（备份: ${out.backup}）` : '（新建）'}`);
+      console.log(`✓ ${spec.id} → ${out.path}${out.backup ? ` (backup: ${out.backup})` : ' (created)'}`);
     } else {
       failures++;
       console.log(`✗ ${spec.id} → ${out.path}`);
-      console.log(`  原因: ${out.reason}`);
+      console.log(`  Reason: ${out.reason}`);
       if (out.manual) {
-        console.log('  请手工添加以下配置片段：');
+        console.log('  Please add the following config snippet manually:');
         for (const l of out.manual.split('\n')) console.log(`    ${l}`);
       }
     }
@@ -81,9 +81,9 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
   // marker-fenced 指令段（规格 §6.4）：让子 Agent 与非 MCP harness 也能用 CLI
   const claudeMd = join(homedir(), '.claude', 'CLAUDE.md');
   const marker = writeMarkerSection(claudeMd);
-  console.log(`\n指令段已写入: ${marker.path}${marker.created ? '（新建）' : '（marker 幂等替换）'}`);
+  console.log(`\nInstruction section written: ${marker.path}${marker.created ? ' (created)' : ' (idempotent marker replacement)'}`);
 
-  console.log('\n收尾：请重启对应客户端以加载 MCP 服务。');
-  console.log('验证: omem install --print-config workbuddy');
+  console.log('\nFinal step: restart the corresponding clients to load the MCP server.');
+  console.log('Verify: omem install --print-config workbuddy');
   return failures > 0 ? 0 : 0; // 降级已打印手工片段，不算失败（规格 §6.5-5）
 }

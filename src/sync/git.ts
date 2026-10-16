@@ -23,7 +23,7 @@ function gitTry(args: string[], cwd: string): { ok: boolean; out: string; err: s
   }
 }
 
-const DATA_GITIGNORE = `# omem 数据仓：只版本化事实源
+const DATA_GITIGNORE = `# omem data repo: only the source of truth is versioned
 index/
 snapshots/
 logs/
@@ -51,8 +51,8 @@ export class GitBackend {
   private ensureGit(): void {
     if (!GitBackend.available()) {
       throw new BackendUnavailableError(
-        '未检测到 git 命令。',
-        '请先安装 git；非开发者路径（WebDAV）在 V0.2 交付：omem sync use webdav',
+        'git command not found.',
+        'Please install git first; the non-developer path (WebDAV) ships in V0.2: omem sync use webdav',
       );
     }
   }
@@ -118,19 +118,19 @@ export class GitBackend {
     this.ensureGit();
     if (this.config.sync.auto_snapshot) {
       const { path } = runSnapshot(this.home);
-      report.notes.push(`同步前快照: ${path}`);
+      report.notes.push(`Pre-sync snapshot: ${path}`);
     }
     git(['add', '-A'], this.home);
     const porcelain = gitTry(['status', '--porcelain'], this.home);
     if (porcelain.out) {
       const c = gitTry(['commit', '-m', `omem: sync ${new Date().toISOString()}`], this.home);
-      if (!c.ok) report.notes.push(`本地提交失败: ${c.err}`);
+      if (!c.ok) report.notes.push(`Local commit failed: ${c.err}`);
     } else {
-      report.notes.push('无本地改动，无需提交');
+      report.notes.push('No local changes; nothing to commit');
     }
     const remote = this.remoteUrl();
     if (!remote) {
-      report.notes.push('未配置远端（omem sync remote <url>），已本地提交');
+      report.notes.push('No remote configured (omem sync remote <url>); committed locally');
       return;
     }
     // 对齐远端默认分支，保证 clone 侧能检出（详见 remoteDefaultBranch 注释）
@@ -141,7 +141,7 @@ export class GitBackend {
     if (p.ok) {
       report.pushed = true;
     } else {
-      report.notes.push(`推送失败（${p.err.trim().split('\n')[0]}），本地已提交，联网后重试 omem sync`);
+      report.notes.push(`Push failed (${p.err.trim().split('\n')[0]}); committed locally, retry omem sync when online`);
     }
   }
 
@@ -149,7 +149,7 @@ export class GitBackend {
     this.ensureGit();
     const remote = this.remoteUrl();
     if (!remote) {
-      report.notes.push('未配置远端，跳过拉取（omem sync remote <url>）');
+      report.notes.push('No remote configured; skipping pull (omem sync remote <url>)');
       return;
     }
     // 显式指定远端分支：不依赖 upstream 是否已建立（手动 init + add remote 的场景）
@@ -161,7 +161,7 @@ export class GitBackend {
     if (porcelain.out) {
       git(['add', '-A'], this.home);
       const c = gitTry(['commit', '-m', 'omem: autosave before pull'], this.home);
-      if (c.ok) report.notes.push('本地未提交改动已固化为自动提交（omem: autosave before pull）');
+      if (c.ok) report.notes.push('Uncommitted local changes fixed as an autosave commit (omem: autosave before pull)');
     }
 
     const pr = gitTry(['pull', '--no-rebase', '--no-edit', 'origin', branch], this.home);
@@ -184,7 +184,7 @@ export class GitBackend {
         }
         gitTry(['commit', '--no-edit'], this.home);
       } else {
-        report.notes.push(`拉取失败: ${pr.err.trim().split('\n')[0]}`);
+        report.notes.push(`Pull failed: ${pr.err.trim().split('\n')[0]}`);
       }
     }
   }
@@ -199,7 +199,7 @@ export class GitBackend {
       dirty: 0,
     };
     if (!base.available) {
-      base.note = '数据仓未初始化（omem sync 会自动 init）';
+      base.note = 'Data repo not initialized (omem sync will init automatically)';
       return base;
     }
     const r = gitTry(['config', '--get', 'remote.origin.url'], this.home);
@@ -212,7 +212,7 @@ export class GitBackend {
       base.behind = behind;
       base.ahead = ahead;
     } else {
-      base.note = '无 upstream 分支（未推送过或未配置远端）';
+      base.note = 'No upstream branch (never pushed or no remote configured)';
     }
     return base;
   }

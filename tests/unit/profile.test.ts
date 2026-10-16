@@ -11,18 +11,18 @@ function cfg(mutate: (c: OmemConfig) => void = () => {}): OmemConfig {
   return c;
 }
 
-describe('profile: work/home 守卫', () => {
-  it('默认 home；env 覆盖', () => {
+describe('profile: work/home guards', () => {
+  it('defaults to home; env overrides', () => {
     expect(currentProfile(cfg(), {})).toBe('home');
     expect(currentProfile(cfg((c) => (c.general.profile = 'work')), {})).toBe('work');
     expect(currentProfile(cfg(), { OMEM_PROFILE: 'work' })).toBe('work');
   });
 
-  it('home profile 放行导出', () => {
+  it('home profile allows export', () => {
     expect(() => assertExportAllowed('omem context', cfg(), {})).not.toThrow();
   });
 
-  it('work profile 拒绝导出并给可操作提示', () => {
+  it('work profile rejects export with an actionable hint', () => {
     const c = cfg((x) => (x.general.profile = 'work'));
     try {
       assertExportAllowed('omem sync', c, {});
@@ -34,12 +34,12 @@ describe('profile: work/home 守卫', () => {
     }
   });
 
-  it('OMEM_ALLOW_WORK_EXPORT=1 临时放行', () => {
+  it('OMEM_ALLOW_WORK_EXPORT=1 temporarily allows', () => {
     const c = cfg((x) => (x.general.profile = 'work'));
     expect(() => assertExportAllowed('omem sync', c, { OMEM_ALLOW_WORK_EXPORT: '1' })).not.toThrow();
   });
 
-  it('锁定：env 与 config 两条路径', () => {
+  it('locking: env and config paths', () => {
     const c = cfg((x) => {
       x.general.profile = 'work';
       x.profile_work.locked = true;
@@ -49,7 +49,7 @@ describe('profile: work/home 守卫', () => {
     expect(profileLocked(cfg(), {})).toBe(false);
   });
 
-  it('代码密度启发式', () => {
+  it('code-density heuristic', () => {
     expect(isCodeHeavy('function foo() {\n  return 1;\n}')).toBe(true);
     expect(isCodeHeavy('用户喜欢在早上喝咖啡\n周末去公园跑步\n偶尔爬山')).toBe(false);
   });

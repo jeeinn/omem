@@ -17,134 +17,134 @@ run() { "${OMEM[@]}" "$@" 2>&1; }
 
 echo "== S1 omem init --no-scan =="
 OUT=$(run init --no-scan); CODE=$?
-[ $CODE -eq 0 ] && ok "退出码 0" || bad "退出码 $CODE: $OUT"
-[ -f "$OMEM_HOME/config.toml" ] && ok "config.toml 生成" || bad "config.toml 缺失"
-[ -d "$OMEM_HOME/knowledge" ] && ok "knowledge/ 生成" || bad "knowledge/ 缺失"
-[ -d "$OMEM_HOME/.git" ] && ok "git 数据仓初始化" || bad "git 数据仓缺失"
-[ -f "$OMEM_HOME/MEMORY-INDEX.md" ] && ok "MEMORY-INDEX.md 生成" || bad "MEMORY-INDEX.md 缺失"
+[ $CODE -eq 0 ] && ok "exit code 0" || bad "exit code $CODE: $OUT"
+[ -f "$OMEM_HOME/config.toml" ] && ok "config.toml generated" || bad "config.toml missing"
+[ -d "$OMEM_HOME/knowledge" ] && ok "knowledge/ generated" || bad "knowledge/ missing"
+[ -d "$OMEM_HOME/.git" ] && ok "git data repo initialized" || bad "git data repo missing"
+[ -f "$OMEM_HOME/MEMORY-INDEX.md" ] && ok "MEMORY-INDEX.md generated" || bad "MEMORY-INDEX.md missing"
 
-echo "== S2 omem add + search（≥3 字符 trigram） =="
+echo "== S2 omem add + search (≥3-char trigram) =="
 OUT=$(run add "本项目使用 Postgres 而非 MySQL 作为主数据库"); CODE=$?
-[ $CODE -eq 0 ] && ok "add 退出码 0" || bad "add 退出码 $CODE: $OUT"
+[ $CODE -eq 0 ] && ok "add exit code 0" || bad "add exit code $CODE: $OUT"
 OUT=$(run search "Postgres 而非"); CODE=$?
-[ $CODE -eq 0 ] && ok "search 退出码 0" || bad "search 退出码 $CODE"
-echo "$OUT" | grep -q "Postgres" && ok "多词 trigram 命中" || bad "多词 trigram 未命中: $OUT"
-echo "$OUT" | grep -q "确认" && ok "输出含时效标注" || bad "输出缺时效标注"
+[ $CODE -eq 0 ] && ok "search exit code 0" || bad "search exit code $CODE"
+echo "$OUT" | grep -q "Postgres" && ok "multi-word trigram hit" || bad "multi-word trigram miss: $OUT"
+echo "$OUT" | grep -q "confirmed" && ok "output carries freshness label" || bad "output missing freshness label"
 
-echo "== S3 短查询 LIKE 兜底（trigram 对 <3 字符无效） =="
+echo "== S3 short query LIKE fallback (trigram invalid for <3 chars) =="
 OUT=$(run search "库")
-echo "$OUT" | grep -q "Postgres" && ok "单字查询 LIKE 兜底命中" || bad "单字查询未命中: $OUT"
+echo "$OUT" | grep -q "Postgres" && ok "single-char query LIKE fallback hit" || bad "single-char query miss: $OUT"
 
-echo "== S4 外部编辑 → catch-up（规格 §2.3 下次访问检出） =="
+echo "== S4 external edit → catch-up (spec §2.3, detected on next access) =="
 F=$(find "$OMEM_HOME/knowledge" -name '*.md' | head -1)
 echo "" >> "$F"; echo "外部编辑标记 handedit-marker-123 由 Obsidian 追加" >> "$F"
 OUT=$(run search "handedit-marker-123")
-echo "$OUT" | grep -q "handedit-marker-123" && ok "外部编辑被 catch-up 吸收" || bad "外部编辑未吸收: $OUT"
+echo "$OUT" | grep -q "handedit-marker-123" && ok "external edit absorbed by catch-up" || bad "external edit not absorbed: $OUT"
 
-echo "== S5 删索引 → rebuild 全量恢复 =="
+echo "== S5 delete index → rebuild full recovery =="
 rm -f "$OMEM_HOME/index/omem.db"
 OUT=$(run rebuild); CODE=$?
-[ $CODE -eq 0 ] && ok "rebuild 退出码 0" || bad "rebuild 退出码 $CODE: $OUT"
-echo "$OUT" | grep -q "索引已全量重建" && ok "rebuild 报告输出" || bad "rebuild 报告缺失"
+[ $CODE -eq 0 ] && ok "rebuild exit code 0" || bad "rebuild exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Index fully rebuilt" && ok "rebuild reports output" || bad "rebuild report missing"
 OUT=$(run search "Postgres 而非")
-echo "$OUT" | grep -q "Postgres" && ok "rebuild 后检索恢复" || bad "rebuild 后检索未恢复"
+echo "$OUT" | grep -q "Postgres" && ok "search recovered after rebuild" || bad "search not recovered after rebuild"
 
-echo "== S6 omem run（合成 fixture，档 0 规则抽取 + 脱敏） =="
+echo "== S6 omem run (synthetic fixture, tier 0 rules + redaction) =="
 OUT=$(run run); CODE=$?
-[ $CODE -eq 0 ] && ok "run 退出码 0" || bad "run 退出码 $CODE: $OUT"
-echo "$OUT" | grep -qE "候选 [0-9]{1,2}" && ok "抽取到候选" || bad "无候选: $OUT"
-echo "$OUT" | grep -qE "写入 (1?[0-9]|[2-9][0-9])" && ok "候选落盘" || bad "未落盘: $OUT"
-grep -rl "source: rules" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "规则候选落盘" || bad "无规则候选落盘"
-if grep -rq "sk-ant-abc123" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "密钥未脱敏"; else ok "密钥已脱敏"; fi
-grep -rq "sk-ant-\*\*\*REDACTED\*\*\*" "$OMEM_HOME/knowledge" 2>/dev/null && ok "脱敏标记写入" || bad "脱敏标记缺失"
-if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "sidechain 未过滤"; else ok "sidechain 子 agent 条目已过滤"; fi
-if grep -rq "会话摘要" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "summary 未过滤"; else ok "summary 条目已过滤"; fi
-grep -rl "low-weight" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "指令式语气打低权标签" || bad "指令式语气未标记"
+[ $CODE -eq 0 ] && ok "run exit code 0" || bad "run exit code $CODE: $OUT"
+echo "$OUT" | grep -qE "candidates [0-9]{1,2}" && ok "candidates extracted" || bad "no candidates: $OUT"
+echo "$OUT" | grep -qE "written (1?[0-9]|[2-9][0-9])" && ok "candidates written" || bad "nothing written: $OUT"
+grep -rl "source: rules" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "rule candidates written" || bad "no rule candidates written"
+if grep -rq "sk-ant-abc123" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "secrets not redacted"; else ok "secrets redacted"; fi
+grep -rq "sk-ant-\*\*\*REDACTED\*\*\*" "$OMEM_HOME/knowledge" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
+if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
+if grep -rq "会话摘要" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
+grep -rl "low-weight" "$OMEM_HOME/knowledge" >/dev/null 2>&1 && ok "imperative tone tagged low-weight" || bad "imperative tone not tagged"
 
 echo "== S7 omem review --confirm =="
 RID=$(grep -rl "source: rules" "$OMEM_HOME/knowledge" | head -1 | xargs basename | sed 's/\.md$//')
 OUT=$(run review --confirm "$RID"); CODE=$?
-[ $CODE -eq 0 ] && ok "confirm 退出码 0" || bad "confirm 退出码 $CODE: $OUT"
-echo "$OUT" | grep -q "已确认" && ok "confirm 生效" || bad "confirm 未生效"
+[ $CODE -eq 0 ] && ok "confirm exit code 0" || bad "confirm exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Confirmed" && ok "confirm takes effect" || bad "confirm not effective"
 F=$(find "$OMEM_HOME/knowledge" -name "$RID.md")
-grep -q "verified: true" "$F" && ok "verified 晋升落盘" || bad "verified 未晋升"
+grep -q "verified: true" "$F" && ok "verified promotion written" || bad "verified not promoted"
 
-echo "== S8 omem gc（只标记 stale） =="
+echo "== S8 omem gc (mark stale only) =="
 F=$(grep -rl "source: rules" "$OMEM_HOME/knowledge" | head -1)
 sed -i 's/^last_confirmed:.*/last_confirmed: 2026-01-01T00:00:00.000Z/' "$F"
 OUT=$(run gc); CODE=$?
-[ $CODE -eq 0 ] && ok "gc 退出码 0" || bad "gc 退出码 $CODE: $OUT"
-echo "$OUT" | grep -qE "标记 stale [1-9]" && ok "gc 标记 stale" || bad "gc 未标记: $OUT"
-grep -q "status: stale" "$F" && ok "stale 落盘" || bad "stale 未落盘"
+[ $CODE -eq 0 ] && ok "gc exit code 0" || bad "gc exit code $CODE: $OUT"
+echo "$OUT" | grep -qE "marked [1-9] stale" && ok "gc marks stale" || bad "gc did not mark: $OUT"
+grep -q "status: stale" "$F" && ok "stale written" || bad "stale not written"
 
 echo "== S9 omem context --for =="
 OUT=$(run context --for claude-code); CODE=$?
-[ $CODE -eq 0 ] && ok "claude-code 导出退出码 0" || bad "退出码 $CODE: $OUT"
-echo "$OUT" | grep -q "MEMORY-INDEX" && ok "claude-code 导出 INDEX" || bad "claude-code 导出异常"
+[ $CODE -eq 0 ] && ok "claude-code export exit code 0" || bad "exit code $CODE: $OUT"
+echo "$OUT" | grep -q "MEMORY-INDEX" && ok "claude-code exports INDEX" || bad "claude-code export abnormal"
 OUT=$(run context --for cursor)
-echo "$OUT" | grep -q "alwaysApply: true" && ok "cursor .mdc 导出" || bad "cursor 导出异常"
+echo "$OUT" | grep -q "alwaysApply: true" && ok "cursor .mdc export" || bad "cursor export abnormal"
 OUT=$(run context --for codex)
-echo "$OUT" | grep -q "OMEM:START" && ok "codex AGENTS.md 段导出" || bad "codex 导出异常"
+echo "$OUT" | grep -q "OMEM:START" && ok "codex AGENTS.md section export" || bad "codex export abnormal"
 
-echo "== S10 omem sync（无远端 → 本地提交） =="
+echo "== S10 omem sync (no remote → local commit) =="
 OUT=$(run sync status); CODE=$?
-[ $CODE -eq 0 ] && ok "sync status 退出码 0" || bad "退出码 $CODE: $OUT"
-echo "$OUT" | grep -q "后端: git" && ok "git 后端状态" || bad "后端状态异常: $OUT"
+[ $CODE -eq 0 ] && ok "sync status exit code 0" || bad "exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Backend: git" && ok "git backend status" || bad "backend status abnormal: $OUT"
 OUT=$(run sync); CODE=$?
-[ $CODE -eq 0 ] && ok "sync 退出码 0" || bad "sync 退出码 $CODE: $OUT"
-echo "$OUT" | grep -q "未配置远端" && ok "无远端时本地提交并提示" || bad "无远端提示缺失: $OUT"
+[ $CODE -eq 0 ] && ok "sync exit code 0" || bad "sync exit code $CODE: $OUT"
+echo "$OUT" | grep -q "No remote configured" && ok "local commit and note when no remote" || bad "no-remote note missing: $OUT"
 OUT=$(run sync status)
-echo "$OUT" | grep -q "待推送: 0" && ok "提交后无待推送" || bad "仍有待推送: $OUT"
+echo "$OUT" | grep -q "Ahead: 0" && ok "nothing to push after commit" || bad "still ahead: $OUT"
 
-echo "== S11 work profile 拒绝 sync（退出码 2） =="
+echo "== S11 work profile rejects sync (exit code 2) =="
 run profile use work >/dev/null
 OUT=$(run sync); CODE=$?
-[ $CODE -eq 2 ] && ok "work profile 拒绝 sync" || bad "退出码 $CODE（期望 2）"
-echo "$OUT" | grep -q "work profile" && ok "给出可操作提示" || bad "提示缺失"
+[ $CODE -eq 2 ] && ok "work profile rejects sync" || bad "exit code $CODE (expected 2)"
+echo "$OUT" | grep -q "work profile" && ok "actionable hint given" || bad "hint missing"
 run profile use home >/dev/null
 
-echo "== S12 omem redact（唯一硬删除） =="
+echo "== S12 omem redact (the only hard delete) =="
 F2=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1)
 ID2=$(basename "$F2" .md)
 OUT=$(run redact --id "$ID2"); CODE=$?
-[ $CODE -eq 0 ] && ok "redact 退出码 0" || bad "redact 退出码 $CODE: $OUT"
-[ ! -f "$F2" ] && ok "文件已删除" || bad "文件未删除"
+[ $CODE -eq 0 ] && ok "redact exit code 0" || bad "redact exit code $CODE: $OUT"
+[ ! -f "$F2" ] && ok "file deleted" || bad "file not deleted"
 OUT=$(run search "Postgres 而非")
-if echo "$OUT" | grep -q "主数据库"; then bad "索引条目未移除"; else ok "索引条目已移除"; fi
+if echo "$OUT" | grep -q "主数据库"; then bad "index entry not removed"; else ok "index entry removed"; fi
 
-echo "== S13 omem snapshot（滚动保留） =="
+echo "== S13 omem snapshot (rolling retention) =="
 OUT=$(run snapshot); CODE=$?
-[ $CODE -eq 0 ] && ok "snapshot 退出码 0" || bad "退出码 $CODE: $OUT"
-ls "$OMEM_HOME/snapshots" 2>/dev/null | grep -q "$(date +%Y-%m-%d)" && ok "当日快照生成" || bad "快照缺失"
+[ $CODE -eq 0 ] && ok "snapshot exit code 0" || bad "exit code $CODE: $OUT"
+ls "$OMEM_HOME/snapshots" 2>/dev/null | grep -q "$(date +%Y-%m-%d)" && ok "today's snapshot created" || bad "snapshot missing"
 
-echo "== S14 MCP 探针（握手 + 工具调用） =="
+echo "== S14 MCP probe (handshake + tool calls) =="
 OUT=$(node "$ROOT/tests/mcp-probe.mjs" "$ROOT/bin/omem.js"); CODE=$?
-[ $CODE -eq 0 ] && ok "MCP 握手与工具调用全部通过" || { bad "MCP 探针失败"; echo "$OUT" | sed 's/^/    /'; }
+[ $CODE -eq 0 ] && ok "MCP handshake and tool calls all pass" || { bad "MCP probe failed"; echo "$OUT" | sed 's/^/    /'; }
 
-echo "== S15 supersede 显式入口 =="
+echo "== S15 supersede explicit entry =="
 OUT=$(run add "S15旧约定使用本地磁盘保存日志 s15-old-marker")
-OLD=$(printf '%s\n' "$OUT" | sed -n 's/^已保存 id: //p' | head -1)
-[ -n "$OLD" ] && ok "旧条目 id=$OLD" || bad "未解析旧 id: $OUT"
+OLD=$(printf '%s\n' "$OUT" | sed -n 's/^Saved id: //p' | head -1)
+[ -n "$OLD" ] && ok "old entry id=$OLD" || bad "failed to parse old id: $OUT"
 OUT=$(run add "S15新约定日志改走标准输出 s15-new-marker" --supersedes "$OLD")
-echo "$OUT" | grep -q "已取代" && ok "add --supersedes 声明取代" || bad "未声明取代: $OUT"
+echo "$OUT" | grep -q "Supersedes" && ok "add --supersedes declares supersession" || bad "supersession not declared: $OUT"
 OUT=$(run search "s15-old-marker")
-echo "$OUT" | grep -q "未找到" && ok "默认检索排除 superseded" || bad "默认检索仍返回旧条目: $OUT"
+echo "$OUT" | grep -q "No memories found" && ok "default search excludes superseded" || bad "default search still returns old entry: $OUT"
 OUT=$(run search "s15-old-marker" --all)
-echo "$OUT" | grep -q "s15-old-marker" && ok "--all 带回 superseded" || bad "--all 未带回: $OUT"
+echo "$OUT" | grep -q "s15-old-marker" && ok "--all brings back superseded" || bad "--all did not bring back: $OUT"
 OUT=$(run search "s15-new-marker")
-echo "$OUT" | grep -q "s15-new-marker" && ok "新条目仍可检索" || bad "新条目未命中: $OUT"
+echo "$OUT" | grep -q "s15-new-marker" && ok "new entry still searchable" || bad "new entry not hit: $OUT"
 REV=$(run review)
 CAND=$(printf '%s\n' "$REV" | sed -n 's/^- `\([^`]*\)`.*/\1/p' | head -1)
 if [ -n "$CAND" ]; then
   OUT=$(run review --confirm "$CAND" --supersedes "$OLD")
-  echo "$OUT" | grep -q "已确认" && ok "review --confirm --supersedes 确认" || bad "review 未确认: $OUT"
-  echo "$OUT" | grep -q "已取代" && ok "review 声明取代" || bad "review 未取代: $OUT"
+  echo "$OUT" | grep -q "Confirmed" && ok "review --confirm --supersedes confirms" || bad "review not confirmed: $OUT"
+  echo "$OUT" | grep -q "Superseded" && ok "review declares supersession" || bad "review did not supersede: $OUT"
 else
-  bad "review 队列为空，无法验证 --supersedes"
+  bad "review queue empty, cannot verify --supersedes"
 fi
 
 echo ""
 echo "═══════════════════════════════════════"
-echo "结果: $PASS 通过 / $FAIL 失败"
-[ $FAIL -eq 0 ] && echo "✅ 冒烟全绿" || echo "❌ 存在失败项"
+echo "Result: $PASS passed / $FAIL failed"
+[ $FAIL -eq 0 ] && echo "✅ smoke all green" || echo "❌ failures present"
 exit $([ $FAIL -eq 0 ] && echo 0 || echo 1)

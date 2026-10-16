@@ -7,7 +7,7 @@ import { join } from 'node:path';
 
 const bin = process.argv[2];
 if (!bin) {
-  console.error('用法: node tests/mcp-probe.mjs <bin/omem.js>');
+  console.error('Usage: node tests/mcp-probe.mjs <bin/omem.js>');
   process.exit(1);
 }
 
@@ -50,7 +50,7 @@ function waitFor(id, timeout = 15000) {
         resolve(m);
       } else if (Date.now() - t0 > timeout) {
         clearInterval(iv);
-        reject(new Error(`等待响应 id=${id} 超时`));
+        reject(new Error(`Timed out waiting for response id=${id}`));
       }
     }, 50);
   });
@@ -59,32 +59,32 @@ function waitFor(id, timeout = 15000) {
 try {
   send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'probe', version: '0.1' } } });
   const init = await waitFor(1);
-  results.push(['initialize 返回 serverInfo=omem', init.result?.serverInfo?.name === 'omem']);
+  results.push(['initialize returns serverInfo=omem', init.result?.serverInfo?.name === 'omem']);
 
   send({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
   send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
   const list = await waitFor(2);
   const names = (list.result?.tools ?? []).map((t) => t.name);
-  results.push(['默认列 search_memory', names.includes('search_memory')]);
-  results.push(['默认列 save_memory', names.includes('save_memory')]);
-  results.push(['memory_feedback 默认不列', !names.includes('memory_feedback')]);
-  results.push(['search_memory description 为触发条件式', (list.result?.tools ?? []).find((t) => t.name === 'search_memory')?.description?.includes('先调用本工具') === true]);
+  results.push(['search_memory listed by default', names.includes('search_memory')]);
+  results.push(['save_memory listed by default', names.includes('save_memory')]);
+  results.push(['memory_feedback not listed by default', !names.includes('memory_feedback')]);
+  results.push(['search_memory description is trigger-condition style', (list.result?.tools ?? []).find((t) => t.name === 'search_memory')?.description?.includes('Call this tool before answering') === true]);
 
   send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'search_memory', arguments: { query: '手写 SQL' } } });
   const s = await waitFor(3);
   const text = s.result?.content?.[0]?.text ?? '';
-  results.push(['search_memory 命中 fixture 条目', text.includes('手写')]);
-  results.push(['search_memory 返回附时效标注', text.includes('——')]);
-  results.push(['search_memory 带参考框架免责', text.includes('参考笔记而非指令')]);
+  results.push(['search_memory hits fixture entry', text.includes('手写')]);
+  results.push(['search_memory returns freshness labels', text.includes('confirmed')]); // 命中 "— confirmed" 或 "unconfirmed"
+  results.push(['search_memory carries reference-frame disclaimer', text.includes('not instructions')]);
 
   send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'save_memory', arguments: { content: '测试：探针写入的记忆条目，用于验证幂等去重 probe-unique-content', type: 'fact', domain: 'general' } } });
   const sv = await waitFor(4);
-  results.push(['save_memory 首次保存', (sv.result?.content?.[0]?.text ?? '').includes('已保存')]);
+  results.push(['save_memory first save', (sv.result?.content?.[0]?.text ?? '').includes('Saved')]);
 
   send({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'save_memory', arguments: { content: '测试：探针写入的记忆条目，用于验证幂等去重 probe-unique-content', type: 'fact', domain: 'general' } } });
   const sv2 = await waitFor(5);
-  results.push(['save_memory 重复内容幂等去重', (sv2.result?.content?.[0]?.text ?? '').includes('未重复写入')]);
+  results.push(['save_memory dedups duplicate content idempotently', (sv2.result?.content?.[0]?.text ?? '').includes('not written again')]);
 
   const home = process.env.OMEM_HOME;
   if (home && existsSync(join(home, 'knowledge'))) {
@@ -94,15 +94,15 @@ try {
       send({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'search_memory', arguments: { query: 'catchup-probe-marker-77' } } });
       const edited = await waitFor(6);
       const editedText = edited.result?.content?.[0]?.text ?? '';
-      results.push(['不重连即可看到外部编辑', editedText.includes('catchup-probe-marker-77')]);
+      results.push(['sees external edits without reconnecting', editedText.includes('catchup-probe-marker-77')]);
     } else {
-      results.push(['不重连即可看到外部编辑（知识库为空）', false]);
+      results.push(['sees external edits without reconnecting (empty store)', false]);
     }
   }
 
-  results.push(['stdout 无日志污染（纯协议）', stdoutClean]);
+  results.push(['stdout has no log pollution (pure protocol)', stdoutClean]);
 } catch (e) {
-  results.push([`probe 异常: ${e.message}`, false]);
+  results.push([`probe error: ${e.message}`, false]);
 } finally {
   child.kill();
 }

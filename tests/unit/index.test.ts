@@ -40,8 +40,8 @@ afterEach(() => {
   cleanupHome(home);
 });
 
-describe('index: FTS5 trigram 检索', () => {
-  it('≥3 字符多词查询（trigram AND 语义）', () => {
+describe('index: FTS5 trigram search', () => {
+  it('≥3-char multi-word query (trigram AND semantics)', () => {
     add('2026-10-15-e1', '这个项目禁用 ORM，必须手写 SQL');
     add('2026-10-15-e2', '用户偏好用 Postgres 而非 MySQL 处理数据库');
     const hits = searchEntries(index, { query: '手写 SQL' });
@@ -49,7 +49,7 @@ describe('index: FTS5 trigram 检索', () => {
     expect(hits[0].id).toBe('2026-10-15-e1');
   });
 
-  it('<3 字符查询走 LIKE 兜底', () => {
+  it('<3-char query falls back to LIKE', () => {
     add('2026-10-15-e1', '这个项目禁用 ORM，必须手写 SQL');
     const hits = searchEntries(index, { query: 'ORM' }); // 3 字符 ASCII
     expect(hits.length).toBeGreaterThan(0);
@@ -58,47 +58,47 @@ describe('index: FTS5 trigram 检索', () => {
     expect(hits2[0].id).toBe('2026-10-15-e1');
   });
 
-  it('多词 LIKE AND 重试', () => {
+  it('multi-word LIKE AND retry', () => {
     add('2026-10-15-e1', '部署时 docker 镜像构建失败');
     const hits = searchEntries(index, { query: 'docker 失败' }); // docker(5)+失败(2) → 混合长度
     expect(hits.length).toBeGreaterThan(0);
   });
 
-  it('stale 条目降权（active 优先于 stale）', () => {
+  it('stale entries down-weighted (active before stale)', () => {
     add('2026-10-15-active', '手写 SQL 的约定 active', { status: 'active' });
     add('2026-10-15-stale', '手写 SQL 的约定 stale', { status: 'stale' });
     const hits = searchEntries(index, { query: '手写 SQL', limit: 5 });
     expect(hits[0].id).toBe('2026-10-15-active');
   });
 
-  it('archived 默认排除，--all 含归档', () => {
+  it('archived excluded by default, --all includes archive', () => {
     add('2026-10-15-arc', '已归档的手写 SQL 条目', { status: 'archived' });
     expect(searchEntries(index, { query: '手写 SQL' })).toHaveLength(0);
     expect(searchEntries(index, { query: '手写 SQL', all: true })).toHaveLength(1);
   });
 
-  it('domain / project 过滤', () => {
+  it('domain / project filtering', () => {
     add('2026-10-15-c', 'coding 域的手写 SQL', { domain: 'coding' });
     add('2026-10-15-g', 'general 域的手写 SQL', { domain: 'general' });
     expect(searchEntries(index, { query: '手写 SQL', domain: 'general' })).toHaveLength(1);
     expect(searchEntries(index, { query: '手写 SQL', domain: 'general' })[0].id).toBe('2026-10-15-g');
   });
 
-  it('content-hash 去重查询', () => {
+  it('content-hash dedup lookup', () => {
     add('2026-10-15-e1', '手写 SQL 约定');
     const row = index.getById('2026-10-15-e1')!;
     expect(index.getByHash(row.hash)!.id).toBe('2026-10-15-e1');
     expect(index.getByHash('deadbeef')).toBeNull();
   });
 
-  it('空查询返回空', () => {
+  it('empty query returns empty', () => {
     add('2026-10-15-e1', '任意内容');
     expect(searchEntries(index, { query: '   ' })).toHaveLength(0);
   });
 });
 
-describe('index: 一致性（catch-up / rebuild）', () => {
-  it('外部编辑被 catch-up 增量重索引', () => {
+describe('index: consistency (catch-up / rebuild)', () => {
+  it('external edits incrementally reindexed by catch-up', () => {
     add('2026-10-15-e1', '原始内容 手写 SQL');
     expect(searchEntries(index, { query: 'handedit' })).toHaveLength(0);
 
@@ -112,7 +112,7 @@ describe('index: 一致性（catch-up / rebuild）', () => {
     expect(hits).toHaveLength(1);
   });
 
-  it('文件被外部删除 → catch-up 移除索引行', () => {
+  it('externally deleted file → catch-up removes the index row', () => {
     add('2026-10-15-e1', '待删除条目');
     rmSync(join(home, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'), { force: true });
     const r = index.catchUp();
@@ -120,7 +120,7 @@ describe('index: 一致性（catch-up / rebuild）', () => {
     expect(index.getById('2026-10-15-e1')).toBeNull();
   });
 
-  it('删 db 后 rebuild 全量恢复', () => {
+  it('full recovery via rebuild after deleting the db', () => {
     add('2026-10-15-e1', '手写 SQL 约定甲');
     add('2026-10-15-e2', '手写 SQL 约定乙', { domain: 'general' });
     index.close();
@@ -135,7 +135,7 @@ describe('index: 一致性（catch-up / rebuild）', () => {
     expect(searchEntries(index, { query: '手写 SQL' })).toHaveLength(2);
   });
 
-  it('未变化文件走快路径（reindexed = 0）', () => {
+  it('unchanged files take the fast path (reindexed = 0)', () => {
     add('2026-10-15-e1', '稳定内容');
     const r = index.catchUp();
     expect(r.scanned).toBe(1);
@@ -143,8 +143,8 @@ describe('index: 一致性（catch-up / rebuild）', () => {
   });
 });
 
-describe('index: sessions 台账', () => {
-  it('put/get 会话记录', () => {
+describe('index: sessions ledger', () => {
+  it('put/get session records', () => {
     index.putSession({ session_id: 's1', project_fp: 'fp', msg_count: 6, last_ts: '2026-10-10T09:00:00Z', processed_at: 'now' });
     const rec = index.getSession('s1')!;
     expect(rec.msg_count).toBe(6);

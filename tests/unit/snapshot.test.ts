@@ -17,8 +17,8 @@ afterEach(() => {
   cleanupHome(home);
 });
 
-describe('snapshot: 每日快照', () => {
-  it('创建当日快照（knowledge + config）', () => {
+describe('snapshot: daily snapshot', () => {
+  it("creates today's snapshot (knowledge + config)", () => {
     writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
     const dest = createSnapshot(home);
     expect(dest).toContain(new Date().toISOString().slice(0, 10));
@@ -27,7 +27,7 @@ describe('snapshot: 每日快照', () => {
     expect(existsSync(join(dest, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
   });
 
-  it('滚动保留 7 份，超出被清理', () => {
+  it('rolling retention of 7; extras pruned', () => {
     const root = dirs.snapshots(home);
     for (let i = 1; i <= 9; i++) {
       mkdirSync(join(root, `2026-01-${String(i).padStart(2, '0')}`), { recursive: true });
@@ -41,14 +41,14 @@ describe('snapshot: 每日快照', () => {
     expect(readdirSync(root)).toContain('2026-01-09');
   });
 
-  it('runSnapshot = 创建 + 清理', () => {
+  it('runSnapshot = create + prune', () => {
     writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
     const { path, pruned } = runSnapshot(home);
     expect(existsSync(path)).toBe(true);
     expect(pruned).toEqual([]);
   });
 
-  it('重复创建当日快照覆盖而非堆积', () => {
+  it("re-creating today's snapshot overwrites instead of piling up", () => {
     createSnapshot(home);
     createSnapshot(home);
     const today = new Date().toISOString().slice(0, 10);

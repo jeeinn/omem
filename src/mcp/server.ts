@@ -16,7 +16,7 @@ export function prepareToolCall(home: string, index: OmemIndex): void {
   const catchUp = index.catchUp();
   if (catchUp.reindexed > 0 || catchUp.removed > 0) {
     generateMemoryIndex(home, index);
-    console.error(`[omem] tool-call catch-up: 扫描 ${catchUp.scanned}，重索引 ${catchUp.reindexed}，移除 ${catchUp.removed}`);
+    console.error(`[omem] tool-call catch-up: scanned ${catchUp.scanned}, reindexed ${catchUp.reindexed}, removed ${catchUp.removed}`);
   }
 }
 
@@ -26,7 +26,7 @@ export async function startMcpServer(home: string): Promise<void> {
   const catchUp = index.catchUp();
   if (catchUp.reindexed > 0 || catchUp.removed > 0) {
     generateMemoryIndex(home, index);
-    console.error(`[omem] connect-time catch-up: 扫描 ${catchUp.scanned}，重索引 ${catchUp.reindexed}，移除 ${catchUp.removed}`);
+    console.error(`[omem] connect-time catch-up: scanned ${catchUp.scanned}, reindexed ${catchUp.reindexed}, removed ${catchUp.removed}`);
   }
   appendLog(home, 'mcp.start', catchUp as unknown as Record<string, unknown>);
 

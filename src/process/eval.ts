@@ -59,7 +59,7 @@ export interface SampleRow {
 }
 
 const LIMITATION =
-  '子串包含匹配是弱代理：短摘录容易算命中，抽出的跨度也可能和标注错位。这个数字不是 Q1（Q1 是人工判断「抽得对不对」）。';
+  'Substring containment matching is a weak proxy: short excerpts easily count as hits, and extracted spans may also be misaligned with annotations. This number is not Q1 (Q1 is the human judgment of "was this extracted correctly").';
 
 export function covers(candidate: string, needle: string): boolean {
   const a = normalizeForHash(candidate);
@@ -91,7 +91,7 @@ function walkJsonl(dir: string): string[] {
 
 export function loadAnnotations(path: string): EvalAnnotations {
   const parsed = JSON.parse(readFileSync(path, 'utf8')) as EvalAnnotations;
-  if (!Array.isArray(parsed.sessions)) throw new Error(`annotations 缺少 sessions: ${path}`);
+  if (!Array.isArray(parsed.sessions)) throw new Error(`annotations missing sessions: ${path}`);
   return parsed;
 }
 
@@ -108,7 +108,7 @@ export function scoreAnnotations(goldenDir: string, annotations: EvalAnnotations
   for (const ann of annotations.sessions) {
     const path = byName.get(ann.session);
     if (!path) {
-      for (const text of ann.extract) misses.push({ session: ann.session, text: `缺少会话文件: ${text}` });
+      for (const text of ann.extract) misses.push({ session: ann.session, text: `Missing session file: ${text}` });
       extractTotal += ann.extract.length;
       continue;
     }
@@ -172,8 +172,8 @@ export function writeBaseline(path: string, score: EvalScore): BaselineFile {
     date: nowIso(),
     kind: score.kind,
     note: score.kind === 'synthetic'
-      ? '合成 fixture 的管道回归基线，不是质量结论。' + LIMITATION
-      : '回归基线。低于记录值才失败；数字本身不是 Q1。' + LIMITATION,
+      ? 'Pipeline regression baseline for synthetic fixtures, not a quality conclusion.' + LIMITATION
+      : 'Regression baseline. Only fails when below the recorded value; the number itself is not Q1.' + LIMITATION,
     sessions: score.sessions,
     recall: score.recall,
     precision: score.precision,
@@ -186,17 +186,17 @@ export function writeBaseline(path: string, score: EvalScore): BaselineFile {
 export function formatRecall(score: EvalScore): string {
   const lines = [
     LIMITATION,
-    `kind=${score.kind} 会话 ${score.sessions} 候选 ${score.candidates}`,
-    `recall ${score.recall}（${score.extractHit}/${score.extractTotal}） precision ${score.precision}（${score.truePositives}/${score.candidates}） F1 ${score.f1}`,
+    `kind=${score.kind} sessions ${score.sessions} candidates ${score.candidates}`,
+    `recall ${score.recall} (${score.extractHit}/${score.extractTotal}) precision ${score.precision} (${score.truePositives}/${score.candidates}) F1 ${score.f1}`,
   ];
   if (score.misses.length > 0) {
-    lines.push('未命中标注:');
+    lines.push('Missed annotations:');
     for (const m of score.misses) lines.push(`- ${m.session}: ${m.text}`);
   }
   if (score.falseExtracts.length > 0) {
-    lines.push('未对齐候选（多抽或命中 reject）:');
+    lines.push('Misaligned candidates (over-extraction or reject hits):');
     for (const m of score.falseExtracts.slice(0, 20)) lines.push(`- ${m.session}: ${m.text}`);
-    if (score.falseExtracts.length > 20) lines.push(`- …另有 ${score.falseExtracts.length - 20} 条`);
+    if (score.falseExtracts.length > 20) lines.push(`- …${score.falseExtracts.length - 20} more`);
   }
   return lines.join('\n');
 }

@@ -12,7 +12,7 @@ import { makeHome, cleanupHome } from './helpers.js';
 const FIXTURE = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', '-x-demo-project', 'sess-fixture-1.jsonl');
 
 describe('collector: Claude Code JSONL', () => {
-  it('解析合成 fixture：消息数、角色、过滤', () => {
+  it('parses the synthetic fixture: message count, roles, filtering', () => {
     const d = parseSessionFile(FIXTURE)!;
     expect(d).not.toBeNull();
     expect(d.session_id).toBe('sess-fixture-1');
@@ -25,7 +25,7 @@ describe('collector: Claude Code JSONL', () => {
     expect(all).not.toContain('会话摘要');
   });
 
-  it('assistant 的 tool_use 块被剔除，只留 text', () => {
+  it('assistant tool_use blocks stripped, text only', () => {
     const d = parseSessionFile(FIXTURE)!;
     const assistant = d.messages.filter((m) => m.role === 'assistant');
     expect(assistant).toHaveLength(1);
@@ -33,7 +33,7 @@ describe('collector: Claude Code JSONL', () => {
     expect(assistant[0].content).not.toContain('tool_use');
   });
 
-  it('msg_uuid / ts / project_fp 完整', () => {
+  it('msg_uuid / ts / project_fp complete', () => {
     const d = parseSessionFile(FIXTURE)!;
     const first = d.messages[0];
     expect(first.msg_uuid).toBe('u1');
@@ -41,7 +41,7 @@ describe('collector: Claude Code JSONL', () => {
     expect(first.project_fp).toMatch(/^(?:local:[0-9a-f]{8}|[0-9a-f]{12}|unknown)$/);
   });
 
-  it('listSessionFiles 按 --since 过滤', () => {
+  it('listSessionFiles filters by --since', () => {
     const dir = join(tmpdir(), 'omem-collect-test-' + Date.now());
     try {
       mkdirSync(join(dir, 'proj'), { recursive: true });
@@ -53,7 +53,7 @@ describe('collector: Claude Code JSONL', () => {
     }
   });
 
-  it('损坏行被容忍（跳过不抛）', () => {
+  it('corrupted lines tolerated (skipped, no throw)', () => {
     const dir = join(tmpdir(), 'omem-collect-bad-' + Date.now());
     try {
       mkdirSync(join(dir, 'proj'), { recursive: true });
@@ -69,28 +69,28 @@ describe('collector: Claude Code JSONL', () => {
     }
   });
 
-  it('resolveProjectFp：无 cwd → unknown；无 git → local: 前缀', () => {
+  it('resolveProjectFp: no cwd → unknown; no git → local: prefix', () => {
     expect(resolveProjectFp(undefined)).toBe('unknown');
     const fp = resolveProjectFp(tmpdir());
     expect(fp.startsWith('local:')).toBe(true);
   });
 });
 
-describe('collector: 注册表', () => {
+describe('collector: registry', () => {
   const dirs: string[] = [];
   afterEach(() => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  it('注册 claude-code / workbuddy / cursor，未知 id 报错', () => {
+  it('registers claude-code / workbuddy / cursor; unknown id errors', () => {
     expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor']);
     const config = defaultConfig();
     expect(getCollector('workbuddy', config).id).toBe('workbuddy');
     expect(getCollector('cursor', config).id).toBe('cursor');
-    expect(() => getCollector('codex', config)).toThrow(/未知采集器/);
+    expect(() => getCollector('codex', config)).toThrow(/Unknown collector/);
   });
 
-  it('scanSessions 同时扫到三种会话，缺目录不挡住其余', () => {
+  it('scanSessions scans all three at once; a missing directory does not block the rest', () => {
     const home = makeHome();
     dirs.push(home);
     const index = new OmemIndex(home);

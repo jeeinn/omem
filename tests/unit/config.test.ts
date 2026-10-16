@@ -11,8 +11,8 @@ import {
 } from '../../src/core/config.js';
 import { makeHome, cleanupHome, withConfig } from './helpers.js';
 
-describe('config: TOML 子集', () => {
-  it('解析章节 / 标量 / 数组 / 注释', () => {
+describe('config: TOML subset', () => {
+  it('parses sections / scalars / arrays / comments', () => {
     const p = parseTomlSubset(
       [
         '# 注释',
@@ -31,7 +31,7 @@ describe('config: TOML 子集', () => {
     expect(p.sync.git.remote).toBe('');
   });
 
-  it('序列化 → 加载往返稳定', () => {
+  it('serialize → load round-trip is stable', () => {
     const home = makeHome();
     try {
       const c = defaultConfig();
@@ -50,7 +50,7 @@ describe('config: TOML 子集', () => {
     }
   });
 
-  it('枚举非法值回退默认（防配置笔误击穿运行时）', () => {
+  it('invalid enum values fall back to defaults (guards against config typos breaking runtime)', () => {
     const home = makeHome();
     try {
       writeFileSync(
@@ -67,7 +67,7 @@ describe('config: TOML 子集', () => {
     }
   });
 
-  it('缺失的配置文件返回默认值', () => {
+  it('missing config file returns defaults', () => {
     const home = makeHome();
     try {
       rmSync(configPath(home), { force: true });
@@ -77,7 +77,7 @@ describe('config: TOML 子集', () => {
     }
   });
 
-  it('withConfig 辅助写入生效', () => {
+  it('withConfig helper write takes effect', () => {
     const home = makeHome();
     try {
       withConfig(home, (c) => {
@@ -90,7 +90,7 @@ describe('config: TOML 子集', () => {
     }
   });
 
-  it('serializeConfig 输出可被自家解析器往返', () => {
+  it('serializeConfig output round-trips through our own parser', () => {
     const c = defaultConfig();
     c.collect.exclude_paths = ['a', 'b'];
     const parsed = parseTomlSubset(serializeConfig(c));

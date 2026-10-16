@@ -13,8 +13,8 @@ import {
 
 const ROOT = join(process.cwd(), 'tests', 'eval');
 
-describe('eval 合成管道', () => {
-  it('对仓库内合成 golden 产出 0–1 的 recall / precision', () => {
+describe('eval synthetic pipeline', () => {
+  it('produces 0–1 recall / precision for the repo synthetic golden', () => {
     const ann = loadAnnotations(join(ROOT, 'annotations.json'));
     expect(ann.kind).toBe('synthetic');
     const score = scoreAnnotations(join(ROOT, 'golden'), ann);
@@ -27,14 +27,14 @@ describe('eval 合成管道', () => {
     expect(score.misses.map((m) => m.text).join('\n')).not.toContain('手写 SQL');
   });
 
-  it('sample 导出带空 judgment 的候选', () => {
+  it('sample exports candidates with empty judgment', () => {
     const ann = loadAnnotations(join(ROOT, 'annotations.json'));
     const rows = collectSamples(join(ROOT, 'golden'), ann, 3);
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.judgment === null && r.content.length > 0)).toBe(true);
   });
 
-  it('低于记录基线退出 1；没有基线只打印', async () => {
+  it('exits 1 below the recorded baseline; prints only when no baseline', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'omem-eval-'));
     try {
       mkdirSync(join(dir, 'golden'));
@@ -48,8 +48,8 @@ describe('eval 合成管道', () => {
       try {
         const printed = await cmdEval({ _: ['recall'], flags: { golden: dir } });
         expect(printed).toBe(0);
-        expect(logs.join('\n')).toContain('没有基线');
-        expect(logs.join('\n')).toContain('不写入 baseline');
+        expect(logs.join('\n')).toContain('No baseline');
+        expect(logs.join('\n')).toContain('baseline.json not written');
 
         const ann = loadAnnotations(join(dir, 'annotations.json'));
         ann.sessions[0].extract.push('完全不会被抽出的句子 zzzz-miss');

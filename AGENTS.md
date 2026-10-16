@@ -1,80 +1,80 @@
 # AGENTS.md
 
-给在本仓库里改代码的代理。用户可见行为以源码和 `docs/omem-V0.1技术规格草案.md` 为准；README 是对外说明，改行为时一并更新。
+For agents modifying code in this repository. User-visible behavior is governed by the source code and `docs/omem-V0.1技术规格草案.md`; the README is the outward-facing doc and must be updated alongside behavior changes.
 
-## 项目
+## Project
 
-omem 是 git 原生的个人级 AI 记忆层（V0.1，TypeScript，Node ≥ 22.5）。一条记忆 = 一个 Markdown 文件。`knowledge/` 与 `archive/` 是事实源；`index/omem.db`（SQLite + FTS5 trigram）是可删除、可 `omem rebuild` 的派生索引。MCP 让多个客户端共享同一份记忆。
+omem is a git-native personal AI memory layer (V0.1, TypeScript, Node ≥ 22.5). One memory = one Markdown file. `knowledge/` and `archive/` are the source of truth; `index/omem.db` (SQLite + FTS5 trigram) is a derived index that can be deleted and rebuilt with `omem rebuild`. MCP lets multiple clients share the same memory store.
 
-运行期数据在 `OMEM_HOME`（默认 `~/.omem`）。开发、测试、冒烟一律使用隔离目录，禁止读写用户真实的 `~/.omem`。
+Runtime data lives in `OMEM_HOME` (default `~/.omem`). Development, tests, and smoke runs must always use isolated directories; never read or write the user's real `~/.omem`.
 
-## 不可违背
+## Non-negotiables
 
-- **永不自动删除。** `gc` 只把条目标成 `stale`（检索降权 ×0.5）。硬删只有 `omem redact`，且必须同时删 Markdown 与索引行。归档是移到 `archive/` 并置 `status=archived`，文件仍留在版本控制里。
-- **冲突只报告。** 同步不自动合并。远端版本另存 `.conflict.md`，本地版本保留。遍历记忆文件时跳过 `*.conflict.md`。
-- **Markdown 是事实源。** `store` 不缓存，每次读盘。外部编辑（如 Obsidian）靠 connect-time catch-up 吸收：`(size, mtime)` 快路径，文件内容哈希慢路径。
-- **两种哈希不要混用。** 文件内容哈希检出外部编辑；归一化正文 `contentHash`（`body_hash`）做三处写入路径的幂等去重。
-- **自动加工产物恒为 `verified: false`。** 只有用户显式 `omem add` / `review --confirm` 才标已确认。指令式语气（「必须 / 一律 / 永远」）置信度减半并打 `low-weight`。
-- **写入前脱敏。** 入库路径必须过 `redactSecrets`。禁区是 `exclude_paths` 与 `exclude_keywords`。
-- **work profile 默认禁止同步与导出**（`ProfileBlockedError`，退出码 2）。放行只认 `OMEM_ALLOW_WORK_EXPORT=1`。`OMEM_PROFILE_LOCKED=1` 锁定档案。
-- **MCP stdout 只走协议。** 日志写 stderr 或 `logs/omem.log`。默认工具只有 `search_memory` / `save_memory`；`memory_feedback` 由 `OMEM_MCP_TOOLS=feedback` 打开。不要扩大默认工具面。
-- **install 六条写入纪律：** 只 merge `mcpServers.omem`（或该客户端对应的一个键）、先备份、原子写、幂等更新、解析失败则打印手工片段而不覆盖、收尾提示重启客户端。
-- **git 配置只写数据仓本地。** 禁止改用户全局 git config。检测不到 git 时返回可操作提示（`BackendUnavailableError`），不要抛裸栈。
+- **Never auto-delete.** `gc` only marks entries `stale` (search down-weight ×0.5). Hard delete exists only via `omem redact`, and must delete both the Markdown and the index row. Archiving moves the file to `archive/` and sets `status=archived`; the file stays under version control.
+- **Conflicts are reported only.** Sync never auto-merges. The remote version is saved as `.conflict.md`; the local version is kept. Skip `*.conflict.md` when walking memory files.
+- **Markdown is the source of truth.** `store` never caches; it reads from disk every time. External edits (e.g. Obsidian) are absorbed by connect-time catch-up: `(size, mtime)` fast path, file content hash slow path.
+- **Do not mix the two hashes.** The file content hash detects external edits; the normalized-body `contentHash` (`body_hash`) provides idempotent dedup across the three write paths.
+- **Automatically processed output is always `verified: false`.** Only an explicit `omem add` / `review --confirm` marks an entry confirmed. Imperative tone ("必须 / 一律 / 永远") halves confidence and adds the `low-weight` tag.
+- **Redact before writing.** All ingest paths must pass through `redactSecrets`. Exclusion zones are `exclude_paths` and `exclude_keywords`.
+- **The work profile blocks sync and export by default** (`ProfileBlockedError`, exit code 2). Only `OMEM_ALLOW_WORK_EXPORT=1` allows it. `OMEM_PROFILE_LOCKED=1` locks the profile.
+- **MCP stdout carries protocol only.** Logs go to stderr or `logs/omem.log`. Default tools are only `search_memory` / `save_memory`; `memory_feedback` is enabled via `OMEM_MCP_TOOLS=feedback`. Do not expand the default tool surface.
+- **install's six write disciplines:** merge only `mcpServers.omem` (or that client's single corresponding key), back up first, write atomically, update idempotently, print a manual snippet instead of overwriting when parsing fails, and close with a restart-client reminder.
+- **git config is written to the data repo only.** Never modify the user's global git config. When git is not detected, return an actionable hint (`BackendUnavailableError`); do not throw a bare stack.
 
-退出码：`0` 成功（含已处理的冲突）、`1` 用法错误（`UsageError`）、`2` 后端不可用或策略拒绝。
+Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageError`), `2` backend unavailable or policy rejection.
 
-## 模块
+## Modules
 
-| 路径 | 职责 |
+| Path | Responsibility |
 | --- | --- |
-| `bin/omem.js` | 启动包装：缺 `--experimental-sqlite` 时 re-exec；Windows 上动态 import 必须用 `file://` URL |
-| `src/cli.ts` `src/cli-args.ts` | 命令分发。被 import 时不得自行 `process.exit`（`OMEM_CLI_ENTRY`） |
-| `src/commands/` | 一个命令一个文件，返回退出码 |
-| `src/core/` | 条目、路径、配置、存储、索引、检索、生命周期、档案、脱敏、快照 |
-| `src/collect/` | 会话采集。已注册 `claude-code`、`workbuddy`、`cursor`，都只读。新平台见下方「技能」 |
-| `src/process/` | 加工：`rules`（默认）/ `pipeline` / `guide`（agent）/ `api`（默认关） |
-| `src/mcp/` | stdio MCP server 与工具实现 |
-| `src/install/` | 客户端注册表、配置写入、TOML 子集 |
-| `src/sync/` | `SyncBackend`。V0.1 只实现 `GitBackend`；`webdav` / `dir` 抛出「尚未交付」 |
-| `src/context/export.ts` | 非 MCP 客户端的上下文导出 |
-| `tests/unit/` | Vitest。`tests/smoke.sh` 与 `tests/mcp-probe.mjs` 是端到端 |
+| `bin/omem.js` | Startup wrapper: re-execs when `--experimental-sqlite` is missing; dynamic import on Windows must use a `file://` URL |
+| `src/cli.ts` `src/cli-args.ts` | Command dispatch. Must not call `process.exit` when imported (`OMEM_CLI_ENTRY`) |
+| `src/commands/` | One file per command, returns an exit code |
+| `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots |
+| `src/collect/` | Session collection. Registered: `claude-code`, `workbuddy`, `cursor`, all read-only. For new platforms see "Skills" below |
+| `src/process/` | Processing: `rules` (default) / `pipeline` / `guide` (agent) / `api` (off by default) |
+| `src/mcp/` | stdio MCP server and tool implementations |
+| `src/install/` | Client registry, config writing, TOML subset |
+| `src/sync/` | `SyncBackend`. V0.1 implements only `GitBackend`; `webdav` / `dir` throw "not yet delivered" |
+| `src/context/export.ts` | Context export for non-MCP clients |
+| `tests/unit/` | Vitest. `tests/smoke.sh` and `tests/mcp-probe.mjs` are end-to-end |
 
-frontmatter 是扁平 YAML 子集（字符串 / 数字 / 布尔 / 字符串数组），字段顺序见 `src/core/entry.ts` 的 `FM_ORDER`。配置是 `config.toml` 的 TOML 子集，只保证 omem 自己写出的文件无损往返。
+frontmatter is a flat YAML subset (string / number / boolean / string array); field order is defined by `FM_ORDER` in `src/core/entry.ts`. Config is a TOML subset of `config.toml`, losslessly round-trippable only for files omem itself writes.
 
-记忆路径：`knowledge/<domain>/<YYYY>/<id>.md`，id 形如 `2026-10-15-a1b2c3`。类型只有 `preference | fact | decision | experience`。
+Memory paths: `knowledge/<domain>/<YYYY>/<id>.md`, ids like `2026-10-15-a1b2c3`. Types are only `preference | fact | decision | experience`.
 
-## 命令
+## Commands
 
 ```bash
 npm install
-npm run build          # tsc → dist/；发布物从 dist 跑，改 src 后先 build
-npm test               # vitest，forks + --experimental-sqlite
-npm run smoke          # bash tests/smoke.sh，自带隔离 OMEM_HOME
+npm run build          # tsc → dist/; published artifacts run from dist, build after changing src
+npm test               # vitest, forks + --experimental-sqlite
+npm run smoke          # bash tests/smoke.sh, ships with an isolated OMEM_HOME
 ```
 
-Node 使用内建 `node:sqlite`，不要引入 `better-sqlite3` 或其他原生模块。运行时依赖只有 `@modelcontextprotocol/sdk`。
+Node uses the built-in `node:sqlite`; do not introduce `better-sqlite3` or other native modules. The only runtime dependency is `@modelcontextprotocol/sdk`.
 
-## 代码约定
+## Code conventions
 
-- ESM、`NodeNext`：仓库内 import 写 `.js` 后缀。`strict: true`。
-- 文件头用一行中文注释说明职责，并在必要时引用规格章节（`规格 §x.y`）。用户可见文案用简体中文。
-- 持久化写入走 `atomicWrite`（临时文件 + `rename`）。CLI 与 MCP 路径用同步 IO。
-- 新命令：在 `src/commands/` 实现，在 `src/cli.ts` 的 `COMMANDS` 注册 `desc` / `usage` / `run`，补单元测试。
-- 新同步后端或采集器：实现接口并在注册表加一行；未交付的 id 返回可操作错误，不要留空实现。新的会话采集器先读 `.agents/skills/add-session-collector/SKILL.md`。
-- 产品行为不要自行发明。V0.1 不做时间衰减、不做 WebDAV/本地目录同步、不做 MCP sampling。
+- ESM, `NodeNext`: imports within the repo use `.js` suffixes. `strict: true`.
+- Each file starts with a one-line Chinese comment stating its responsibility, referencing spec sections (`规格 §x.y`) when needed. **All user-visible copy is English** (single-language CLI; `docs/` and the README remain in Chinese). Chinese strings inside regexes that match Chinese session content (e.g. `src/process/rules.ts`) are detection logic, not UI — do not translate them.
+- Persisted writes go through `atomicWrite` (temp file + `rename`). CLI and MCP paths use synchronous IO.
+- New commands: implement in `src/commands/`, register `desc` / `usage` / `run` in `COMMANDS` in `src/cli.ts`, add unit tests.
+- New sync backends or collectors: implement the interface and add one line to the registry; undelivered ids return an actionable error, never a stub implementation. Read `.agents/skills/add-session-collector/SKILL.md` before adding a new session collector.
+- Do not invent product behavior. V0.1 ships no time decay, no WebDAV/local-directory sync, no MCP sampling.
 
-## 技能
+## Skills
 
-仓库根的 `.agents/skills/<name>/SKILL.md` 是跨客户端技能目录（[Agent Skills](https://agentskills.io/specification)）。Cursor、Claude Code、Codex 等都从这里发现技能。不要把项目技能放进 `.cursor/skills/`。
+The repo-root `.agents/skills/<name>/SKILL.md` directory is the cross-client skill catalog ([Agent Skills](https://agentskills.io/specification)). Cursor, Claude Code, Codex, etc. discover skills from here. Do not put project skills in `.cursor/skills/`.
 
-| 技能 | 何时读 |
+| Skill | When to read |
 | --- | --- |
-| `.agents/skills/add-session-collector/SKILL.md` | 为 Qoder、Kimi 或其他 Agent 增加只读会话采集 |
+| `.agents/skills/add-session-collector/SKILL.md` | Adding a read-only session collector for Qoder, Kimi, or other Agents |
 
-## 测试
+## Testing
 
-- 用 `tests/unit/helpers.ts` 的 `makeHome()` / `cleanupHome()` 建临时库，测完删除。
-- 单测 import `src/`，不要 import `dist/`。覆盖 `src/cli.ts` 时直接调用导出的 `main()`，不要把模块当进程入口。
-- 索引相关测试依赖 FTS5；改 `vitest.config.ts` 时保留 `pool: 'forks'` 与 `--experimental-sqlite`。
-- 动到 MCP、install 写入或同步时，除单测外跑 `npm run smoke`。MCP 探针要断言 stdout 无日志。
-- 不提交 `dist/`、`node_modules/`、`.omem-test/`。
+- Use `makeHome()` / `cleanupHome()` from `tests/unit/helpers.ts` to create temporary stores; delete them after tests.
+- Unit tests import `src/`, never `dist/`. When covering `src/cli.ts`, call the exported `main()` directly; do not treat the module as a process entry.
+- Index-related tests depend on FTS5; when changing `vitest.config.ts`, keep `pool: 'forks'` and `--experimental-sqlite`.
+- When touching MCP, install writes, or sync, run `npm run smoke` in addition to unit tests. The MCP probe must assert that stdout carries no logs.
+- Do not commit `dist/`, `node_modules/`, `.omem-test/`.

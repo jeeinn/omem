@@ -16,40 +16,40 @@ function userMsg(content: string, overrides: Partial<UnifiedMessage> = {}): Unif
   };
 }
 
-describe('rules: 档 0 规则抽取', () => {
-  it('偏好-正向 / 偏好-负向', () => {
+describe('rules: tier-0 rule extraction', () => {
+  it('preference-positive / preference-negative', () => {
     const pos = extractCandidates(userMsg('以后都用手写 SQL，不要用 ORM'));
     expect(pos.some((c) => c.type === 'preference' && c.content.includes('用手写 SQL'))).toBe(true);
     const neg = extractCandidates(userMsg('以后别再滥用全局变量了'));
     expect(neg.some((c) => c.type === 'preference' && c.content.includes('别'))).toBe(true);
   });
 
-  it('决策 / 修正 / 教训 / 警告', () => {
+  it('decision / correction / lesson / warning', () => {
     expect(extractCandidates(userMsg('我决定把连接池改成 20'))[0].type).toBe('decision');
     expect(extractCandidates(userMsg('把构建工具换成 pnpm'))[0].type).toBe('decision');
     expect(extractCandidates(userMsg('踩坑记录：镜像拉取超时，改用国内源'))[0].type).toBe('experience');
     expect(extractCandidates(userMsg('注意这个端口别暴露到公网'))[0].type).toBe('fact');
   });
 
-  it('英文规则', () => {
+  it('English rules', () => {
     const c = extractCandidates(userMsg('I decided to use bun instead of npm'));
     expect(c.some((x) => x.type === 'decision')).toBe(true);
     const p = extractCandidates(userMsg("We'll always use TypeScript for MCP servers"));
     expect(p.some((x) => x.type === 'preference')).toBe(true);
   });
 
-  it('指令式语气置信度减半 + low-weight 标签（防投毒第一关）', () => {
+  it('imperative tone halves confidence + low-weight tag (first line of anti-poisoning defense)', () => {
     const c = extractCandidates(userMsg('以后必须在提交前运行全部测试'));
     expect(c).toHaveLength(1);
     expect(c[0].confidence).toBeCloseTo(0.2); // 0.4 * 0.5
     expect(c[0].tags).toContain('low-weight');
   });
 
-  it('过短匹配被丢弃（<6 字符不成记忆）', () => {
+  it('too-short matches discarded (<6 chars is not a memory)', () => {
     expect(extractCandidates(userMsg('我决定了'))).toHaveLength(0);
   });
 
-  it('同消息多规则命中按内容去重，保留高置信', () => {
+  it('multi-rule hits in one message deduped by content, keeping the highest confidence', () => {
     const c = extractCandidates(userMsg('我决定把数据库连接池改成 20，因为默认 10 会超时，所以调大'));
     const keys = c.map((x) => x.content);
     expect(new Set(keys).size).toBe(keys.length);
@@ -57,7 +57,7 @@ describe('rules: 档 0 规则抽取', () => {
     expect(c.some((x) => x.type === 'experience')).toBe(true);
   });
 
-  it('只从 user 消息抽取，assistant 消息被跳过', () => {
+  it('extracts from user messages only; assistant messages skipped', () => {
     const digest = {
       session_id: 's1',
       project_fp: 'fp1',
@@ -71,7 +71,7 @@ describe('rules: 档 0 规则抽取', () => {
     expect(c[0].content).toContain('手写 SQL');
   });
 
-  it('同会话多重印证 +0.1（封顶 0.6）', () => {
+  it('same-session corroboration +0.1 (capped at 0.6)', () => {
     const digest = {
       session_id: 's1',
       project_fp: 'fp1',
@@ -84,12 +84,12 @@ describe('rules: 档 0 规则抽取', () => {
     expect(Math.max(...matched.map((x) => x.confidence))).toBeCloseTo(0.55);
   });
 
-  it('domain 推断', () => {
+  it('domain inference', () => {
     expect(inferDomain('部署 docker 容器时端口映射')).toBe('coding');
     expect(inferDomain('周末想去公园跑步')).toBe('general');
   });
 
-  it('候选带 session_id 与 project_fp', () => {
+  it('candidates carry session_id and project_fp', () => {
     const c = extractCandidates(userMsg('我决定用手写 SQL', { session_id: 'sess-x', project_fp: 'fp-z' }));
     expect(c[0].session_id).toBe('sess-x');
     expect(c[0].project_fp).toBe('fp-z');

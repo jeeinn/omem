@@ -13,7 +13,7 @@ import type { ParsedArgs } from '../cli-args.js';
 export async function cmdContext(args: ParsedArgs): Promise<number> {
   const target = flagStr(args.flags, 'for');
   if (!target) {
-    throw new UsageError(`用法: omem context --for <agent> [--out <file>]（支持: ${CONTEXT_TARGETS.join(' / ')}）`);
+    throw new UsageError(`Usage: omem context --for <agent> [--out <file>] (supported: ${CONTEXT_TARGETS.join(' / ')})`);
   }
   const { home, config, index } = openCtx();
   assertExportAllowed('omem context', config);
@@ -23,7 +23,7 @@ export async function cmdContext(args: ParsedArgs): Promise<number> {
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, text, 'utf8');
     appendLog(home, 'context', { target, out });
-    console.log(`已写入: ${out}`);
+    console.log(`Written: ${out}`);
   } else {
     console.log(text);
   }

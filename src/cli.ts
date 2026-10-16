@@ -34,106 +34,106 @@ interface Command {
 
 const COMMANDS: Record<string, Command> = {
   init: {
-    desc: '建库 + git 数据仓 + 扫描已有会话（规则抽取）',
+    desc: 'Initialize store + git data repo + scan existing sessions (rule extraction)',
     usage: 'omem init [--no-scan] [--no-git]',
     run: cmdInit,
   },
   install: {
-    desc: '自动检测并接线本机 Agent（MCP 配置 + 指令文件）',
+    desc: 'Auto-detect and wire up local Agents (MCP config + instruction files)',
     usage: 'omem install [--target a,b] [--list] [--print-config <id>] [--command <cmd>]',
     run: cmdInstall,
   },
   run: {
-    desc: '加工会话（Claude Code / WorkBuddy / Cursor；四档加工）',
+    desc: 'Process sessions (Claude Code / WorkBuddy / Cursor; four tiers)',
     usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier rules|agent|api] [--dry-run]',
     run: cmdRun,
   },
   add: {
-    desc: '手动写入一条记忆（verified）',
-    usage: 'omem add <内容> [--type X] [--domain Y] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]',
+    desc: 'Manually add a memory (verified)',
+    usage: 'omem add <content> [--type X] [--domain Y] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]',
     run: cmdAdd,
   },
   search: {
-    desc: '检索记忆（附时效标注）',
-    usage: 'omem search <查询词> [--detail] [--all] [--domain X] [--project Y]',
+    desc: 'Search memories (with freshness labels)',
+    usage: 'omem search <query> [--detail] [--all] [--domain X] [--project Y]',
     run: cmdSearch,
   },
   review: {
-    desc: '待确认队列（unverified 候选 + stale 提示）',
+    desc: 'Review queue (unverified candidates + stale hints)',
     usage: 'omem review [--confirm <id> [--supersedes <old-id>]] [--dismiss <id>] [--stale <id>]',
     run: cmdReview,
   },
   gc: {
-    desc: '标记 stale（只报告不删除）',
+    desc: 'Mark stale (report only, never delete)',
     usage: 'omem gc [--days N]',
     run: cmdGc,
   },
   rebuild: {
-    desc: '从 md 全量重建索引 + MEMORY-INDEX',
+    desc: 'Rebuild index + MEMORY-INDEX from markdown files',
     usage: 'omem rebuild',
     run: cmdRebuild,
   },
   context: {
-    desc: '导出上下文（非 MCP Agent 接入路径）',
+    desc: 'Export context (integration path for non-MCP Agents)',
     usage: 'omem context --for claude-code|cursor|codex|plain [--out <file>]',
     run: cmdContext,
   },
   sync: {
-    desc: '拉取 + 推送（一条命令；冲突只报告）',
+    desc: 'Pull + push (one command; conflicts are reported only)',
     usage: 'omem sync [status|use <git|webdav|dir>|remote <url>|pull|push]',
     run: cmdSync,
   },
   profile: {
-    desc: 'work/home profile 切换与状态',
+    desc: 'Switch and show work/home profile status',
     usage: 'omem profile [use work|home|status]',
     run: cmdProfile,
   },
   pause: {
-    desc: '一键停采集',
+    desc: 'Pause collection',
     usage: 'omem pause',
     run: cmdPause,
   },
   resume: {
-    desc: '恢复采集',
+    desc: 'Resume collection',
     usage: 'omem resume',
     run: cmdResume,
   },
   redact: {
-    desc: '硬删除（唯一途径）',
+    desc: 'Hard delete (the only way)',
     usage: 'omem redact --id <id>',
     run: cmdRedact,
   },
   snapshot: {
-    desc: '每日快照（滚动保留 7 份）',
+    desc: 'Daily snapshot (rolling retention of 7)',
     usage: 'omem snapshot',
     run: cmdSnapshot,
   },
   serve: {
-    desc: '启动 MCP server（stdio）',
+    desc: 'Start MCP server (stdio)',
     usage: 'omem serve',
     run: cmdServe,
   },
   audit: {
-    desc: '使用日志（调用率可观测）',
+    desc: 'Usage log (observable call rates)',
     usage: 'omem audit [--tail N]',
     run: cmdAudit,
   },
   eval: {
-    desc: '抽取评估：子串召回基线（弱代理）与人工标注导出',
+    desc: 'Extraction eval: substring-recall baseline (weak proxy) and annotation export',
     usage: 'omem eval recall [--golden <dir>] [--write-baseline] [--min-recall <n>] | omem eval sample [--n 20] [--out <file>]',
     run: cmdEval,
   },
 };
 
 function printHelp(): void {
-  console.log(`omem v${pkg.version} — git 原生的个人级 AI 记忆层（Markdown 事实源 + MCP + FTS5）\n`);
-  console.log('用法: omem <command> [options]\n');
-  console.log('命令:');
+  console.log(`omem v${pkg.version} — a git-native personal AI memory layer (Markdown source of truth + MCP + FTS5)\n`);
+  console.log('Usage: omem <command> [options]\n');
+  console.log('Commands:');
   for (const [name, c] of Object.entries(COMMANDS)) {
     console.log(`  ${name.padEnd(12)} ${c.desc}`);
   }
-  console.log('\n快速开始: omem init → omem install → omem search "<关键词>"');
-  console.log('文档: docs/omem-V0.1-实施计划.md · 单命令帮助: omem <command> --help');
+  console.log('\nQuick start: omem init → omem install → omem search "<keyword>"');
+  console.log('Docs: docs/omem-V0.1-实施计划.md (Chinese) · Per-command help: omem <command> --help');
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -163,13 +163,13 @@ export async function main(argv: string[]): Promise<number> {
   }
   const entry = COMMANDS[cmd];
   if (!entry) {
-    console.error(`未知命令: ${cmd}\n`);
+    console.error(`Unknown command: ${cmd}\n`);
     printHelp();
     return 1;
   }
   if (args.flags.help || args.flags.h) {
-    console.log(`用法: ${entry.usage ?? `omem ${cmd}`}`);
-    console.log(`说明: ${entry.desc}`);
+    console.log(`Usage: ${entry.usage ?? `omem ${cmd}`}`);
+    console.log(`Description: ${entry.desc}`);
     return 0;
   }
   const rest: ParsedArgs = { _: args._.slice(1), flags: args.flags };
@@ -177,20 +177,20 @@ export async function main(argv: string[]): Promise<number> {
     return await entry.run(rest);
   } catch (e: any) {
     if (e instanceof UsageError) {
-      console.error(`用法错误: ${e.message}`);
-      if (entry.usage) console.error(`用法: ${entry.usage}`);
+      console.error(`Usage error: ${e.message}`);
+      if (entry.usage) console.error(`Usage: ${entry.usage}`);
       return 1;
     }
     if (e instanceof BackendUnavailableError) {
       console.error(`${e.message}`);
-      if (e.hint) console.error(`提示: ${e.hint}`);
+      if (e.hint) console.error(`Hint: ${e.hint}`);
       return 2;
     }
     if (e instanceof ProfileBlockedError) {
       console.error(e.message);
       return 2;
     }
-    console.error(`错误: ${e?.message ?? e}`);
+    console.error(`Error: ${e?.message ?? e}`);
     return 1;
   }
 }

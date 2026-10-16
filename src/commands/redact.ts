@@ -10,14 +10,14 @@ import type { ParsedArgs } from '../cli-args.js';
 
 export async function cmdRedact(args: ParsedArgs): Promise<number> {
   const id = flagStr(args.flags, 'id');
-  if (!id) throw new UsageError('用法: omem redact --id <id>（硬删除，请谨慎；git 历史中仍可恢复）');
+  if (!id) throw new UsageError('Usage: omem redact --id <id> (hard delete, use with care; still recoverable from git history)');
   const { home, config, index } = openCtx();
   const ok = deleteEntry(home, id);
-  if (!ok) throw new UsageError(`未找到条目: ${id}`);
+  if (!ok) throw new UsageError(`Entry not found: ${id}`);
   index.remove(id);
   generateMemoryIndex(home, index);
   appendLog(home, 'redact', { id });
-  console.log(`已硬删除: ${id}`);
-  console.log('（数据仓 git 历史中仍可回溯：git -C ~/.omem log -- <文件路径>）');
+  console.log(`Hard deleted: ${id}`);
+  console.log('(Still traceable in the data repo\'s git history: git -C ~/.omem log -- <file path>)');
   return 0;
 }

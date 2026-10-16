@@ -32,7 +32,7 @@ function base(config?: OmemConfig) {
 }
 
 describe('commitEntry', () => {
-  it('正常写入并刷新热层', () => {
+  it('writes normally and refreshes the hot layer', () => {
     const r = commitEntry(home, base(), index, {
       content: '部署时改用国内镜像源',
       type: 'experience',
@@ -46,7 +46,7 @@ describe('commitEntry', () => {
     expect(listEntries(home)).toHaveLength(1);
   });
 
-  it('refreshIndex=false 不刷热层', () => {
+  it('refreshIndex=false does not refresh the hot layer', () => {
     const r = commitEntry(home, base(), index, {
       content: '只落盘不刷新热层的句子',
       type: 'fact',
@@ -58,7 +58,7 @@ describe('commitEntry', () => {
     expect(existsSync(files.memoryIndex(home))).toBe(false);
   });
 
-  it('重复内容去重', () => {
+  it('duplicate content is deduped', () => {
     const input = { content: '同一句话只记一次 dedup-marker', type: 'fact' as const, source: 'manual' as const, confidence: 0.9, verified: true };
     const a = commitEntry(home, base(), index, input);
     const b = commitEntry(home, base(), index, { ...input, source: 'agent', confidence: 0.6, verified: false });
@@ -67,7 +67,7 @@ describe('commitEntry', () => {
     expect(b.id).toBe(a.id);
   });
 
-  it('禁区关键词排除，force 可绕过', () => {
+  it('excluded keyword blocks, force bypasses', () => {
     const config = withConfig(home, (c) => { c.collect.exclude_keywords = ['薪资']; });
     const blocked = commitEntry(home, config, index, {
       content: '讨论薪资结构时不要写进记忆',
@@ -88,7 +88,7 @@ describe('commitEntry', () => {
     expect(forced.status).toBe('written');
   });
 
-  it('work profile 排除代码，home 与 force 不排除', () => {
+  it('work profile excludes code; home and force do not', () => {
     const config = withConfig(home, (c) => { c.general.profile = 'work'; });
     const prev = process.env.OMEM_PROFILE;
     delete process.env.OMEM_PROFILE;
@@ -101,7 +101,7 @@ describe('commitEntry', () => {
         verified: false,
       });
       expect(blocked.status).toBe('excluded');
-      expect(blocked.reason).toContain('代码');
+      expect(blocked.reason).toContain('Code-heavy');
       const forced = commitEntry(home, config, index, {
         content: CODE,
         type: 'fact',
@@ -125,7 +125,7 @@ describe('commitEntry', () => {
     }
   });
 
-  it('整条密钥丢弃；force 仍脱敏且不绕过去重', () => {
+  it('whole-secret entries dropped; force still redacts and does not bypass dedup', () => {
     expect(isRedactionShell('sk-ant-***REDACTED***')).toBe(true);
     const key = 'sk-ant-abc123def456ghi789jkl012mno345pqr678';
     const dropped = commitEntry(home, base(), index, {
@@ -161,7 +161,7 @@ describe('commitEntry', () => {
     expect(again.status).toBe('deduped');
   });
 
-  it('dry-run 不落盘', () => {
+  it('dry-run does not write to disk', () => {
     const r = commitEntry(home, base(), index, {
       content: '演练一条不会落盘的记忆',
       type: 'fact',
@@ -175,7 +175,7 @@ describe('commitEntry', () => {
     expect(listEntries(home)).toHaveLength(0);
   });
 
-  it('supersedes 把旧条目标成 superseded，默认检索排除，--all 带回', () => {
+  it('supersedes marks old entries superseded; excluded by default, --all brings them back', () => {
     const old = commitEntry(home, base(), index, {
       content: '旧约定甲乙丙使用本地磁盘',
       type: 'decision',
@@ -202,8 +202,8 @@ describe('commitEntry', () => {
   });
 });
 
-describe('三条写入路径同通道', () => {
-  it('add 与 save_memory 二次写入去重', async () => {
+describe('three write paths share one channel', () => {
+  it('add and save_memory dedup a second write', async () => {
     const prev = process.env.OMEM_HOME;
     process.env.OMEM_HOME = home;
     const logs: string[] = [];
@@ -215,7 +215,7 @@ describe('三条写入路径同通道', () => {
       const r = await handleTool('save_memory', { content: '通道去重句子 channel-dedup-xyz' }, {
         home, config: defaultConfig(), index,
       });
-      expect(r.content.map((c) => c.text).join('\n')).toContain('未重复写入');
+      expect(r.content.map((c) => c.text).join('\n')).toContain('not written again');
     } finally {
       console.log = orig;
       if (prev === undefined) delete process.env.OMEM_HOME;
@@ -241,7 +241,7 @@ describe('三条写入路径同通道', () => {
         content: 'save 写入的新偏好 save-new-marker',
         supersedes: [old.id],
       }, { home, config: defaultConfig(), index });
-      expect(saved.content[0].text).toContain('已取代');
+      expect(saved.content[0].text).toContain('Superseded');
       expect(findById(home, old.id!)!.entry.fm.status).toBe('superseded');
 
       const candidate = commitEntry(home, base(), index, {
@@ -263,7 +263,7 @@ describe('三条写入路径同通道', () => {
         flags: { confirm: candidate.id!, supersedes: target.id! },
       });
       expect(code).toBe(0);
-      expect(logs.join('\n')).toContain('已取代');
+      expect(logs.join('\n')).toContain('Superseded');
       expect(findById(home, target.id!)!.entry.fm.status).toBe('superseded');
       expect(findById(home, candidate.id!)!.entry.fm.verified).toBe(true);
       expect(findById(home, candidate.id!)!.entry.fm.supersedes).toContain(target.id);

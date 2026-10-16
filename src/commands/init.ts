@@ -19,38 +19,38 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
   if (fresh || !existsSync(files.config(home))) saveConfig(home, config);
   const index = new OmemIndex(home);
 
-  console.log(`omem 数据目录: ${home}${fresh ? '（已创建）' : '（已存在）'}`);
+  console.log(`omem data directory: ${home}${fresh ? ' (created)' : ' (already exists)'}`);
 
   // git 数据仓（SyncBackend 抽象的第一实现；规格 §5.3）
   if (flagBool(args.flags, 'no-git')) {
-    console.log('跳过 git 数据仓初始化（--no-git）');
+    console.log('Skipping git data repo initialization (--no-git)');
   } else {
     try {
       getBackend('git', home, config).init();
-      console.log('git 数据仓已初始化（事实源 = knowledge/，index/snapshots/logs 已排除）');
+      console.log('git data repo initialized (source of truth = knowledge/; index/snapshots/logs excluded)');
     } catch (e: any) {
-      console.log(`git 数据仓初始化跳过: ${e.message}${e.hint ? `（${e.hint}）` : ''}`);
+      console.log(`git data repo initialization skipped: ${e.message}${e.hint ? ` (${e.hint})` : ''}`);
     }
   }
 
   generateMemoryIndex(home, index);
 
   if (flagBool(args.flags, 'no-scan')) {
-    console.log('跳过首次会话扫描（--no-scan）');
+    console.log('Skipping initial session scan (--no-scan)');
   } else {
     const report = runPipeline(home, config, index, {});
     console.log(
-      `首次扫描（档 0 规则抽取，零配置）：会话 ${report.sessions}（跳过未变化 ${report.skipped}），` +
-        `消息 ${report.messages}，候选 ${report.candidates}，写入 ${report.written.length}，` +
-        `去重 ${report.deduped}，脱敏 ${report.redacted}，排除 ${report.excluded}`,
+      `Initial scan (tier 0 rule extraction, zero config): sessions ${report.sessions} (skipped unchanged ${report.skipped}), ` +
+        `messages ${report.messages}, candidates ${report.candidates}, written ${report.written.length}, ` +
+        `deduped ${report.deduped}, redacted ${report.redacted}, excluded ${report.excluded}`,
     );
     for (const n of report.notes) console.log(`  · ${n}`);
   }
 
   console.log('');
-  console.log('下一步：');
-  console.log('  omem install            自动检测并接线本机 Agent（MCP）');
-  console.log('  omem search "<关键词>"  检索记忆');
-  console.log('  omem sync               跨机器同步（git）');
+  console.log('Next steps:');
+  console.log('  omem install            Auto-detect and wire up local Agents (MCP)');
+  console.log('  omem search "<query>"   Search memories');
+  console.log('  omem sync               Sync across machines (git)');
   return 0;
 }

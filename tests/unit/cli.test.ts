@@ -19,36 +19,36 @@ function capture(): { out: string[]; err: string[] } {
   return { out, err };
 }
 
-describe('cli: 顶层分发', () => {
-  it('omem --help 退出 0（显式求助不是用法错误）', async () => {
+describe('cli: top-level dispatch', () => {
+  it('omem --help exits 0 (explicit help is not a usage error)', async () => {
     const { out } = capture();
     expect(await main(['--help'])).toBe(0);
-    expect(out.join('\n')).toContain('用法');
+    expect(out.join('\n')).toContain('Usage:');
     expect(out.join('\n')).toContain('search');
   });
 
-  it('omem -h 退出 0', async () => {
+  it('omem -h exits 0', async () => {
     capture();
     expect(await main(['-h'])).toBe(0);
   });
 
-  it('omem help 退出 0', async () => {
+  it('omem help exits 0', async () => {
     capture();
     expect(await main(['help'])).toBe(0);
   });
 
-  it('裸 omem（无参数）退出 1', async () => {
+  it('bare omem (no args) exits 1', async () => {
     capture();
     expect(await main([])).toBe(1);
   });
 
-  it('未知命令退出 1 且提示', async () => {
+  it('unknown command exits 1 with a hint', async () => {
     const { err } = capture();
     expect(await main(['nonsense'])).toBe(1);
-    expect(err.join('\n')).toContain('未知命令');
+    expect(err.join('\n')).toContain('Unknown command');
   });
 
-  it('version / --version / -v 均退出 0 且输出版本号', async () => {
+  it('version / --version / -v all exit 0 and print the version', async () => {
     for (const argv of [['version'], ['--version'], ['-v']]) {
       const { out } = capture();
       expect(await main(argv)).toBe(0);
@@ -56,13 +56,13 @@ describe('cli: 顶层分发', () => {
     }
   });
 
-  it('单命令 --help 退出 0 并打印该命令用法', async () => {
+  it('per-command --help exits 0 and prints that command usage', async () => {
     const { out } = capture();
     expect(await main(['search', '--help'])).toBe(0);
-    expect(out.join('\n')).toContain('omem search <查询词>');
+    expect(out.join('\n')).toContain('omem search <query>');
   });
 
-  it('sync --help 展示子命令用法', async () => {
+  it('sync --help shows subcommand usage', async () => {
     const { out } = capture();
     expect(await main(['sync', '--help'])).toBe(0);
     expect(out.join('\n')).toContain('remote <url>');

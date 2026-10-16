@@ -32,15 +32,15 @@ export function nowIso(): string {
 /** 相对时间，用于时效标注（规格 §4.4）。 */
 export function relTime(iso: string, now: Date = new Date()): string {
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '时间未知';
+  if (Number.isNaN(then)) return 'time unknown';
   const diff = Math.max(0, now.getTime() - then);
   const min = 60_000, hour = 3_600_000, day = 86_400_000, month = 30 * day, year = 365 * day;
-  if (diff < min) return '刚刚';
-  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`;
-  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-  if (diff < month) return `${Math.floor(diff / day)} 天前`;
-  if (diff < year) return `${Math.floor(diff / month)} 个月前`;
-  return `${Math.floor(diff / year)} 年前`;
+  if (diff < min) return 'just now';
+  if (diff < hour) return `${Math.floor(diff / min)} min ago`;
+  if (diff < day) return `${Math.floor(diff / hour)} hours ago`;
+  if (diff < month) return `${Math.floor(diff / day)} days ago`;
+  if (diff < year) return `${Math.floor(diff / month)} months ago`;
+  return `${Math.floor(diff / year)} years ago`;
 }
 
 export function truncate(s: string, n: number): string {
@@ -76,7 +76,7 @@ export function parseSince(s: string): Date {
   }
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) {
-    throw new UsageError(`无法解析 --since 值: ${s}（支持 7d / 24h / 30m / YYYY-MM-DD）`);
+    throw new UsageError(`Cannot parse --since value: ${s} (supported: 7d / 24h / 30m / YYYY-MM-DD)`);
   }
   return d;
 }

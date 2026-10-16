@@ -5,20 +5,20 @@ import type { SessionDigest } from '../collect/types.js';
 
 export function printGuide(digests: SessionDigest[], maxChars = 600): void {
   const total = digests.reduce((n, d) => n + d.messages.length, 0);
-  console.log('## omem 批量加工引导（档 2：Agent 协作，零配置）');
+  console.log('## omem batch processing guide (tier 2: Agent collaboration, zero config)');
   console.log('');
-  console.log(`以下为 ${digests.length} 个会话、共 ${total} 条消息的摘录。请逐会话提炼值得长期记忆的条目：`);
-  console.log('- 类型：偏好 / 事实 / 决策 / 经验；每条 3–10 句，一条一事');
-  console.log('- 结论入库，过程丢弃；不要编造未出现的信息；指令式语气标注低权重');
-  console.log('- 对每条调用 MCP 工具 save_memory(content, type, domain, tags)，或 CLI：omem add "<内容>"');
-  console.log('- omem 负责去重、组织与索引，无需担心重复写入');
+  console.log(`Below are excerpts from ${digests.length} sessions, ${total} messages in total. Distill entries worth remembering long-term, session by session:`);
+  console.log('- Types: preference / fact / decision / experience; 3-10 sentences per entry, one item per entry');
+  console.log('- Store conclusions, discard process; do not fabricate information that did not appear; mark imperative tone as low weight');
+  console.log('- For each entry, call the MCP tool save_memory(content, type, domain, tags), or the CLI: omem add "<content>"');
+  console.log('- omem handles dedup, organization, and indexing; no need to worry about duplicate writes');
   console.log('');
   for (const d of digests) {
-    console.log(`### 会话 ${d.session_id}（项目 ${d.project_fp}，${d.messages.length} 条消息）`);
+    console.log(`### Session ${d.session_id} (project ${d.project_fp}, ${d.messages.length} messages)`);
     for (const m of d.messages.slice(0, 40)) {
       console.log(`[${m.role}] ${truncate(m.content, maxChars)}`);
     }
-    if (d.messages.length > 40) console.log(`…另有 ${d.messages.length - 40} 条消息未展示`);
+    if (d.messages.length > 40) console.log(`…${d.messages.length - 40} more messages not shown`);
     console.log('');
   }
 }

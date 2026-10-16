@@ -14,6 +14,8 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
 
+CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文单语；`docs/` 技术文档与本 README 保持中文。
+
 ## 环境要求
 
 - Node.js ≥ 22.5（使用内建 `node:sqlite`，自动带 `--experimental-sqlite` 重 exec，无需原生编译）
@@ -60,8 +62,8 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | `omem init` | 建数据仓骨架（`~/.omem`） |
 | `omem install --target <name>` | 写入客户端 MCP 配置（六条写入纪律） |
 | `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code、WorkBuddy、Cursor 会话并加工记忆 |
-| `omem add <内容>` | 手工添加（自动脱敏、幂等去重） |
-| `omem search <词> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
+| `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
+| `omem search <query> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
 | `omem review [--confirm <id>]` | 审阅/确认候选 |
 | `omem gc [--days N]` | 标记 stale（直接标记，只标记不删除） |
 | `omem rebuild` | 从 Markdown 全量重建索引（删 db 也能恢复） |
@@ -107,8 +109,8 @@ MCP sampling 路径在 V0.1 不可用（Claude Code 未支持），持续跟踪�
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # vitest：123 个单元用例（16 个文件）
-npm run smoke      # 端到端冒烟：46 项断言（隔离 OMEM_HOME）
+npm test           # vitest：157 个单元用例（21 个文件）
+npm run smoke      # 端到端冒烟：53 项断言（隔离 OMEM_HOME）
 ```
 
 测试栈：Vitest 3（forks pool + `--experimental-sqlite` execArgv 注入）+ bash 冒烟 + 裸 JSON-RPC MCP 探针（同时断言 stdout 纯净——日志只走 stderr）。

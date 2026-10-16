@@ -21,36 +21,36 @@ export async function cmdSync(args: ParsedArgs): Promise<number> {
   if (sub === 'status') {
     const backend = getBackend(config.sync.backend, home, config);
     const st = backend.status();
-    console.log(`后端: ${st.backend}${st.available ? '' : '（未初始化）'}`);
-    console.log(`远端: ${st.remote ?? '（未配置：omem sync remote <url>）'}`);
-    console.log(`待推送: ${st.ahead} · 待拉取: ${st.behind} · 未提交改动: ${st.dirty}`);
-    if (st.note) console.log(`备注: ${st.note}`);
+    console.log(`Backend: ${st.backend}${st.available ? '' : ' (not initialized)'}`);
+    console.log(`Remote: ${st.remote ?? '(not configured: omem sync remote <url>)'}`);
+    console.log(`Ahead: ${st.ahead} · Behind: ${st.behind} · Uncommitted: ${st.dirty}`);
+    if (st.note) console.log(`Note: ${st.note}`);
     return 0;
   }
 
   if (sub === 'use') {
     const id = args._[1];
     if (!id || !['git', 'webdav', 'dir'].includes(id)) {
-      throw new UsageError('用法: omem sync use <git|webdav|dir>（V0.1 仅 git 已交付）');
+      throw new UsageError('Usage: omem sync use <git|webdav|dir> (only git is delivered in V0.1)');
     }
     config.sync.backend = id as 'git' | 'webdav' | 'dir';
     saveConfig(home, config);
     if (id !== 'git') {
-      console.log(`已切换后端设置为 ${id}。注意：该后端 V0.2 交付（webdav 优先）；V0.1 实际仍走 git。`);
+      console.log(`Backend setting switched to ${id}. Note: this backend ships in V0.2 (webdav first); V0.1 still uses git.`);
       return 0;
     }
-    console.log('已切换同步后端: git');
+    console.log('Sync backend switched: git');
     return 0;
   }
 
   if (sub === 'remote') {
     const url = args._[1];
-    if (!url) throw new UsageError('用法: omem sync remote <url>');
+    if (!url) throw new UsageError('Usage: omem sync remote <url>');
     const backend = getBackend('git', home, config) as any;
     backend.setRemote(url);
     config.sync.git.remote = url;
     saveConfig(home, config);
-    console.log(`已设置远端: ${url}`);
+    console.log(`Remote set: ${url}`);
     return 0;
   }
 
@@ -68,7 +68,7 @@ export async function cmdSync(args: ParsedArgs): Promise<number> {
     return printReport(report, home);
   }
   if (sub) {
-    throw new UsageError(`未知子命令: ${sub}（status / use / remote / pull / push）`);
+    throw new UsageError(`Unknown subcommand: ${sub} (status / use / remote / pull / push)`);
   }
 
   // 默认：pull → push（规格 §5.5）
@@ -81,13 +81,13 @@ export async function cmdSync(args: ParsedArgs): Promise<number> {
 function printReport(report: SyncReport, home: string): number {
   for (const n of report.notes) console.log(`· ${n}`);
   if (report.conflicts.length > 0) {
-    console.log(`\n冲突 ${report.conflicts.length} 个（事件不是错误，本地版本已保留）：`);
+    console.log(`\n${report.conflicts.length} conflict(s) (events, not errors; local versions kept):`);
     for (const f of report.conflicts) {
       console.log(`  - ${f}`);
-      console.log(`    远端版本另存: ${f}.conflict.md（请人工比对后处理）`);
+      console.log(`    Remote version saved as: ${f}.conflict.md (compare manually and resolve)`);
     }
   }
-  console.log(`\nsync 完成（pushed=${report.pushed}）`);
+  console.log(`\nsync complete (pushed=${report.pushed})`);
   appendLog(home, 'sync', { pushed: report.pushed, conflicts: report.conflicts.length });
   return 0; // 冲突已处理 → 0（规格 §7 退出码语义）
 }

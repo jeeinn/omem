@@ -20,9 +20,9 @@ export function assertExportAllowed(cmd: string, config: OmemConfig, env: NodeJS
   if (currentProfile(config, env) !== 'work') return;
   if (env.OMEM_ALLOW_WORK_EXPORT === '1') return;
   throw new ProfileBlockedError(
-    `当前为 work profile，${cmd} 被禁止（公司设备合规：防止公司资产同步出内网）。\n` +
-    '  如确认要执行：OMEM_ALLOW_WORK_EXPORT=1 ' + cmd + '\n' +
-    '  或切换 profile：omem profile use home',
+    `Currently on the work profile: ${cmd} is blocked (corporate-device compliance: prevents company assets from syncing off the intranet).\n` +
+    '  To proceed anyway: OMEM_ALLOW_WORK_EXPORT=1 ' + cmd + '\n' +
+    '  Or switch profile: omem profile use home',
   );
 }
 

@@ -56,7 +56,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('init：建数据仓 + 仓库级 git 配置 + .gitignore 排除 index/snapshots/logs', () => {
+  it('init: creates data repo + repo-level git config + .gitignore excludes index/snapshots/logs', () => {
     new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: true } }).init();
     expect(existsSync(join(home1, '.git'))).toBe(true);
     expect(git(['config', '--get', 'user.name'], home1)).toBe('omem');
@@ -66,7 +66,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(ignore).toContain('logs/');
   });
 
-  it('push 到 bare 远端（auto_snapshot 先快照）', () => {
+  it('push to bare remote (auto_snapshot snapshots first)', () => {
     const b1 = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: true } });
     b1.init();
     b1.setRemote(bare);
@@ -74,11 +74,11 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     const r = report();
     b1.push(r);
     expect(r.pushed).toBe(true);
-    expect(r.notes.some((n) => n.includes('快照'))).toBe(true);
+    expect(r.notes.some((n) => n.includes('snapshot'))).toBe(true);
     expect(git(['log', '--oneline'], bare)).toContain('omem: sync');
   });
 
-  it('第二台机器 clone 后 pull 拿到事实源', () => {
+  it('a second machine pulls the source of truth after clone', () => {
     const b1 = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
     b1.init();
     b1.setRemote(bare);
@@ -94,7 +94,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(existsSync(join(home2, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
   });
 
-  it('status：无 upstream 时给出备注', () => {
+  it('status: gives a note when there is no upstream', () => {
     new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } }).init();
     const st = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } }).status();
     expect(st.backend).toBe('git');
@@ -103,7 +103,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(st.note).toContain('upstream');
   });
 
-  it('冲突：pull 时远端版另存 .conflict.md，本地版保留（规格 §5.5）', () => {
+  it('conflict: on pull the remote version is saved as .conflict.md, local version kept (spec §5.5)', () => {
     // home1 推送初始条目
     const b1 = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
     b1.init();
@@ -135,14 +135,14 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(conflict).toContain('远端修改的内容');
   });
 
-  it('push 无远端时本地提交并提示（断网场景）', () => {
+  it('push with no remote commits locally and notes it (offline scenario)', () => {
     const b = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
     b.init();
     addEntry(home1, '2026-10-15-e1', '离线内容');
     const r = report();
     b.push(r);
     expect(r.pushed).toBe(false);
-    expect(r.notes.some((n) => n.includes('未配置远端'))).toBe(true);
+    expect(r.notes.some((n) => n.includes('No remote configured'))).toBe(true);
     const st = b.status();
     expect(st.dirty).toBe(0); // 已本地提交
   });
