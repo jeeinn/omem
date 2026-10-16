@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, renam
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { ClientSpec } from './clients.js';
-import { parseTomlSubset, serializeOmemToml } from './toml-bridge.js';
+import { serializeOmemToml, upsertTomlSection } from './toml-bridge.js';
 
 export interface WriteOutcome {
   ok: boolean;
@@ -28,6 +28,20 @@ export interface RenderOutcome {
 
 export function omemEntry(command: string): { command: string; args: string[] } {
   return { command, args: ['serve'] };
+}
+
+/**
+ * 通用 MCP 片段（规格 §6.3）：未在注册表内的客户端统一用 `mcpServers` 形态——这是社区事实标准
+ * （Claude Desktop / Cursor / Cline / Windsurf / Continue 等均为此结构），只打印不写文件。
+ */
+export function renderGenericMcpSnippet(command: string): string {
+  return (
+    '# Generic MCP snippet — paste into your client\'s MCP config file.\n' +
+    '# Most clients (Claude Desktop, Cursor, Cline, Windsurf, Continue, ...) use this "mcpServers" shape;\n' +
+    '# check your client\'s docs for the exact file path and key name.\n' +
+    JSON.stringify({ mcpServers: { omem: omemEntry(command) } }, null, 2) +
+    '\n'
+  );
 }
 
 /** JSONC 容错解析：去行/块注释与尾随逗号。 */
@@ -93,14 +107,10 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
   }
 
   if (spec.kind === 'toml-mcp') {
-    let parsed: any;
-    try {
-      parsed = parseTomlSubset(raw);
-    } catch (e: any) {
-      return { reason: `TOML parse failed: ${e.message}`, manual };
-    }
-    mergeInto(parsed, spec, command);
-    return { text: serializeOmemToml(parsed) };
+    // 文本级段合并：只动 [mcp_servers.omem]，用户文件的注释/格式/带引号段名全部原样保留
+    const res = upsertTomlSection(raw, 'mcp_servers.omem', omemEntry(command));
+    if ('error' in res) return { reason: res.error, manual };
+    return { text: res.text };
   }
 
   const parsed = parseJsonc(raw);

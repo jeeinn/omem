@@ -8,6 +8,7 @@ import {
   loadConfig,
   saveConfig,
   configPath,
+  splitTomlPath,
 } from '../../src/core/config.js';
 import { makeHome, cleanupHome, withConfig } from './helpers.js';
 
@@ -97,5 +98,56 @@ describe('config: TOML subset', () => {
     expect(parsed.collect.exclude_paths).toEqual(['a', 'b']);
     expect(parsed.general.profile).toBe('home');
     expect(parsed.sync.git.remote).toBe('');
+  });
+});
+
+describe('TOML subset: keys that real client configs actually use', () => {
+  // codex config.toml 会写 `"gpt-5.2-codex" = "gpt-5.4"`，此前 key 正则不接受引号 → 整文件解析失败
+  it('parses a double-quoted key', () => {
+    const parsed = parseTomlSubset('"gpt-5.2-codex" = "gpt-5.4"\n');
+    expect(parsed['gpt-5.2-codex']).toBe('gpt-5.4');
+  });
+
+  it('parses a single-quoted key and keeps bare keys working', () => {
+    const parsed = parseTomlSubset("'weird key' = 1\nnormal_key = 2\n");
+    expect(parsed['weird key']).toBe(1);
+    expect(parsed.normal_key).toBe(2);
+  });
+
+  it('still rejects genuinely unparseable lines', () => {
+    expect(() => parseTomlSubset('this is not toml\n')).toThrow(/cannot parse line/);
+  });
+
+  it('parses a full realistic snippet without throwing', () => {
+    const text = [
+      'model = "gpt-5"',
+      '"gpt-5.2-codex" = "gpt-5.4"',
+      '',
+      '[model_providers.custom]',
+      'base_url = "https://x"',
+      '',
+      "[projects.'E:\projects\boss-sql']",
+      'trust_level = "trusted"',
+    ].join('\n');
+    const parsed = parseTomlSubset(text);
+    expect(parsed.model).toBe('gpt-5');
+    expect(parsed['gpt-5.2-codex']).toBe('gpt-5.4');
+    expect(parsed.model_providers.custom.base_url).toBe('https://x');
+    expect(parsed.projects['E:\projects\boss-sql'].trust_level).toBe('trusted');
+  });
+});
+
+describe('splitTomlPath: quoted segments', () => {
+  it('splits bare dotted paths', () => {
+    expect(splitTomlPath('a.b.c')).toEqual(['a', 'b', 'c']);
+  });
+
+  it('strips quotes and keeps dots inside them', () => {
+    expect(splitTomlPath("projects.'E:\projects\my.app'")).toEqual(['projects', 'E:\projects\my.app']);
+    expect(splitTomlPath('projects."a.b"')).toEqual(['projects', 'a.b']);
+  });
+
+  it('tolerates spaces around dots', () => {
+    expect(splitTomlPath('a . b')).toEqual(['a', 'b']);
   });
 });

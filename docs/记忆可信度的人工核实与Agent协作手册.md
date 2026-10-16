@@ -124,7 +124,7 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 只需让 Agent 能执行 `omem`。两条路：
 
 - **有 MCP**（推荐）：按 §1.1 修好配置并重启。此时 Agent 除了跑命令，还能用 `search_memory` 直接拿到 `id+\`id\`` 格式的结果，方便接着确认。
-- **无 MCP**：Agent 只要在 shell 里能调到 `omem`（`npm link` 或绝对路径）即可。`omem install` 还会往 `~/.claude/CLAUDE.md` 写 marker-fenced 指令段，让非 MCP harness 也知道有这个 CLI。
+- **无 MCP**：Agent 只要在 shell 里能调到 `omem`（`npm link` 或绝对路径）即可。`omem install` 选中 claude-code 时会往 `~/.claude/CLAUDE.md` 幂等写入 marker-fenced 指令段（让非 MCP harness 也知道有这个 CLI）；未选 claude-code 则不动该文件。
 
 ### 3.3 可直接粘贴的 prompt 模板
 

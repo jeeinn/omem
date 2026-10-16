@@ -40,8 +40,11 @@ omem init
 ## 快速开始
 
 ```bash
-# 1. 接一个 AI 客户端（自动检测 + 写入 MCP 配置，只 merge 不覆盖，先备份）
-omem install --target claude-code    # 也支持 workbuddy / cursor / codex / zed ...
+# 1. 接一个 AI 客户端：交互式勾选（空格切换、a 全选、回车确认）
+omem install
+#    默认只预选路径已核实的客户端（cursor / workbuddy），其余由你决定
+#    非交互环境（CI / 管道）必须显式指定，否则报错：omem install --target claude-code,cursor
+#    客户端不在支持列表里：omem install --print-config generic 打印通用 mcpServers 片段
 
 # 2. 从历史会话加工候选记忆（档 0：规则抽取，零配置）
 omem run --since 30d
@@ -67,7 +70,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 | 命令 | 作用 |
 | --- | --- |
 | `omem init` | 建数据仓骨架（`~/.omem`） |
-| `omem install --target <name>` | 写入客户端 MCP 配置（六条写入纪律） |
+| `omem install` | 交互勾选客户端并写入 MCP 配置（六条写入纪律）；`--target a,b` 跳过交互、`--print-config <id\|generic>` 只预览、`--list` 列全部 |
 | `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code、WorkBuddy、Cursor 会话并加工记忆 |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <query> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
@@ -116,7 +119,7 @@ MCP sampling 路径在 V0.1 不可用（Claude Code 未支持），持续跟踪�
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # vitest：157 个单元用例（21 个文件）
+npm test           # vitest：191 个单元用例（22 个文件）
 npm run smoke      # 端到端冒烟：53 项断言（隔离 OMEM_HOME）
 ```
 

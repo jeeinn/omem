@@ -39,8 +39,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdInit,
   },
   install: {
-    desc: 'Auto-detect and wire up local Agents (MCP config + instruction files)',
-    usage: 'omem install [--target a,b] [--list] [--print-config <id>] [--command <cmd>]',
+    desc: 'Select and wire up local Agents (MCP config + instruction files)',
+    usage: 'omem install [--target a,b|other] [--list] [--print-config <id|generic>] [--command <cmd>]',
     run: cmdInstall,
   },
   run: {

@@ -79,6 +79,35 @@ function stripComment(line: string): string {
   return line;
 }
 
+/**
+ * 引号感知的点号路径切分：`projects.'E:\a.b'` → ['projects', 'E:\\a.b']。
+ * 引号内的点不作分隔，引号本身剥除；裸键保持原样。TOML 的空格容错由 trim 处理。
+ */
+export function splitTomlPath(path: string): string[] {
+  const parts: string[] = [];
+  let buf = '';
+  let quote: '"' | "'" | null = null;
+  for (const ch of path) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else buf += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === '.') {
+      parts.push(buf.trim());
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  parts.push(buf.trim());
+  return parts.filter((p) => p.length > 0);
+}
+
 export function parseTomlSubset(text: string): Record<string, any> {
   const root: Record<string, any> = {};
   let current: Record<string, any> = root;
@@ -88,15 +117,16 @@ export function parseTomlSubset(text: string): Record<string, any> {
     const sec = line.match(/^\[([^\]]+)\]$/);
     if (sec) {
       current = root;
-      for (const part of sec[1].split('.').map((s) => s.trim())) {
+      for (const part of splitTomlPath(sec[1])) {
         current[part] ??= {};
         current = current[part];
       }
       continue;
     }
-    const kv = line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    // key 允许裸键或带引号键——`"gpt-5.2-codex" = "gpt-5.4"` 是合法 TOML（codex config.toml 会用到）
+    const kv = line.match(/^(?:"([^"]*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*=\s*(.+)$/);
     if (!kv) throw new Error(`config: cannot parse line: ${line}`);
-    current[kv[1]] = parseTomlValue(kv[2].trim());
+    current[kv[1] ?? kv[2] ?? kv[3]] = parseTomlValue(kv[4].trim());
   }
   return root;
 }

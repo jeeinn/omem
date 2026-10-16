@@ -10,8 +10,10 @@ import {
   parseJsonc,
   omemEntry,
   renderClientConfig,
+  renderGenericMcpSnippet,
 } from '../../src/install/writer.js';
 import type { ClientSpec } from '../../src/install/clients.js';
+import { upsertTomlSection } from '../../src/install/toml-bridge.js';
 
 let dir: string;
 
@@ -129,6 +131,111 @@ describe('install: write disciplines', () => {
 
   it('omemEntry shape matches spec §6.3', () => {
     expect(omemEntry('omem')).toEqual({ command: 'omem', args: ['serve'] });
+  });
+});
+
+describe('install: generic MCP snippet for unlisted clients', () => {
+  it('emits the community-standard mcpServers shape', () => {
+    const snippet = renderGenericMcpSnippet('omem');
+    const json = snippet.split('\n').filter((l) => !l.startsWith('#')).join('\n');
+    expect(JSON.parse(json).mcpServers.omem).toEqual({ command: 'omem', args: ['serve'] });
+  });
+
+  it('is explicit that it is not written anywhere automatically', () => {
+    expect(renderGenericMcpSnippet('omem')).toContain('paste into');
+  });
+});
+
+describe('install: TOML section upsert is text-level (no destructive rewrite)', () => {
+  // 真实 codex config.toml 含带引号段名（Windows 项目路径）与空表段；
+  // 全量 parse→serialize 会把它们写坏，故写入必须是文本级段合并。
+  const realistic = [
+    'model = "gpt-5"',
+    '',
+    '[model_providers.custom]',
+    'base_url = "https://x"',
+    '',
+    '[model_providers]',
+    '',
+    "[projects.'E:\\projects\\boss-sql']",
+    'trust_level = "trusted"',
+    '',
+    '[mcp_servers.dbx]',
+    'command = "dbx"',
+    '',
+  ].join('\n');
+
+  function tomlSpec(): ClientSpec {
+    return {
+      id: 'codex',
+      name: 'Codex',
+      kind: 'toml-mcp',
+      configPath: () => join(dir, 'config.toml'),
+      detect: () => true,
+      verified: false,
+    };
+  }
+
+  it('adds the omem section and preserves every other byte-level structure', () => {
+    const out = upsertTomlSection(realistic, 'mcp_servers.omem', omemEntry('omem'));
+    expect('text' in out).toBe(true);
+    const text = (out as { text: string }).text;
+    expect(text).toContain('[mcp_servers.omem]');
+    expect(text).toContain('command = "omem"');
+    // 其他内容原样保留：带引号段名不被改写、空表段不丢失、既有 mcp 段还在
+    expect(text).toContain("[projects.'E:\\projects\\boss-sql']");
+    expect(text).not.toContain('projects."\\');
+    expect(text).toContain('[model_providers]');
+    expect(text).toContain('[mcp_servers.dbx]');
+    expect(text).toContain('[model_providers.custom]');
+  });
+
+  it('is idempotent: a second upsert replaces the section instead of duplicating it', () => {
+    const first = upsertTomlSection(realistic, 'mcp_servers.omem', omemEntry('omem')) as { text: string };
+    const second = upsertTomlSection(first.text, 'mcp_servers.omem', omemEntry('omem')) as { text: string; action: string };
+    expect(second.action).toBe('updated');
+    expect(second.text.match(/\[mcp_servers\.omem\]/g)).toHaveLength(1);
+  });
+
+  it('updates an existing section in place and keeps what follows it', () => {
+    const withOld = `${realistic}\n[mcp_servers.omem]\ncommand = "old"\nargs = ["x"]\n\n[tui]\nanimations = false\n`;
+    const out = upsertTomlSection(withOld, 'mcp_servers.omem', omemEntry('omem')) as { text: string };
+    expect(out.text).toContain('command = "omem"');
+    expect(out.text).not.toContain('command = "old"');
+    expect(out.text).toContain('[tui]');
+    expect(out.text).toContain('animations = false');
+  });
+
+  it('refuses to append when the table is defined in a form it cannot rewrite', () => {
+    const inline = '[mcp_servers]\nomem = { command = "omem", args = ["serve"] }\n';
+    const out = upsertTomlSection(inline, 'mcp_servers.omem', omemEntry('omem'));
+    expect('error' in out).toBe(true);
+    expect((out as { error: string }).error).toContain('manually');
+  });
+
+  it('appends an explicit parent header when only a sub-table exists (legal TOML)', () => {
+    const nested = '[mcp_servers.omem.extra]\nk = 1\n';
+    const out = upsertTomlSection(nested, 'mcp_servers.omem', omemEntry('omem')) as { text: string; action: string };
+    expect(out.action).toBe('added');
+    expect(out.text.match(/\[mcp_servers\.omem\]/g)).toHaveLength(1);
+    expect(out.text).toContain('[mcp_servers.omem.extra]');
+  });
+
+  it('refuses the inline form specifically (would be a duplicate table definition)', () => {
+    const inline = '[mcp_servers]\ncodegraph = { command = "cg" }\nomem = { command = "x" }\n';
+    const out = upsertTomlSection(inline, 'mcp_servers.omem', omemEntry('omem'));
+    expect('error' in out).toBe(true);
+  });
+
+  it('writeClientConfig applies the text-level upsert (file on disk keeps other keys)', () => {
+    const spec = tomlSpec();
+    writeFileSync(spec.configPath(dir), realistic);
+    const out = writeClientConfig(spec, 'omem');
+    expect(out.ok).toBe(true);
+    const text = readFileSync(out.path, 'utf8');
+    expect(text).toContain('[mcp_servers.omem]');
+    expect(text).toContain("[projects.'E:\\projects\\boss-sql']");
+    expect(text).toContain('[model_providers]');
   });
 });
 
