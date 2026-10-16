@@ -14,7 +14,20 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
 
-公开测试版本：`0.1.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+公开测试版本：`0.1.0-beta.2`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+
+**beta.1 → beta.2 的破坏性变更**（升级前请先看，行为变化不小）：
+
+| 变更 | beta.1 | beta.2 |
+| --- | --- | --- |
+| 默认产物 | 规则抽取的片段写进 `knowledge/` | 会话对话原文写进 `sessions/`，`knowledge/` 只放结论 |
+| `omem run --tier rules` | 可用 | **报错退出码 1**（规则抽取已移除） |
+| 配置 `default_tier = "rules"` | 触发规则抽取 | 按 `agent` 处理 |
+| `omem install` 非交互（CI/管道） | 自动全装 | **报错，必须显式 `--target`** |
+| `omem redact --source <s>` | 直接删 | **默认只预览，必须 `--yes` 才删** |
+| 配置 `exclude_keywords` | 存在（但已不生效） | **已移除**；`omem init` 会提示删掉残留行 |
+
+升级后已落盘的旧规则碎片不会被自动清理，用 `omem redact --source rules --yes` 一次性删除（先不加 `--yes` 看预览）。
 
 > 包名带 scope 的原因：npm 的 typo-squatting 保护认为裸名 `omem` 与已存在的 `mem` / `pem` / `open` / `viem` 过于相似（发布时返回 403）。用 scope 后**命令名依然是 `omem`**，安装后 `omem init` / `omem serve` 的用法不变。
 
