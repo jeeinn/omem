@@ -20,6 +20,7 @@ OUT=$(run init --no-scan); CODE=$?
 [ $CODE -eq 0 ] && ok "exit code 0" || bad "exit code $CODE: $OUT"
 [ -f "$OMEM_HOME/config.toml" ] && ok "config.toml generated" || bad "config.toml missing"
 [ -d "$OMEM_HOME/knowledge" ] && ok "knowledge/ generated" || bad "knowledge/ missing"
+[ -d "$OMEM_HOME/sessions" ] && ok "sessions/ generated" || bad "sessions/ missing"
 [ -d "$OMEM_HOME/.git" ] && ok "git data repo initialized" || bad "git data repo missing"
 [ -f "$OMEM_HOME/MEMORY-INDEX.md" ] && ok "MEMORY-INDEX.md generated" || bad "MEMORY-INDEX.md missing"
 
@@ -50,7 +51,7 @@ OUT=$(run search "Postgres 而非")
 echo "$OUT" | grep -q "Postgres" && ok "search recovered after rebuild" || bad "search not recovered after rebuild"
 
 echo "== S6 omem run (synthetic fixture, tier 0 rules + redaction) =="
-OUT=$(run run); CODE=$?
+OUT=$(run run --tier rules); CODE=$?
 [ $CODE -eq 0 ] && ok "run exit code 0" || bad "run exit code $CODE: $OUT"
 echo "$OUT" | grep -qE "candidates [0-9]{1,2}" && ok "candidates extracted" || bad "no candidates: $OUT"
 echo "$OUT" | grep -qE "written (1?[0-9]|[2-9][0-9])" && ok "candidates written" || bad "nothing written: $OUT"

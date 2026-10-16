@@ -60,7 +60,7 @@ describe('config: TOML subset', () => {
       );
       const c = loadConfig(home);
       expect(c.general.profile).toBe('home');
-      expect(c.process.default_tier).toBe('rules');
+      expect(c.process.default_tier).toBe('agent');
       expect(c.process.stale_after_days).toBe(180);
       expect(c.sync.backend).toBe('git');
     } finally {

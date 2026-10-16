@@ -27,6 +27,7 @@ const DATA_GITIGNORE = `# omem data repo: only the source of truth is versioned
 index/
 snapshots/
 logs/
+PROCESS.md
 *.tmp-*
 *.conflict.md
 `;

@@ -4,7 +4,7 @@
 
 omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markdown 文件，事实源永远明文可读、可 diff、可 `git log` 审计；SQLite/FTS5 只是可随时删除重建的派生索引；MCP 让各个 AI 客户端（Claude Code、WorkBuddy、Codex……）共享同一份记忆。
 
-- 零配置、零 API key：默认档（规则抽取）开箱即用，首次运行不出现任何 key 提示
+- 零配置、零 API key：默认把完整对话采集进 `sessions/`，结论由 Agent 写回；首次运行不出现任何 key 提示
 - Markdown 事实源：Obsidian 里直接改，下次访问自动检出重建索引
 - 备份/跨机器/版本历史/diff 审计/人类可读冲突解决——`md + git` 一次全部拿到
 - 永不自动删除：supersede 显式取代、reconfirm 确认刷新、`omem redact` 是唯一硬删入口
@@ -46,11 +46,11 @@ omem install
 #    非交互环境（CI / 管道）必须显式指定，否则报错：omem install --target claude-code,cursor
 #    客户端不在支持列表里：omem install --print-config generic 打印通用 mcpServers 片段
 
-# 2. 从历史会话加工候选记忆（档 0：规则抽取，零配置）
+# 2. 采集历史会话原文（默认档 agent：写入 sessions/，并生成 PROCESS.md）
 omem run --since 30d
 
-# 3. 审阅候选并确认（verified:false → true）
-omem review
+# 3. 让当前 Agent 按 PROCESS.md 写结论；要盖已确认章再用 review
+omem review --confirm <id>
 
 # 4. 手工记一条
 omem add "部署时 docker 镜像构建失败，改用国内源后恢复" --type experience
@@ -69,12 +69,12 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 
 | 命令 | 作用 |
 | --- | --- |
-| `omem init` | 建数据仓骨架（`~/.omem`） |
+| `omem init` | 建数据仓并默认采集会话原文到 `sessions/`（`--no-scan` 只建库） |
 | `omem install` | 交互勾选客户端并写入 MCP 配置（六条写入纪律）；`--target a,b` 跳过交互、`--print-config <id\|generic>` 只预览、`--list` 列全部 |
-| `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集 Claude Code、WorkBuddy、Cursor 会话并加工记忆 |
+| `omem run [--since 7d] [--tier rules\|agent\|api]` | 采集对话到 `sessions/`。默认 agent 写 `PROCESS.md`；`--tier rules` 或 `api` 才把结论写入 `knowledge/` |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
-| `omem search <query> [--detail] [--domain X]` | 检索（FTS5 trigram + LIKE 兜底，附时效标注） |
-| `omem review [--confirm <id>]` | 审阅/确认候选 |
+| `omem search <query> [--detail] [--sessions] [--domain X]` | 默认只查结论；`--sessions` 只查对话原文 |
+| `omem review [--confirm <id>]` | 审阅队列。`--confirm` 把该条标为已确认并把置信度提到 0.9 |
 | `omem gc [--days N]` | 标记 stale（直接标记，只标记不删除） |
 | `omem rebuild` | 从 Markdown 全量重建索引（删 db 也能恢复） |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 导出记忆为客户端上下文 |
@@ -92,7 +92,9 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 ```
 ~/.omem/
 ├── config.toml              # 唯一配置入口
-├── knowledge/<domain>/<YYYY>/<id>.md   # 事实源：一条记忆一个文件
+├── knowledge/<domain>/<YYYY>/<id>.md   # 结论记忆：一条一个文件
+├── sessions/<agent>/<session_id>.md    # 对话原文（user/assistant），不是结论
+├── PROCESS.md                          # 档 2 引导（派生，不进 git）
 ├── archive/<domain>/<YYYY>/<id>.md     # 归档层（L3）
 ├── index/                   # SQLite + FTS5（派生缓存，删了可 rebuild）
 ├── snapshots/YYYY-MM-DD/    # 快照（滚动保留 7 份）
@@ -105,22 +107,30 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 
 四层：L0 热层 `MEMORY-INDEX.md`（≤80 行派生视图）/ L1 active / L2 stale（降权 ×0.5，检索排序可见）/ L3 archived。三个机制：显式取代 `supersede` > 确认刷新 `reconfirm` > 时间衰减（V0.1 不做）。**永不自动删除**——`omem redact` 是唯一硬删入口，且会同步移除索引行。
 
+## 执行流程
+
+1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
+2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
+3. 结论只从三条路进入 `knowledge/`：Agent 调用 `save_memory`、人执行 `omem add`、或显式 `omem run --tier rules` / `--tier api`。带 `supersedes` 时旧结论变为 `superseded`，默认检索不再返回。两条相反结论不会自动分出对错。
+4. `omem init` / `omem run` 把尚未产生结论的会话写入 `PROCESS.md`（每批最多 5 个）。omem 不调用模型。下一次打开客户端时，按 install 写入的说明去读这个文件并 `save_memory`。
+5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
+
 ## 加工四档（默认零配置）
 
-1. **规则抽取**（默认）：9 条正则从 user 消息提取 `verified:false` 候选；指令式语气置信度减半并打 `low-weight` 标签（防投毒第一关）
-2. **Agent 主动保存**：MCP `save_memory`，置信度 0.6
-3. **Agent 协作引导**：`omem run --tier agent` 打印式引导本地 agent 批量加工
-4. **自带 API key**（可选，默认关）：OpenAI 兼容接口，`OMEM_API_KEY` 等环境变量配置
+1. **规则抽取**（显式 `omem run --tier rules`）：正则从 user 消息提取 `verified:false` 候选。不再作为默认。配置文件里残留的 `default_tier = "rules"` 也不会自动抽取。
+2. **Agent 主动保存**（默认开）：MCP `save_memory`。有依据时自动打分，仍是未确认。
+3. **Agent 协作引导**（默认档）：采集原文并写 `PROCESS.md`，由本地 Agent 读文件后写回结论。
+4. **自带 API key**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口。
 
-MCP sampling 路径在 V0.1 不可用（Claude Code 未支持），持续跟踪。
+MCP sampling 在 V0.1 不可用。
 
 ## 从源码开发
 
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # vitest：191 个单元用例（22 个文件）
-npm run smoke      # 端到端冒烟：53 项断言（隔离 OMEM_HOME）
+npm test           # vitest：198 个单元用例（23 个文件）
+npm run smoke      # 端到端冒烟：54 项断言（隔离 OMEM_HOME）
 ```
 
 测试栈：Vitest 3（forks pool + `--experimental-sqlite` execArgv 注入）+ bash 冒烟 + 裸 JSON-RPC MCP 探针（同时断言 stdout 纯净——日志只走 stderr）。

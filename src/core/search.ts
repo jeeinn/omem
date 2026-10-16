@@ -55,7 +55,8 @@ export function searchEntries(index: OmemIndex, q: SearchQuery): EntryRow[] {
       JOIN entries_fts ON e.id = entries_fts.id
       WHERE entries_fts MATCH ?
         AND ${filters}
-      ORDER BY (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * bm25(entries_fts) ASC,
+      ORDER BY (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence * bm25(entries_fts) ASC,
+               e.verified DESC,
                e.last_confirmed DESC
       LIMIT ?
     `);
@@ -63,19 +64,19 @@ export function searchEntries(index: OmemIndex, q: SearchQuery): EntryRow[] {
   }
 
   // ── 兜底路径：LIKE（trigram 对 <3 字符查询无效） ──
+  // 与主路一致：先按 confidence（stale ×0.5）排，verified 只在分数相同时优先。
   const { sql: filters, params: fparams } = buildFilters();
   const pattern = `%${escapeLike(query)}%`;
-  // stale 降权同样作用于兜底路（规格 §4.2）：verified 保持第一键（人工确认优先于自动冷却），
-  // 冷却权重作用在 confidence 上；与主路 bm25*weight 的语义对齐。
+  const likeOrder = `(CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence DESC,
+             e.verified DESC,
+             e.last_confirmed DESC`;
   const stmt = db.prepare(`
     SELECT e.* FROM entries e
     WHERE (e.id IN (SELECT id FROM entries_fts WHERE content LIKE ? ESCAPE '\\')
            OR e.title LIKE ? ESCAPE '\\'
            OR e.tags LIKE ? ESCAPE '\\')
       AND ${filters}
-    ORDER BY e.verified DESC,
-             (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence DESC,
-             e.last_confirmed DESC
+    ORDER BY ${likeOrder}
     LIMIT ?
   `);
   const rows = stmt.all(pattern, pattern, pattern, ...fparams, staleWeight, limit) as unknown as EntryRow[];
@@ -87,10 +88,42 @@ export function searchEntries(index: OmemIndex, q: SearchQuery): EntryRow[] {
     SELECT e.* FROM entries e
     WHERE e.id IN (SELECT id FROM entries_fts WHERE ${andSql})
       AND ${filters}
-    ORDER BY e.verified DESC,
-             (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence DESC,
-             e.last_confirmed DESC
+    ORDER BY ${likeOrder}
     LIMIT ?
   `);
   return stmt2.all(...tokens.map((t) => `%${escapeLike(t)}%`), ...fparams, staleWeight, limit) as unknown as EntryRow[];
+}
+
+export interface SessionHit {
+  session_key: string;
+  path: string;
+  project_fp: string;
+  last_ts: string;
+}
+
+/** 只查会话原文，不返回 knowledge 结论。 */
+export function searchSessions(index: OmemIndex, query: string, limit = 3): SessionHit[] {
+  const q = query.trim();
+  if (!q) return [];
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const db = index.db;
+  if (tokens.every((t) => charLen(t) >= 3)) {
+    const ftsq = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
+    return db.prepare(`
+      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
+      FROM sessions s
+      JOIN sessions_fts ON s.session_id = sessions_fts.session_key
+      WHERE sessions_fts MATCH ?
+      ORDER BY bm25(sessions_fts) ASC
+      LIMIT ?
+    `).all(ftsq, limit) as unknown as SessionHit[];
+  }
+  const pattern = `%${escapeLike(q)}%`;
+  return db.prepare(`
+    SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
+    FROM sessions s
+    JOIN sessions_fts ON s.session_id = sessions_fts.session_key
+    WHERE sessions_fts.content LIKE ? ESCAPE '\\'
+    LIMIT ?
+  `).all(pattern, limit) as unknown as SessionHit[];
 }

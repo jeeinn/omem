@@ -17,3 +17,4 @@ Thumbs.db
 
 # 工具内部状态（非项目源码）
 .workbuddy/
+.cursor/

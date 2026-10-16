@@ -14,7 +14,7 @@ Runtime data lives in `OMEM_HOME` (default `~/.omem`). Development, tests, and s
 - **Conflicts are reported only.** Sync never auto-merges. The remote version is saved as `.conflict.md`; the local version is kept. Skip `*.conflict.md` when walking memory files.
 - **Markdown is the source of truth.** `store` never caches; it reads from disk every time. External edits (e.g. Obsidian) are absorbed by connect-time catch-up: `(size, mtime)` fast path, file content hash slow path.
 - **Do not mix the two hashes.** The file content hash detects external edits; the normalized-body `contentHash` (`body_hash`) provides idempotent dedup across the three write paths.
-- **Automatically processed output is always `verified: false`.** Only an explicit `omem add` / `review --confirm` marks an entry confirmed. Imperative tone ("必须 / 一律 / 永远") halves confidence and adds the `low-weight` tag.
+- **Automatically processed output is always `verified: false`.** Only an explicit `omem add` / `review --confirm` marks an entry confirmed (and raises confidence to 0.9). `save_memory` `confirm_ids` caps confidence at 0.8 and does not set verified. Imperative tone ("必须 / 一律 / 永远") halves confidence and adds the `low-weight` tag.
 - **Redact before writing.** All ingest paths must pass through `redactSecrets`. Exclusion zones are `exclude_paths` and `exclude_keywords`.
 - **The work profile blocks sync and export by default** (`ProfileBlockedError`, exit code 2). Only `OMEM_ALLOW_WORK_EXPORT=1` allows it. `OMEM_PROFILE_LOCKED=1` locks the profile.
 - **MCP stdout carries protocol only.** Logs go to stderr or `logs/omem.log`. Default tools are only `search_memory` / `save_memory`; `memory_feedback` is enabled via `OMEM_MCP_TOOLS=feedback`. Do not expand the default tool surface.
@@ -31,8 +31,8 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/cli.ts` `src/cli-args.ts` | Command dispatch. Must not call `process.exit` when imported (`OMEM_CLI_ENTRY`) |
 | `src/commands/` | One file per command, returns an exit code |
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots |
-| `src/collect/` | Session collection. Registered: `claude-code`, `workbuddy`, `cursor`, all read-only. For new platforms see "Skills" below |
-| `src/process/` | Processing: `rules` (default) / `pipeline` / `guide` (agent) / `api` (off by default) |
+| `src/collect/` | Read-only session collection (`claude-code`, `workbuddy`, `cursor`). Transcripts land in `sessions/`. New platforms: see "Skills" |
+| `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `rules` (explicit `--tier rules`) / `api` (off by default) |
 | `src/mcp/` | stdio MCP server and tool implementations |
 | `src/install/` | Client registry, config writing, TOML subset |
 | `src/sync/` | `SyncBackend`. V0.1 implements only `GitBackend`; `webdav` / `dir` throw "not yet delivered" |

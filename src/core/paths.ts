@@ -15,6 +15,7 @@ export function omemHome(env: NodeJS.ProcessEnv = process.env): string {
 
 export const dirs = {
   knowledge: (h: string) => join(h, 'knowledge'),
+  sessions: (h: string) => join(h, 'sessions'),
   archive: (h: string) => join(h, 'archive'),
   index: (h: string) => join(h, 'index'),
   snapshots: (h: string) => join(h, 'snapshots'),
@@ -25,12 +26,13 @@ export const files = {
   config: (h: string) => join(h, 'config.toml'),
   db: (h: string) => join(h, 'index', 'omem.db'),
   memoryIndex: (h: string) => join(h, 'MEMORY-INDEX.md'),
+  processGuide: (h: string) => join(h, 'PROCESS.md'),
   usageLog: (h: string) => join(h, 'logs', 'omem.log'),
 };
 
 /** 创建运行期目录骨架（不含 config.toml 与索引内容）。 */
 export function ensureHome(home: string): void {
-  for (const d of [home, dirs.knowledge(home), dirs.archive(home), dirs.index(home), dirs.snapshots(home), dirs.logs(home)]) {
+  for (const d of [home, dirs.knowledge(home), dirs.sessions(home), dirs.archive(home), dirs.index(home), dirs.snapshots(home), dirs.logs(home)]) {
     mkdirSync(d, { recursive: true });
   }
 }

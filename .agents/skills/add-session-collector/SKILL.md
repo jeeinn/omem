@@ -67,7 +67,8 @@ Field conventions:
 - `agent` uses a stable short id matching the registry, e.g. `qoder`.
 - `session_id` defaults to the filename (minus `.jsonl`). If lines carry their own id, keep the message's `session_id` consistent with the digest.
 - `msg_uuid` prefers the other party's message id, otherwise `` `${sessionId}#${lineNumber}` ``.
-- `content` concatenates text blocks only. Do not leave tool arguments inside the string.
+- `content` concatenates text blocks only, then goes through `stripHarness` (`src/collect/dialogue.ts`): keep `<user_query>` text when present, otherwise drop `<system-reminder>` blocks. Do not leave tool arguments inside the string.
+- `omem run` writes the dialogue to `sessions/<agent>/<session_id>.md`. Do not write transcripts into `knowledge/`. A keyword in `exclude_keywords` skips that session file.
 - Call `resolveProjectFp(cwd)` only when `cwd` exists (it only reads `git config`). Without cwd, `project_fp` is `unknown`; never write to git just for a fingerprint.
 - When timestamps are missing, use a stable placeholder ISO value, not `new Date()`, so the same file yields the same digest on every parse.
 

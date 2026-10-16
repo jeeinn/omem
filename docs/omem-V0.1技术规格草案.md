@@ -48,8 +48,10 @@
 ```
 ~/.omem/
 ├── config.toml              # 唯一配置入口
-├── knowledge/               # ★ 事实源：唯一需要备份的东西
+├── knowledge/               # ★ 结论记忆：一条一个文件
 │   └── <domain>/<YYYY>/<id>.md
+├── sessions/                # ★ 对话原文：<agent>/<session_id>.md，与结论一起进版本控制
+├── PROCESS.md               # 档 2 引导（派生，不进版本控制）
 ├── archive/                 # 归档条目（见 §4），仍在版本控制内
 ├── index/                   # 可重建（omem rebuild），不进版本控制
 │   └── omem.db
@@ -299,10 +301,12 @@ marker 之间为 omem 托管区，**重跑 install 时按 marker 幂等替换**�
 ## 7. CLI 规格
 
 ```
-omem init                        建库 + 扫描已有会话（规则抽取）
+omem init                        建库 + 默认采集会话原文到 sessions/
 omem install                     自动接线 agent（§6）
-omem run [--since D]             加工会话（V0.1 只 Claude Code）
-omem search <q> [--detail] [--all]
+omem run [--since D] [--tier rules|agent|api]
+                                 采集原文；默认 agent 只写 PROCESS.md
+                                 --tier rules|api 才把结论写入 knowledge/
+omem search <q> [--detail] [--all] [--sessions]
 omem review                      待确认队列（含 stale 提示）
 omem gc                          ★ 标记 stale，只报告不删除
 omem rebuild                     从 md 全量重建索引
@@ -386,13 +390,13 @@ MCP 规范里有个正好为此设计的原语：**sampling**（`sampling/create
 
 | 档 | 机制 | 配置 | 质量 | V0.1 |
 |---|---|---|---|---|
-| **0. 规则抽取**（默认） | 正则 + 模板从会话提高信号句（"以后都用 X" / "别再用 Y" / "我决定…" / "改成…" / "因为…所以…"），生成候选条目，标 `verified:false`、低 `confidence` | **零** | 低但可用 | ✅ 必做 |
-| **1. Agent 主动保存**（默认开） | Agent 会话中自行调 `save_memory`；omem 负责去重与组织 | **零** | 取决于 Agent | ✅ 必做 |
-| **2. Agent 协作加工**（可选） | omem 提供 CLI/MCP 引导，让 Agent 批量加工历史会话——**这才是"借本地 agent 能力"的真正落地方式** | **零** | 中 | ✅ 做 |
+| **0. 规则抽取**（显式 `--tier rules`） | 正则 + 模板从会话提高信号句，生成候选条目，标 `verified:false`、低 `confidence`。不作为默认 | **零** | 低 | 可选 |
+| **1. Agent 主动保存**（默认开） | Agent 调 `save_memory`。依据落在会话文件的 user 段时 confidence 从 0.55 起，两处印证 0.75，对不上封顶 0.35；`confirm_ids` 只到 0.8 且不标 verified | **零** | 取决于 Agent | ✅ 必做 |
+| **2. Agent 协作加工**（默认） | 采集完整 user/assistant 对话到 `sessions/`，每批最多 5 个未出结论的会话写入 `PROCESS.md`。Agent 读文件后写回；omem 不调用模型 | **零** | 中 | ✅ 默认 |
 | **3. 自带 API key**（可选，默认关） | 配置 OpenAI 兼容 key + 轻模型批量加工 | 需 key，¥5–20/月 | 高 | ⭕ 可选开关 |
 | **4. MCP sampling**（未来） | 借宿主模型 | 零 | 高 | ❌ V0.1 不可用；**持续跟踪 claude-code Issue #1785** |
 
-**关键承诺**：首次运行不出现任何 key 提示。规则抽取产出的是**候选条目**（`verified:false`），用户在 `omem review` 中确认——质量不够，但"有东西"胜过"要配置"。想提质再 `omem config set model …`。
+**关键承诺**：首次运行不出现任何 key 提示。默认产物是会话原文，不是规则片段。结论由 Agent 写回，`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。新结论要淘汰旧结论时必须带 `supersedes`；未带则两条同时有效，本阶段不自动判断对错。想用规则抽取执行 `omem run --tier rules`。
 
 ### 9.5 开放问题
 

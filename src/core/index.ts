@@ -9,6 +9,7 @@ import type { Entry } from './entry.js';
 import { parseEntry, deriveTitle, deriveSummary } from './entry.js';
 import { sha256hex, contentHash } from './util.js';
 import { allEntryFiles } from './store.js';
+import { listStoredSessionFiles, readStoredSession } from '../collect/session-store.js';
 
 export interface EntryRow {
   id: string;
@@ -35,7 +36,11 @@ export interface EntryRow {
 }
 
 export interface SessionRecord {
+  /** 主键，形如 `agent:sessionId`。 */
   session_id: string;
+  agent: string;
+  path: string;
+  content_hash: string;
   project_fp: string;
   msg_count: number;
   last_ts: string;
@@ -91,7 +96,18 @@ export class OmemIndex {
         last_ts TEXT,
         processed_at TEXT
       );
+      CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
+        session_key UNINDEXED, content, tokenize='trigram'
+      );
     `);
+    this.addColumn('sessions', 'agent', 'TEXT');
+    this.addColumn('sessions', 'path', 'TEXT');
+    this.addColumn('sessions', 'content_hash', 'TEXT');
+  }
+
+  private addColumn(table: string, name: string, decl: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === name)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
   }
 
   // ── 条目读写 ──
@@ -189,6 +205,7 @@ export class OmemIndex {
         removed++;
       }
     }
+    this.catchUpSessions();
     return { scanned, reindexed, removed };
   }
 
@@ -210,6 +227,7 @@ export class OmemIndex {
       this.upsert(entry, path, text);
       total++;
     }
+    this.rebuildSessions();
     this.setMeta('last_rebuild', new Date().toISOString());
     return total;
   }
@@ -229,13 +247,73 @@ export class OmemIndex {
     return (this.db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(sessionId) as unknown as SessionRecord) ?? null;
   }
 
-  putSession(rec: SessionRecord): void {
-    this.db.prepare(`INSERT INTO sessions (session_id, project_fp, msg_count, last_ts, processed_at)
-      VALUES (?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
+  listSessions(): SessionRecord[] {
+    return this.db.prepare('SELECT * FROM sessions ORDER BY last_ts ASC').all() as unknown as SessionRecord[];
+  }
+
+  /** knowledge 条目指向过的 session_id（含 agent:id 与原始 id）。 */
+  linkedSessionIds(): Set<string> {
+    const rows = this.db.prepare(
+      "SELECT DISTINCT session_id FROM entries WHERE session_id IS NOT NULL AND session_id != ''",
+    ).all() as { session_id: string }[];
+    return new Set(rows.map((r) => r.session_id));
+  }
+
+  putSession(rec: SessionRecord, body = ''): void {
+    this.db.prepare(`INSERT INTO sessions
+      (session_id, project_fp, msg_count, last_ts, processed_at, agent, path, content_hash)
+      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
       project_fp = excluded.project_fp, msg_count = excluded.msg_count,
-      last_ts = excluded.last_ts, processed_at = excluded.processed_at`).run(
+      last_ts = excluded.last_ts, processed_at = excluded.processed_at,
+      agent = excluded.agent, path = excluded.path, content_hash = excluded.content_hash`).run(
       rec.session_id, rec.project_fp, rec.msg_count, rec.last_ts, rec.processed_at,
+      rec.agent, rec.path, rec.content_hash,
     );
+    this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(rec.session_id);
+    if (body) {
+      this.db.prepare('INSERT INTO sessions_fts (session_key, content) VALUES (?,?)').run(rec.session_id, body);
+    }
+  }
+
+  removeSession(sessionId: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
+    this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(sessionId);
+  }
+
+  private catchUpSessions(): void {
+    this.reindexSessionFiles(false);
+  }
+
+  private rebuildSessions(): void {
+    this.db.exec('DELETE FROM sessions; DELETE FROM sessions_fts;');
+    this.reindexSessionFiles(true);
+  }
+
+  private reindexSessionFiles(force: boolean): void {
+    const seen = new Set<string>();
+    for (const path of listStoredSessionFiles(this.home)) {
+      const text = readFileSync(path, 'utf8');
+      const stored = readStoredSession(path);
+      if (!stored) continue;
+      const key = `${stored.agent}:${stored.sessionId}`;
+      seen.add(key);
+      const st = statSync(path);
+      const prev = this.getSession(key);
+      if (!force && prev && prev.path === path && prev.content_hash === stored.contentHash) continue;
+      this.putSession({
+        session_id: key,
+        agent: stored.agent,
+        path,
+        content_hash: stored.contentHash,
+        project_fp: stored.project,
+        msg_count: stored.messages,
+        last_ts: stored.ended,
+        processed_at: prev?.processed_at ?? stored.ended,
+      }, stored.body || text);
+    }
+    for (const row of this.listSessions()) {
+      if (!seen.has(row.session_id)) this.removeSession(row.session_id);
+    }
   }
 
   countByStatus(): Record<string, number> {

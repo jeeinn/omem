@@ -1,24 +1,68 @@
-// 档 2：Agent 协作批量加工（规格 §9.4——"借本地 agent 能力"的真正落地方式）。
-// omem 不做推理，只打印引导 + 会话摘录；Agent 提炼后通过 save_memory / omem add 回写。
-import { truncate } from '../core/util.js';
-import type { SessionDigest } from '../collect/types.js';
+// 档 2：把待加工会话写成 PROCESS.md，并打印同一份引导。omem 不调用模型。
+import { statSync } from 'node:fs';
+import { files } from '../core/paths.js';
+import { atomicWrite } from '../core/util.js';
 
-export function printGuide(digests: SessionDigest[], maxChars = 600): void {
-  const total = digests.reduce((n, d) => n + d.messages.length, 0);
-  console.log('## omem batch processing guide (tier 2: Agent collaboration, zero config)');
-  console.log('');
-  console.log(`Below are excerpts from ${digests.length} sessions, ${total} messages in total. Distill entries worth remembering long-term, session by session:`);
-  console.log('- Types: preference / fact / decision / experience; 3-10 sentences per entry, one item per entry');
-  console.log('- Store conclusions, discard process; do not fabricate information that did not appear; mark imperative tone as low weight');
-  console.log('- For each entry, call the MCP tool save_memory(content, type, domain, tags), or the CLI: omem add "<content>"');
-  console.log('- omem handles dedup, organization, and indexing; no need to worry about duplicate writes');
-  console.log('');
-  for (const d of digests) {
-    console.log(`### Session ${d.session_id} (project ${d.project_fp}, ${d.messages.length} messages)`);
-    for (const m of d.messages.slice(0, 40)) {
-      console.log(`[${m.role}] ${truncate(m.content, maxChars)}`);
-    }
-    if (d.messages.length > 40) console.log(`…${d.messages.length - 40} more messages not shown`);
-    console.log('');
-  }
+export interface GuideRelated {
+  id: string;
+  title: string;
 }
+
+export interface GuideSession {
+  path: string;
+  sessionId: string;
+  agent: string;
+  project: string;
+  related: GuideRelated[];
+}
+
+const BATCH = 5;
+const LONG_BYTES = 100 * 1024;
+
+export function renderGuide(batch: GuideSession[], remaining: number): string {
+  const lines: string[] = [
+    '# omem sessions waiting for distillation',
+    '',
+    'These sessions have no conclusion entries yet (at most 5 in this batch). Read each file, in parts if it is long, and write back only what is worth remembering.',
+    '- Types: preference / fact / decision / experience. One conclusion per entry.',
+    '- Keep the conclusion, drop the process. Do not invent anything that was not said.',
+    '- `evidence` must be at least 12 characters copied from a `## user` section of that file. Do not quote `## assistant`.',
+    '- Call `save_memory` with `session_id`, `evidence`, and `type`. If the new conclusion replaces one listed below, pass `supersedes`. Without it, both stay active.',
+    '- After writing, ask once: confirm all, confirm some, or leave them. If the user agrees, call `save_memory` with only `confirm_ids`. That raises confidence to 0.8 and does not set verified.',
+    '- `verified: true` comes only from `omem add` or `omem review --confirm <id>`.',
+    '',
+  ];
+  if (batch.length === 0) {
+    lines.push('No sessions are waiting.');
+    lines.push('');
+    return lines.join('\n');
+  }
+  lines.push(`This batch: ${batch.length}. ${remaining} left for the next \`omem run\`.`);
+  lines.push('');
+  for (const s of batch) {
+    let bytes = 0;
+    try {
+      bytes = statSync(s.path).size;
+    } catch { /* 刚写入时读不到长度就略过提示 */ }
+    lines.push(`## ${s.agent} / ${s.sessionId}`);
+    lines.push(`- File: \`${s.path}\``);
+    lines.push(`- project: \`${s.project}\``);
+    if (bytes > LONG_BYTES) lines.push('- This file is long. Read it in parts; do not paste it back into the chat.');
+    if (s.related.length === 0) {
+      lines.push('- Active conclusions in scope: none');
+    } else {
+      lines.push('- Active conclusions in scope (pass the id via supersedes when the new one replaces it):');
+      for (const r of s.related) lines.push(`  - \`${r.id}\` ${r.title}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+export function writeProcessGuide(home: string, text: string): string {
+  const path = files.processGuide(home);
+  atomicWrite(path, text);
+  return path;
+}
+
+export { BATCH as GUIDE_BATCH };

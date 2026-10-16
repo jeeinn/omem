@@ -10,6 +10,7 @@ import { searchEntries } from '../core/search.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
+import { applyAssent, scoreEvidence } from '../process/score.js';
 import type { EntryRow } from '../core/index.js';
 
 export interface ToolCtx {
@@ -61,13 +62,23 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           domain: { type: 'string', description: 'e.g. coding / general' },
           tags: { type: 'array', items: { type: 'string' } },
           project: { type: 'string', description: 'Project fingerprint (optional)' },
+          session_id: { type: 'string', description: 'Session id from PROCESS.md / sessions frontmatter' },
+          evidence: {
+            type: 'string',
+            description: 'At least 12 characters copied from a ## user section of that session file. Assistant text does not count.',
+          },
           supersedes: {
             type: 'array',
             items: { type: 'string' },
             description: 'Pass the old entry id only when explicitly superseding an old memory; marks the old entry as superseded',
           },
+          confirm_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'After the user agrees in this turn, raise those entries to the automatic cap (0.8). Does not set verified.',
+          },
         },
-        required: ['content'],
+        required: [],
       },
     },
   ];
@@ -157,32 +168,49 @@ function idList(v: unknown): string[] {
 
 function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
   let content = String(args.content ?? '').trim();
-  if (!content) throw new Error('content must not be empty');
-  if ([...content].length > ctx.config.process.max_content_chars) {
-    content = content.slice(0, ctx.config.process.max_content_chars) + '…';
+  const confirmIds = idList(args.confirm_ids);
+  if (!content && confirmIds.length === 0) throw new Error('content must not be empty');
+  const parts: string[] = [];
+  if (content) {
+    if ([...content].length > ctx.config.process.max_content_chars) {
+      content = content.slice(0, ctx.config.process.max_content_chars) + '…';
+    }
+    const type = (['preference', 'fact', 'decision', 'experience'] as MemoryType[]).includes(args.type)
+      ? (args.type as MemoryType)
+      : 'fact';
+    const supersedes = idList(args.supersedes);
+    const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+    const evidence = typeof args.evidence === 'string' ? args.evidence : '';
+    const scored = scoreEvidence(ctx.home, { content, sessionId: sessionId || undefined, evidence }, ctx.index);
+    const tags = [...(Array.isArray(args.tags) ? args.tags.map(String) : []), ...scored.tags];
+    const result = commitEntry(ctx.home, ctx.config, ctx.index, {
+      content,
+      type,
+      domain: typeof args.domain === 'string' && args.domain ? args.domain : undefined,
+      project: typeof args.project === 'string' && args.project ? args.project : undefined,
+      tags,
+      session_id: sessionId || undefined,
+      source: 'agent',
+      confidence: scored.confidence,
+      verified: false,
+      supersedes,
+    });
+    if (result.status === 'deduped') parts.push(`Content already exists (id: ${result.id}); not written again.`);
+    else if (result.status === 'excluded' || result.status === 'redacted-empty') parts.push(`Not written: ${result.reason}`);
+    else {
+      const saved = result.path ? readEntryFile(result.path) : null;
+      const domain = saved?.fm.domain ?? 'general';
+      const savedType = saved?.fm.type ?? type;
+      const replaced = supersedes.length > 0 ? ` Superseded: ${supersedes.join(', ')}.` : '';
+      parts.push(`Saved (id: ${result.id}, ${domain}/${savedType}, confidence ${scored.confidence}). Unverified entry.${replaced}`);
+    }
   }
-  const type = (['preference', 'fact', 'decision', 'experience'] as MemoryType[]).includes(args.type)
-    ? (args.type as MemoryType)
-    : 'fact';
-  const supersedes = idList(args.supersedes);
-  const result = commitEntry(ctx.home, ctx.config, ctx.index, {
-    content,
-    type,
-    domain: typeof args.domain === 'string' && args.domain ? args.domain : undefined,
-    project: typeof args.project === 'string' && args.project ? args.project : undefined,
-    tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
-    source: 'agent',
-    confidence: 0.6,
-    verified: false,
-    supersedes,
-  });
-  if (result.status === 'deduped') return `Content already exists (id: ${result.id}); not written again.`;
-  if (result.status === 'excluded' || result.status === 'redacted-empty') return `Not written: ${result.reason}`;
-  const saved = result.path ? readEntryFile(result.path) : null;
-  const domain = saved?.fm.domain ?? 'general';
-  const savedType = saved?.fm.type ?? type;
-  const replaced = supersedes.length > 0 ? ` Superseded: ${supersedes.join(', ')}.` : '';
-  return `Saved (id: ${result.id}, ${domain}/${savedType}). Unverified entry; pending omem review confirmation.${replaced}`;
+  if (confirmIds.length > 0) {
+    const { updated, missing } = applyAssent(ctx.home, ctx.index, confirmIds);
+    if (updated.length > 0) parts.push(`Assent recorded for ${updated.join(', ')} (confidence up to 0.8, still unverified).`);
+    if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
+  }
+  return parts.join(' ');
 }
 
 function toolFeedback(args: Record<string, any>, ctx: ToolCtx): string {

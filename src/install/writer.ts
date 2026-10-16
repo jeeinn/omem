@@ -168,6 +168,7 @@ export function markerSection(): string {
     '- Save a memory: `omem add "<content>"`',
     '- Export context: `omem context --for <agent>`',
     '- Prefer the MCP tools search_memory / save_memory when available.',
+    '- If PROCESS.md lists sessions waiting for distillation, read those files and save_memory the conclusions.',
     MARKER_END,
   ].join('\n');
 }

@@ -1,20 +1,32 @@
-// 加工流水线（评估 4.5 加工器）：会话 → 候选 → 条目。
-// 顺序：抽取（档 0/2/3）→ 脱敏 → 禁区过滤 → profile 过滤（work 排除代码类）→ content-hash 去重 → 落盘 + 索引。
+// 加工流水线：先把对话写入 sessions/，再按档位处理。
+// 默认档 agent 只写原文和 PROCESS.md，不把规则片段写入 knowledge。
+// 规则抽取只在本次命令显式 --tier rules 时发生。config 里残留的 rules 不再自动抽取。
 import type { OmemConfig, Tier } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import { nowIso, parseSince } from '../core/util.js';
+import { deriveTitle } from '../core/entry.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
+import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
+import {
+  keywordHit,
+  prepareDialogue,
+  sessionKey,
+  splitSessionKey,
+  writeSessionFile,
+} from '../collect/session-store.js';
+import type { SessionDigest } from '../collect/types.js';
 import { extractFromDigest } from './rules.js';
-import { printGuide } from './guide.js';
+import { GUIDE_BATCH, renderGuide, writeProcessGuide, type GuideSession } from './guide.js';
 import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
 import type { Candidate } from './rules.js';
 
 export interface RunOpts {
   since?: string; // '7d' | 'YYYY-MM-DD'
   sessionId?: string;
+  /** 命令行显式传入的档位。缺省时不把 config 里的 rules 当成自动抽取。 */
   tier?: Tier;
   dryRun?: boolean;
 }
@@ -32,9 +44,72 @@ export interface RunReport {
   notes: string[];
 }
 
+/** 显式 --tier 优先。配置里的 rules 视为旧默认，改走 agent 并提示。 */
+export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier; legacyRules: boolean } {
+  if (explicit) return { tier: explicit, legacyRules: false };
+  if (config.process.default_tier === 'rules') return { tier: 'agent', legacyRules: true };
+  return { tier: config.process.default_tier, legacyRules: false };
+}
+
 export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): RunReport {
-  const tier: Tier = opts.tier ?? config.process.default_tier;
-  const report: RunReport = {
+  const { tier, legacyRules } = resolveTier(config, opts.tier);
+  const report = emptyReport(tier);
+  if (legacyRules) {
+    report.notes.push('config default_tier=rules no longer auto-extracts; this run only ingests transcripts. Use omem run --tier rules to extract');
+  }
+  if (config.general.paused) {
+    report.notes.push('Collection paused (run omem resume to resume)');
+    return report;
+  }
+
+  const scan = scanHome(config, index, opts);
+  report.skipped = scan.skipped;
+  if (!noteMissingRoots(report, scan)) return report;
+  const blocked = ingest(home, config, index, scan.digests, opts.dryRun ?? false, report);
+  const open = scan.digests.filter((d) => !blocked.has(sessionKey(d.agent, d.session_id)));
+
+  if (tier === 'agent') {
+    publishGuide(home, index, opts.dryRun ?? false, report);
+    finish(home, index, report, opts.dryRun ?? false);
+    return report;
+  }
+
+  for (const digest of open) {
+    const candidates = extractFromDigest(digest);
+    report.candidates += candidates.length;
+    for (const c of candidates) commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
+  }
+  finish(home, index, report, opts.dryRun ?? false);
+  return report;
+}
+
+/** 档 3 的异步版本（API 加工需要网络调用）。原文仍先落盘。 */
+export async function runPipelineAsync(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): Promise<RunReport> {
+  const { tier } = resolveTier(config, opts.tier ?? 'api');
+  if (tier !== 'api') return runPipeline(home, config, index, opts);
+
+  const report = emptyReport('api');
+  if (config.general.paused) {
+    report.notes.push('Collection paused (run omem resume to resume)');
+    return report;
+  }
+  if (!apiConfigured()) throw new Error(apiSetupHint());
+
+  const scan = scanHome(config, index, opts);
+  report.skipped = scan.skipped;
+  if (!noteMissingRoots(report, scan)) return report;
+  const blocked = ingest(home, config, index, scan.digests, opts.dryRun ?? false, report);
+  for (const digest of scan.digests.filter((d) => !blocked.has(sessionKey(d.agent, d.session_id)))) {
+    const candidates = await extractWithApi(digest);
+    report.candidates += candidates.length;
+    for (const c of candidates) commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
+  }
+  finish(home, index, report, opts.dryRun ?? false);
+  return report;
+}
+
+function emptyReport(tier: Tier): RunReport {
+  return {
     tier,
     sessions: 0,
     skipped: 0,
@@ -46,97 +121,96 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
     excluded: 0,
     notes: [],
   };
+}
 
-  if (config.general.paused) {
-    report.notes.push('Collection paused (run omem resume to resume)');
-    return report;
-  }
-
+function scanHome(config: OmemConfig, index: OmemIndex, opts: RunOpts): ScanResult {
   const since = opts.since ? parseSince(opts.since) : undefined;
-  const scan = scanSessions(index, config, { since, sessionId: opts.sessionId });
-  report.skipped = scan.skipped;
-  if (!noteMissingRoots(report, scan)) return report;
+  return scanSessions(index, config, { since, sessionId: opts.sessionId });
+}
 
-  // ── 档 2：Agent 协作（打印引导，不落盘） ──
-  if (tier === 'agent') {
-    printGuide(scan.digests);
-    report.sessions = scan.digests.length;
-    report.messages = scan.digests.reduce((n, d) => n + d.messages.length, 0);
-    report.notes.push('Processing guide printed; have the Agent distill it and write back via save_memory / omem add');
-    return report;
-  }
-
-  for (const digest of scan.digests) {
+/** 把本批变化的对话写入 sessions/，并更新会话索引。 */
+function ingest(
+  home: string,
+  config: OmemConfig,
+  index: OmemIndex,
+  digests: SessionDigest[],
+  dryRun: boolean,
+  report: RunReport,
+): Set<string> {
+  const blocked = new Set<string>();
+  for (const digest of digests) {
     report.sessions++;
     report.messages += digest.messages.length;
-    const candidates = extractFromDigest(digest);
-    report.candidates += candidates.length;
-    for (const c of candidates) {
-      commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
+    const { body, hash } = prepareDialogue(digest);
+    const kw = keywordHit(body, config.collect.exclude_keywords);
+    if (kw) {
+      blocked.add(sessionKey(digest.agent, digest.session_id));
+      report.excluded++;
+      report.notes.push(`Session ${digest.agent}:${digest.session_id} hit exclude keyword "${kw}"; not written to sessions/`);
+      continue;
     }
-    if (!opts.dryRun) {
-      index.putSession({
-        session_id: digest.session_id,
-        project_fp: digest.project_fp,
-        msg_count: digest.messages.length,
-        last_ts: digest.ended_ts,
-        processed_at: nowIso(),
-      });
-    }
+    if (dryRun) continue;
+    const { path, text } = writeSessionFile(home, digest, body, hash);
+    index.putSession({
+      session_id: sessionKey(digest.agent, digest.session_id),
+      agent: digest.agent,
+      path,
+      content_hash: hash,
+      project_fp: digest.project_fp,
+      msg_count: digest.messages.length,
+      last_ts: digest.ended_ts,
+      processed_at: nowIso(),
+    }, text);
   }
+  return blocked;
+}
 
-  if (!opts.dryRun) generateMemoryIndex(home, index);
+function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport): void {
+  const text = renderGuide(...pendingBatch(home, index));
+  if (!dryRun) {
+    const path = writeProcessGuide(home, text);
+    report.notes.push(`Processing guide written to ${path}`);
+  }
+  console.log(text);
+  report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
+}
+
+function pendingBatch(home: string, index: OmemIndex): [GuideSession[], number] {
+  const linked = index.linkedSessionIds();
+  const pending = index.listSessions().filter((rec) => {
+    const { sessionId } = splitSessionKey(rec.session_id);
+    return !linked.has(sessionId) && !linked.has(rec.session_id);
+  });
+  const entries = listEntries(home).filter((l) => l.entry.fm.status === 'active');
+  const batch = pending.slice(0, GUIDE_BATCH).map((rec) => {
+    const { agent, sessionId } = splitSessionKey(rec.session_id);
+    const project = rec.project_fp || 'unknown';
+    const related = entries.filter((l) => {
+      const fm = l.entry.fm;
+      if (!project || project === 'unknown') return fm.session_id === sessionId || fm.session_id === rec.session_id;
+      return fm.project === project;
+    }).slice(0, 8);
+    return {
+      path: rec.path,
+      sessionId,
+      agent: rec.agent || agent,
+      project,
+      related: related.map((l) => ({ id: l.entry.fm.id, title: deriveTitle(l.entry.body) })),
+    };
+  });
+  return [batch, Math.max(0, pending.length - batch.length)];
+}
+
+function finish(home: string, index: OmemIndex, report: RunReport, dryRun: boolean): void {
+  if (!dryRun) generateMemoryIndex(home, index);
   appendLog(home, 'run', {
-    tier,
+    tier: report.tier,
     sessions: report.sessions,
     messages: report.messages,
     candidates: report.candidates,
     written: report.written.length,
     deduped: report.deduped,
   });
-  return report;
-}
-
-/** 档 3 的异步版本（API 加工需要网络调用）。 */
-export async function runPipelineAsync(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): Promise<RunReport> {
-  const tier: Tier = opts.tier ?? config.process.default_tier;
-  if (tier !== 'api') return runPipeline(home, config, index, opts);
-
-  const report: RunReport = {
-    tier, sessions: 0, skipped: 0, messages: 0, candidates: 0,
-    written: [], deduped: 0, redacted: 0, excluded: 0, notes: [],
-  };
-  if (config.general.paused) {
-    report.notes.push('Collection paused (run omem resume to resume)');
-    return report;
-  }
-  if (!apiConfigured()) throw new Error(apiSetupHint());
-
-  const since = opts.since ? parseSince(opts.since) : undefined;
-  const scan = scanSessions(index, config, { since, sessionId: opts.sessionId });
-  report.skipped = scan.skipped;
-  if (!noteMissingRoots(report, scan)) return report;
-  for (const digest of scan.digests) {
-    report.sessions++;
-    report.messages += digest.messages.length;
-    const candidates = await extractWithApi(digest);
-    report.candidates += candidates.length;
-    for (const c of candidates) {
-      commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
-    }
-    if (!opts.dryRun) {
-      index.putSession({
-        session_id: digest.session_id,
-        project_fp: digest.project_fp,
-        msg_count: digest.messages.length,
-        last_ts: digest.ended_ts,
-        processed_at: nowIso(),
-      });
-    }
-  }
-  if (!opts.dryRun) generateMemoryIndex(home, index);
-  appendLog(home, 'run', { tier: 'api', sessions: report.sessions, written: report.written.length });
-  return report;
 }
 
 const ROOT_ENV: Record<string, string> = {

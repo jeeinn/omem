@@ -27,7 +27,7 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
   } else {
     try {
       getBackend('git', home, config).init();
-      console.log('git data repo initialized (source of truth = knowledge/; index/snapshots/logs excluded)');
+      console.log('git data repo initialized (source of truth = knowledge/ and sessions/; index/snapshots/logs/PROCESS.md excluded)');
     } catch (e: any) {
       console.log(`git data repo initialization skipped: ${e.message}${e.hint ? ` (${e.hint})` : ''}`);
     }
@@ -40,7 +40,7 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
   } else {
     const report = runPipeline(home, config, index, {});
     console.log(
-      `Initial scan (tier 0 rule extraction, zero config): sessions ${report.sessions} (skipped unchanged ${report.skipped}), ` +
+      `Initial scan (tier ${report.tier}): sessions ${report.sessions} (skipped unchanged ${report.skipped}), ` +
         `messages ${report.messages}, candidates ${report.candidates}, written ${report.written.length}, ` +
         `deduped ${report.deduped}, redacted ${report.redacted}, excluded ${report.excluded}`,
     );

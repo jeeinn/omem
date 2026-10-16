@@ -7,6 +7,7 @@ import { expandHome } from '../core/paths.js';
 import { listSessionFiles, parseSessionFile, defaultProjectsRoot } from './claude-code.js';
 import { listCursorTranscripts, parseCursorTranscript } from './cursor.js';
 import { parseWorkbuddyFile } from './workbuddy.js';
+import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 
 export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor'] as const;
@@ -74,8 +75,9 @@ export function scanSessions(
       const digest = collector.parse(f.path);
       if (!digest) continue;
       if (opts.since && new Date(digest.ended_ts) < opts.since) continue;
-      const rec = index.getSession(digest.session_id);
-      if (!opts.sessionId && rec && rec.msg_count === digest.messages.length) {
+      const rec = index.getSession(sessionKey(digest.agent, digest.session_id));
+      const { hash } = prepareDialogue(digest);
+      if (!opts.sessionId && rec?.content_hash && rec.content_hash === hash) {
         skipped++;
         continue;
       }

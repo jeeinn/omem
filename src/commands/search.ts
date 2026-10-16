@@ -1,6 +1,6 @@
 // omem search：检索（规格 §7）。输出附时效标注（规格 §4.4）。
 import { openCtx } from '../core/ctx.js';
-import { searchEntries } from '../core/search.js';
+import { searchEntries, searchSessions } from '../core/search.js';
 import { readEntryFile } from '../core/store.js';
 import { formatStaleness } from '../core/lifecycle.js';
 import { truncate } from '../core/util.js';
@@ -10,10 +10,24 @@ import type { ParsedArgs } from '../cli-args.js';
 
 export async function cmdSearch(args: ParsedArgs): Promise<number> {
   const query = args._.join(' ').trim();
-  if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y]');
+  if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y] [--sessions]');
   const { home, config, index } = openCtx();
   const detail = flagBool(args.flags, 'detail');
   const all = flagBool(args.flags, 'all');
+  if (flagBool(args.flags, 'sessions')) {
+    const hits = searchSessions(index, query, config.search.top_k);
+    if (hits.length === 0) {
+      console.log(`No sessions found matching "${query}".`);
+      return 0;
+    }
+    console.log(`Found ${hits.length} session(s):\n`);
+    hits.forEach((row, i) => {
+      console.log(`${i + 1}. ${row.session_key} · project ${row.project_fp || 'unknown'}`);
+      console.log(`   ${row.path}`);
+      console.log('');
+    });
+    return 0;
+  }
 
   const hits = searchEntries(index, {
     query,

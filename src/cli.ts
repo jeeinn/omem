@@ -34,7 +34,7 @@ interface Command {
 
 const COMMANDS: Record<string, Command> = {
   init: {
-    desc: 'Initialize store + git data repo + scan existing sessions (rule extraction)',
+    desc: 'Initialize store + git data repo + ingest session transcripts',
     usage: 'omem init [--no-scan] [--no-git]',
     run: cmdInit,
   },
@@ -44,7 +44,7 @@ const COMMANDS: Record<string, Command> = {
     run: cmdInstall,
   },
   run: {
-    desc: 'Process sessions (Claude Code / WorkBuddy / Cursor; four tiers)',
+    desc: 'Ingest session transcripts; --tier rules|api also writes conclusions',
     usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier rules|agent|api] [--dry-run]',
     run: cmdRun,
   },
@@ -55,7 +55,7 @@ const COMMANDS: Record<string, Command> = {
   },
   search: {
     desc: 'Search memories (with freshness labels)',
-    usage: 'omem search <query> [--detail] [--all] [--domain X] [--project Y]',
+    usage: 'omem search <query> [--detail] [--all] [--sessions] [--domain X] [--project Y]',
     run: cmdSearch,
   },
   review: {

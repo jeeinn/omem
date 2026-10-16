@@ -6,6 +6,7 @@ import { join, basename } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { expandHome } from '../core/paths.js';
 import { sha256hex } from '../core/util.js';
+import { stripHarness } from './dialogue.js';
 import type { SessionDigest, UnifiedMessage } from './types.js';
 
 export function defaultProjectsRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -108,7 +109,7 @@ export function parseSessionFile(path: string): SessionDigest | null {
     if (j.isSidechain === true) continue; // 子 agent sidechain 不采集
     const role = j.type === 'user' ? 'user' : j.type === 'assistant' ? 'assistant' : null;
     if (!role) continue;
-    const content = extractText(j.message?.content).trim();
+    const content = stripHarness(extractText(j.message?.content)).trim();
     if (!content) continue;
     if (j.cwd) cwd = j.cwd;
     if (cwd && projectFp === 'unknown') projectFp = resolveProjectFp(cwd);

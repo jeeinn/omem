@@ -67,6 +67,7 @@ export function gcScan(
 export function reconfirm(home: string, index: OmemIndex, id: string): Located | null {
   const updated = updateEntry(home, id, (fm: Frontmatter) => {
     fm.verified = true;
+    fm.confidence = 0.9;
     fm.last_confirmed = nowIso();
     fm.confirmations += 1;
   });

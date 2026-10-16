@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { SessionFile } from './claude-code.js';
+import { stripHarness } from './dialogue.js';
 import type { SessionDigest, UnifiedMessage } from './types.js';
 
 /** 只列主会话 `<project>/agent-transcripts/<id>/<id>.jsonl`，跳过 subagents。 */
@@ -68,7 +69,7 @@ export function parseCursorTranscript(path: string): SessionDigest | null {
     }
     const role = j.role === 'user' || j.role === 'assistant' ? j.role : null;
     if (!role) continue;
-    const content = extractText(j.message?.content ?? j.content);
+    const content = stripHarness(extractText(j.message?.content ?? j.content));
     if (!content) continue;
     messages.push({
       session_id: sessionId,

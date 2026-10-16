@@ -36,7 +36,7 @@ export function defaultConfig(): OmemConfig {
       exclude_keywords: [],
     },
     process: {
-      default_tier: 'rules',
+      default_tier: 'agent',
       stale_after_days: 180, // 规格 §11 开放问题 7：V0.1 保守值 180 天
       stale_weight: 0.5, // 规格 §4.2：L2 冷却降权 ×0.5
       max_content_chars: 2000,
@@ -188,7 +188,7 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       exclude_keywords: strArr(p?.collect?.exclude_keywords),
     },
     process: {
-      default_tier: tier === 'agent' || tier === 'api' ? tier : 'rules',
+      default_tier: tier === 'agent' || tier === 'api' || tier === 'rules' ? tier : d.process.default_tier,
       stale_after_days: numIn(p?.process?.stale_after_days, 1, 3650, d.process.stale_after_days),
       stale_weight: numIn(p?.process?.stale_weight, 0, 1, d.process.stale_weight),
       max_content_chars: numIn(p?.process?.max_content_chars, 100, 100_000, d.process.max_content_chars),

@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { resolveProjectFp } from './claude-code.js';
+import { stripHarness } from './dialogue.js';
 import type { SessionDigest, UnifiedMessage } from './types.js';
 
 const TEXT_PARTS = new Set(['input_text', 'output_text', 'text']);
@@ -45,7 +46,7 @@ export function parseWorkbuddyFile(path: string): SessionDigest | null {
     if (j.isSidechain === true) continue;
     const role = j.role === 'user' ? 'user' : j.role === 'assistant' ? 'assistant' : null;
     if (!role) continue;
-    const content = extractText(j.content);
+    const content = stripHarness(extractText(j.content));
     if (!content) continue;
     if (j.cwd) cwd = j.cwd;
     if (cwd && projectFp === 'unknown') projectFp = resolveProjectFp(cwd);

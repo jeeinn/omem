@@ -49,6 +49,13 @@ describe('index: FTS5 trigram search', () => {
     expect(hits[0].id).toBe('2026-10-15-e1');
   });
 
+  it('LIKE ranks confidence ahead of verified', () => {
+    add('2026-10-15-low', '短词检索甲已确认', { verified: true, confidence: 0.35 });
+    add('2026-10-15-high', '短词检索乙未确认', { verified: false, confidence: 0.8 });
+    const hits = searchEntries(index, { query: '短', limit: 5 });
+    expect(hits[0].id).toBe('2026-10-15-high');
+  });
+
   it('<3-char query falls back to LIKE', () => {
     add('2026-10-15-e1', '这个项目禁用 ORM，必须手写 SQL');
     const hits = searchEntries(index, { query: 'ORM' }); // 3 字符 ASCII
@@ -145,10 +152,10 @@ describe('index: consistency (catch-up / rebuild)', () => {
 
 describe('index: sessions ledger', () => {
   it('put/get session records', () => {
-    index.putSession({ session_id: 's1', project_fp: 'fp', msg_count: 6, last_ts: '2026-10-10T09:00:00Z', processed_at: 'now' });
+    index.putSession({ session_id: 's1', agent: 'cursor', path: 'p', content_hash: 'h', project_fp: 'fp', msg_count: 6, last_ts: '2026-10-10T09:00:00Z', processed_at: 'now' });
     const rec = index.getSession('s1')!;
     expect(rec.msg_count).toBe(6);
-    index.putSession({ session_id: 's1', project_fp: 'fp', msg_count: 9, last_ts: 'x', processed_at: 'now2' });
+    index.putSession({ session_id: 's1', agent: 'cursor', path: 'p', content_hash: 'h', project_fp: 'fp', msg_count: 9, last_ts: 'x', processed_at: 'now2' });
     expect(index.getSession('s1')!.msg_count).toBe(9);
     expect(index.getSession('nope')).toBeNull();
   });
