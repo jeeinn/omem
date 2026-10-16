@@ -14,6 +14,8 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
 
+公开测试版本：`0.1.0-beta.1`（`npm install -g omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+
 CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文单语；`docs/` 技术文档与本 README 保持中文。
 
 ## 环境要求
@@ -24,11 +26,14 @@ CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文
 ## 安装
 
 ```bash
-npm install -g omem
+npm install -g omem@beta
 omem init
 ```
 
 `omem init` 在 `~/.omem`（可用 `OMEM_HOME` 覆盖）建好数据仓骨架与 `config.toml`。
+
+> Windows 上若客户端报 MCP server 启动失败（多见于 spawn 无法解析 npm 生成的 `omem.cmd`），把 MCP 配置改成直接用 node 启动：
+> `"command": "<node.exe 绝对路径>"`，`"args": ["<全局 node_modules>/omem/bin/omem.js", "serve"]`。
 
 ## 快速开始
 

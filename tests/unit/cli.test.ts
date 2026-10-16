@@ -52,7 +52,8 @@ describe('cli: top-level dispatch', () => {
     for (const argv of [['version'], ['--version'], ['-v']]) {
       const { out } = capture();
       expect(await main(argv)).toBe(0);
-      expect(out.join('')).toMatch(/^\d+\.\d+\.\d+$/);
+      // 版本号允许 semver prerelease（如 0.1.0-beta.1），公开测试期会用到
+      expect(out.join('')).toMatch(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
     }
   });
 
