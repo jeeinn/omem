@@ -14,7 +14,9 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
 
-公开测试版本：`0.1.0-beta.1`（`npm install -g omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+公开测试版本：`0.1.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+
+> 包名带 scope 的原因：npm 的 typo-squatting 保护认为裸名 `omem` 与已存在的 `mem` / `pem` / `open` / `viem` 过于相似（发布时返回 403）。用 scope 后**命令名依然是 `omem`**，安装后 `omem init` / `omem serve` 的用法不变。
 
 CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文单语；`docs/` 技术文档与本 README 保持中文。
 
@@ -26,7 +28,7 @@ CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文
 ## 安装
 
 ```bash
-npm install -g omem@beta
+npm install -g @jeeinn/omem@beta
 omem init
 ```
 
