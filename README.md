@@ -128,7 +128,7 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
 2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
 3. 结论按主题写入 `knowledge/`：`save_memory` 或 `omem add --topic`。该主题已有 active 文档时必须带 `supersedes`，否则拒绝并返回旧 id。`omem run --tier api` 仍默认关闭。检索默认只看 active 活文档；`omem search --sessions` 才查原文。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览）。
-4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题）。omem 不调用模型。整理这份队列的对话本身不要存成新主题。L2 画像和定时 `omem watch` 还没做。
+4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题，并尽量给出该组当前活文档 id 供 `--supersedes` 使用）。omem 不调用模型。整理这份队列的对话本身不要存成新主题。常驻后台的 `omem watch` 与 L2 画像排在 V0.2（见 `docs/omem-V0.2技术规格草案.md`）。
 5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
 
 ## 加工四档（默认零配置）
@@ -140,13 +140,35 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 
 MCP sampling 在 V0.1 不可用。
 
+## 定时采集（可选）
+
+omem 没有常驻后台进程：新会话要被看见，得跑一次 `omem run`（幂等——内容没变的会话会被跳过，不会重复落盘）。真实仓（约 950 个会话）一次全量跑约 8 秒，所以交给系统调度即可，不必自己写守护进程：
+
+```bash
+# Linux / macOS（每 30 分钟）
+*/30 * * * * /path/to/omem/scripts/collect.sh >> /tmp/omem-collect.log 2>&1
+```
+
+```powershell
+# Windows：每 30 分钟跑一次（cmd 内执行，注意内层引号要转义）
+schtasks /Create /TN "omem-collect" /SC MINUTE /MO 30 /F ^
+  /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\path\to\omem\scripts\collect.ps1\""
+```
+
+`scripts/collect.ps1` 与 `scripts/collect.sh` 只是 `omem run` 的薄封装（支持 `--since 7d` 与 `--dry-run`，退出码透传），幂等性由 omem 自己的 content-hash 对账保证。这两个脚本随仓库分发，**不在 npm 包里**。
+
+两点提醒：
+
+- 定时任务会重写 `PROCESS.md`。写入是原子的（临时文件 + rename），不会读到半截内容，但 Agent 手里正在读的那一版可能已经过期——要么错开加工时段，要么把间隔调到 30 分钟以上。
+- 采集只补原文，不写结论。队列涨得比消化得快是常态，别指望定时采集替你做蒸馏。
+
 ## 从源码开发
 
 ```bash
 npm install
 npm run build      # tsc → dist/
-npm test           # vitest：202 个单元用例（23 个文件）
-npm run smoke      # 端到端冒烟：59 项断言（隔离 OMEM_HOME）
+npm test           # vitest：217 个单元用例（26 个文件）
+npm run smoke      # 端到端冒烟：60 项断言（隔离 OMEM_HOME）
 ```
 
 测试栈：Vitest 3（forks pool + `--experimental-sqlite` execArgv 注入）+ bash 冒烟 + 裸 JSON-RPC MCP 探针（同时断言 stdout 纯净——日志只走 stderr）。
