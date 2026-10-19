@@ -1,59 +1,64 @@
-// 档 2：把待加工会话写成 PROCESS.md，并打印同一份引导。omem 不调用模型。
+// 档 2：把待加工主题写成 PROCESS.md，并打印同一份引导。omem 不调用模型。
 import { statSync } from 'node:fs';
 import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';
 
-export interface GuideRelated {
-  id: string;
-  title: string;
-}
-
-export interface GuideSession {
+export interface GuideSessionRef {
   path: string;
   sessionId: string;
   agent: string;
-  project: string;
-  related: GuideRelated[];
+}
+
+export interface GuideTopic {
+  topic: string;
+  docId?: string;
+  docTitle?: string;
+  sessions: GuideSessionRef[];
 }
 
 const BATCH = 5;
 const LONG_BYTES = 100 * 1024;
 
-export function renderGuide(batch: GuideSession[], remaining: number): string {
+export function renderGuide(topics: GuideTopic[], remaining: number, unassigned: GuideSessionRef[] = []): string {
   const lines: string[] = [
-    '# omem sessions waiting for distillation',
+    '# omem topics waiting for an update',
     '',
-    'These sessions have no conclusion entries yet (at most 5 in this batch). Read each file, in parts if it is long, and write back only what is worth remembering.',
-    '- Types: preference / fact / decision / experience. One conclusion per entry.',
-    '- Keep the conclusion, drop the process. Do not invent anything that was not said.',
-    '- `evidence` must be at least 12 characters copied from a `## user` section of that file. Do not quote `## assistant`.',
-    '- Call `save_memory` with `session_id`, `evidence`, and `type`. If the new conclusion replaces one listed below, pass `supersedes`. Without it, both stay active.',
-    '- After writing, ask once: confirm all, confirm some, or leave them. If the user agrees, call `save_memory` with only `confirm_ids`. That raises confidence to 0.8 and does not set verified.',
-    '- `verified: true` comes only from `omem add` or `omem review --confirm <id>`.',
+    'Each topic has one living document. A new session updates that document; pass supersedes so the previous version stays on disk but drops out of search.',
+    '- Read the session files. Keep short facts, drop the process. Do not invent anything that was not said.',
+    '- `evidence` must be at least 12 characters copied from a `## user` section. Do not quote `## assistant`.',
+    '- Call `save_memory` with `topic`, `session_id`, and `evidence`. If a current document id is listed, `supersedes` must include it or the write is rejected.',
+    '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
+    '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8 and does not set verified.',
+    '- `verified: true` comes only from `omem add` or `omem review --confirm`.',
     '',
   ];
-  if (batch.length === 0) {
-    lines.push('No sessions are waiting.');
+  if (topics.length === 0 && unassigned.length === 0) {
+    lines.push('No topics are waiting.');
     lines.push('');
     return lines.join('\n');
   }
-  lines.push(`This batch: ${batch.length}. ${remaining} left for the next \`omem run\`.`);
-  lines.push('');
-  for (const s of batch) {
-    let bytes = 0;
-    try {
-      bytes = statSync(s.path).size;
-    } catch { /* 刚写入时读不到长度就略过提示 */ }
-    lines.push(`## ${s.agent} / ${s.sessionId}`);
-    lines.push(`- File: \`${s.path}\``);
-    lines.push(`- project: \`${s.project}\``);
-    if (bytes > LONG_BYTES) lines.push('- This file is long. Read it in parts; do not paste it back into the chat.');
-    if (s.related.length === 0) {
-      lines.push('- Active conclusions in scope: none');
-    } else {
-      lines.push('- Active conclusions in scope (pass the id via supersedes when the new one replaces it):');
-      for (const r of s.related) lines.push(`  - \`${r.id}\` ${r.title}`);
+  if (topics.length > 0) {
+    lines.push(`This batch: ${topics.length} topic(s). ${remaining} left for the next \`omem run\`.`);
+    lines.push('');
+  }
+  for (const topic of topics) {
+    lines.push(`## ${topic.topic}`);
+    if (topic.docId) lines.push(`- Current document: \`${topic.docId}\`${topic.docTitle ? ` ${topic.docTitle}` : ''}`);
+    else lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
+    lines.push('- Sessions not yet absorbed:');
+    for (const s of topic.sessions) {
+      let note = '';
+      try {
+        if (statSync(s.path).size > LONG_BYTES) note = ' (long; read in parts)';
+      } catch { /* 刚写入时读不到长度就略过 */ }
+      lines.push(`  - \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\`${note}`);
     }
+    lines.push('');
+  }
+  if (unassigned.length > 0) {
+    lines.push('## Unassigned sessions');
+    lines.push('These have no project fingerprint. Name a topic when you save, and pass `session_id`.');
+    for (const s of unassigned) lines.push(`- \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\``);
     lines.push('');
   }
   return lines.join('\n');

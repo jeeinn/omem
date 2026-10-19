@@ -6,7 +6,7 @@ import type { OmemIndex } from '../core/index.js';
 import type { MemoryType } from '../core/entry.js';
 import { readEntryFile } from '../core/store.js';
 import { truncate } from '../core/util.js';
-import { searchEntries } from '../core/search.js';
+import { searchEntries, searchSessions } from '../core/search.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
@@ -33,12 +33,17 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'Search the personal long-term memory store (preferences / facts / decisions / experiences). ' +
         'Call this tool before answering whenever the user mentions past preferences, historical decisions, ' +
         'previous project experience, or environment configuration, or whenever you are unsure whether the user ' +
-        'has told you something before. Returns the top-3 summaries by default (<300 tokens); ' +
-        'pass detail=true for full text.',
+        'has told you something before. Returns living-document summaries by default. ' +
+        'Pass scope=sessions only when the user needs the original wording from a transcript.',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Search keywords (use at least 3 characters for Chinese; separate multiple words with spaces for intersection)' },
+          scope: {
+            type: 'string',
+            enum: ['conclusions', 'sessions'],
+            description: 'conclusions (default) searches living documents. sessions searches raw transcripts.',
+          },
           domain: { type: 'string', description: 'Limit to a domain, e.g. coding / general' },
           project: { type: 'string', description: 'Limit to a project fingerprint (normalized hash of the git remote)' },
           detail: { type: 'boolean', description: 'true returns full text (summary lines only by default)' },
@@ -54,8 +59,9 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'Call when the user explicitly asks to remember something, or when the session produces a stable ' +
         'preference / decision / environment configuration / pitfall experience — review the session and call ' +
         'this proactively when wrapping up, without waiting for an explicit request. When the user asks you to ' +
-        'organize memories, first read ~/.omem/PROCESS.md (it lists up to 5 sessions without conclusions) and ' +
-        'distill them via this tool. Organize content as "one item per entry", 3-10 sentences. ' +
+        'organize memories, first read the PROCESS.md path from the omem instructions (it lists topics and sessions not yet absorbed) and ' +
+        'update the living document for that topic via this tool. If the topic already has an active document, pass its id in supersedes. ' +
+        'Do not save the distillation chat itself as a new topic. Organize content as short facts, one topic per document. ' +
         'Idempotent dedup: duplicate content is not written twice.',
       inputSchema: {
         type: 'object',
@@ -65,7 +71,8 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           domain: { type: 'string', description: 'e.g. coding / general' },
           tags: { type: 'array', items: { type: 'string' } },
           project: { type: 'string', description: 'Project fingerprint (optional)' },
-          session_id: { type: 'string', description: 'Session id from PROCESS.md / sessions frontmatter' },
+          topic: { type: 'string', description: 'Living-document topic, e.g. "knee-rehab". Stored lowercase with hyphens. One active document per topic; a project may have several memories without a topic.' },
+          session_id: { type: 'string', description: 'Session id absorbed into this document, from PROCESS.md' },
           evidence: {
             type: 'string',
             description: 'At least 12 characters copied from a ## user section of that session file. Assistant text does not count.',
@@ -73,7 +80,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           supersedes: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Pass the old entry id only when explicitly superseding an old memory; marks the old entry as superseded',
+            description: 'Required when the topic already has an active document. Pass that id so the old version is superseded.',
           },
           confirm_ids: {
             type: 'array',
@@ -133,6 +140,17 @@ async function toolSearch(args: Record<string, any>, ctx: ToolCtx): Promise<stri
   if (!query) throw new Error('query must not be empty');
   const detail = Boolean(args.detail);
   const limit = typeof args.top_k === 'number' && args.top_k > 0 ? args.top_k : ctx.config.search.top_k;
+  const scope = String(args.scope ?? 'conclusions');
+  if (scope === 'sessions') {
+    const hits = searchSessions(ctx.index, query, limit);
+    appendLog(ctx.home, 'mcp.search', { query, hits: hits.length, scope });
+    if (hits.length === 0) return `No transcripts found matching "${query}".`;
+    const lines = [`Found ${hits.length} transcript(s):`, ''];
+    for (const hit of hits) lines.push(`- ${hit.session_key} · ${hit.path}`);
+    lines.push('');
+    lines.push('These are raw session notes, not conclusions.');
+    return lines.join('\n');
+  }
   const hits = searchEntries(ctx.index, {
     query,
     domain: args.domain ? String(args.domain) : undefined,
@@ -183,6 +201,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       : 'fact';
     const supersedes = idList(args.supersedes);
     const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+    const topic = typeof args.topic === 'string' ? args.topic.trim() : '';
     const evidence = typeof args.evidence === 'string' ? args.evidence : '';
     const scored = scoreEvidence(ctx.home, { content, sessionId: sessionId || undefined, evidence }, ctx.index);
     const tags = [...(Array.isArray(args.tags) ? args.tags.map(String) : []), ...scored.tags];
@@ -191,6 +210,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       type,
       domain: typeof args.domain === 'string' && args.domain ? args.domain : undefined,
       project: typeof args.project === 'string' && args.project ? args.project : undefined,
+      topic: topic || undefined,
       tags,
       session_id: sessionId || undefined,
       source: 'agent',

@@ -47,6 +47,7 @@ describe('context: export four targets', () => {
     expect(text).toContain('<!-- OMEM:INSTRUCTIONS:START -->');
     expect(text).toContain('<!-- OMEM:INSTRUCTIONS:END -->');
     expect(text).toContain('save_memory');
+    expect(text).toContain('PROCESS.md');
     expect(text).toContain('## user');
   });
 

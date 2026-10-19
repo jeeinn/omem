@@ -16,7 +16,7 @@ import {
   writeSessionFile,
 } from '../collect/session-store.js';
 import type { SessionDigest } from '../collect/types.js';
-import { GUIDE_BATCH, renderGuide, writeProcessGuide, type GuideSession } from './guide.js';
+import { GUIDE_BATCH, renderGuide, writeProcessGuide, type GuideSessionRef, type GuideTopic } from './guide.js';
 import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
 import type { Candidate } from './rules.js';
 
@@ -137,7 +137,8 @@ function ingest(
 }
 
 function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport): void {
-  const text = renderGuide(...pendingBatch(home, index));
+  const [topics, remaining, unassigned] = pendingTopics(home, index);
+  const text = renderGuide(topics, remaining, unassigned);
   if (!dryRun) {
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);
@@ -146,30 +147,50 @@ function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: R
   report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
 }
 
-function pendingBatch(home: string, index: OmemIndex): [GuideSession[], number] {
-  const linked = index.linkedSessionIds();
-  const pending = index.listSessions().filter((rec) => {
-    const { sessionId } = splitSessionKey(rec.session_id);
-    return !linked.has(sessionId) && !linked.has(rec.session_id);
-  });
-  const entries = listEntries(home).filter((l) => l.entry.fm.status === 'active');
-  const batch = pending.slice(0, GUIDE_BATCH).map((rec) => {
+export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[]] {
+  const absorbed = absorbedSessionIds(home);
+  const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
+  const byTopic = new Map<string, GuideTopic>();
+  const unassigned: GuideSessionRef[] = [];
+  for (const rec of index.listSessions()) {
     const { agent, sessionId } = splitSessionKey(rec.session_id);
-    const project = rec.project_fp || 'unknown';
-    const related = entries.filter((l) => {
-      const fm = l.entry.fm;
-      if (!project || project === 'unknown') return fm.session_id === sessionId || fm.session_id === rec.session_id;
-      return fm.project === project;
-    }).slice(0, 8);
-    return {
+    if (absorbed.has(sessionId) || absorbed.has(rec.session_id)) continue;
+    const ref: GuideSessionRef = {
       path: rec.path,
       sessionId,
       agent: rec.agent || agent,
-      project,
-      related: related.map((l) => ({ id: l.entry.fm.id, title: deriveTitle(l.entry.body) })),
     };
-  });
-  return [batch, Math.max(0, pending.length - batch.length)];
+    const project = rec.project_fp || 'unknown';
+    if (!project || project === 'unknown') {
+      unassigned.push(ref);
+      continue;
+    }
+    let topic = byTopic.get(project);
+    if (!topic) {
+      const doc = active.find((l) => l.entry.fm.topic === project);
+      topic = {
+        topic: project,
+        docId: doc?.entry.fm.id,
+        docTitle: doc ? deriveTitle(doc.entry.body) : undefined,
+        sessions: [],
+      };
+      byTopic.set(project, topic);
+    }
+    topic.sessions.push(ref);
+  }
+  const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);
+  return [all.slice(0, GUIDE_BATCH), Math.max(0, all.length - GUIDE_BATCH), unassigned.slice(0, GUIDE_BATCH)];
+}
+
+/** 已写进任一结论的 session_id 或 source_sessions，不再进入待吸收列表。 */
+function absorbedSessionIds(home: string): Set<string> {
+  const ids = new Set<string>();
+  for (const loc of listEntries(home, { includeArchived: true })) {
+    const fm = loc.entry.fm;
+    if (fm.session_id) ids.add(fm.session_id);
+    for (const id of fm.source_sessions) ids.add(id);
+  }
+  return ids;
 }
 
 function finish(home: string, index: OmemIndex, report: RunReport, dryRun: boolean): void {

@@ -105,8 +105,9 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 ```
 ~/.omem/
 ├── config.toml              # 唯一配置入口
-├── knowledge/<domain>/<YYYY>/<id>.md   # 结论记忆：一条一个文件
-├── sessions/<agent>/<session_id>.md    # 对话原文（user/assistant），不是结论
+├── sessions/<agent>/<session_id>.md    # L0 原文
+├── knowledge/<domain>/<YYYY>/<id>.md   # L1 主题活文档：同一 topic 一份 active，旧版 superseded
+├── PROFILE.md                          # L2 预留，这一版不生成
 ├── PROCESS.md                          # 档 2 引导（派生，不进 git）
 ├── archive/<domain>/<YYYY>/<id>.md     # 归档层（L3）
 ├── index/                   # SQLite + FTS5（派生缓存，删了可 rebuild）
@@ -114,18 +115,18 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 └── logs/                    # JSONL 使用日志
 ```
 
-一条记忆的 frontmatter 含 15 个字段（id/type/domain/profile/status/confidence/verified/source/session_id/project/created/last_confirmed/confirmations/supersedes/superseded_by/tags）。索引列同时存**文件内容哈希**（catch-up 检出 Obsidian 外部编辑）与**归一化正文 content-hash**（三处写入路径共用幂等去重），两者分工明确。
+一条记忆的 frontmatter 在原有字段上增加 `topic` 与 `source_sessions`。同一 `topic` 同时只有一份 active。索引列同时存**文件内容哈希**与**归一化正文 content-hash**。
 
 ## 记忆生命周期
 
-四层：L0 热层 `MEMORY-INDEX.md`（≤80 行派生视图）/ L1 active / L2 stale（降权 ×0.5，检索排序可见）/ L3 archived。三个机制：显式取代 `supersede` > 确认刷新 `reconfirm` > 时间衰减（V0.1 不做）。**永不自动删除**——`omem redact` 是唯一硬删入口，且会同步移除索引行。
+生命周期四层（热层 / active / stale / archived）和上面的原文层、活文档层不是同一套编号。机制仍是：显式取代 `supersede` > 确认刷新 `reconfirm` > 时间衰减（V0.1 不做）。**永不自动删除。**
 
 ## 执行流程
 
 1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
 2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
-3. 结论只从 `save_memory`、`omem add`，或显式 `omem run --tier api` 进入 `knowledge/`。带 `supersedes` 时旧结论变为 `superseded`，默认检索不再返回。两条相反结论不会自动分出对错。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览，会给出条数、占全库比例与样例）。
-4. `omem init` / `omem run` 把尚未产生结论的会话写入 `PROCESS.md`（每批最多 5 个）。omem 不调用模型。下一次打开客户端时，按 install 写入的说明去读这个文件并 `save_memory`。
+3. 结论按主题写入 `knowledge/`：`save_memory` 或 `omem add --topic`。该主题已有 active 文档时必须带 `supersedes`，否则拒绝并返回旧 id。`omem run --tier api` 仍默认关闭。检索默认只看 active 活文档；`omem search --sessions` 才查原文。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览）。
+4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题）。omem 不调用模型。整理这份队列的对话本身不要存成新主题。L2 画像和定时 `omem watch` 还没做。
 5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
 
 ## 加工四档（默认零配置）

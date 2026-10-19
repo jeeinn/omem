@@ -18,6 +18,10 @@ export interface Frontmatter {
   source: EntrySource;
   session_id?: string;
   project?: string;
+  /** L1 活文档主题。同一主题同时只有一份 active。 */
+  topic?: string;
+  /** 已吸收进这份活文档的会话 id。 */
+  source_sessions: string[];
   created: string;
   last_confirmed: string;
   confirmations: number;
@@ -33,7 +37,7 @@ export interface Entry {
 
 const FM_ORDER: (keyof Frontmatter)[] = [
   'id', 'type', 'domain', 'profile', 'status', 'confidence', 'verified', 'source',
-  'session_id', 'project', 'created', 'last_confirmed', 'confirmations',
+  'session_id', 'project', 'topic', 'source_sessions', 'created', 'last_confirmed', 'confirmations',
   'supersedes', 'superseded_by', 'tags',
 ];
 
@@ -101,6 +105,8 @@ function normalizeFm(fm: Record<string, any>): Frontmatter {
     source,
     session_id: fm.session_id ? String(fm.session_id) : undefined,
     project: fm.project ? String(fm.project) : undefined,
+    topic: fm.topic ? String(fm.topic) : undefined,
+    source_sessions: arr(fm.source_sessions),
     created: str(fm.created, now),
     last_confirmed: str(fm.last_confirmed, str(fm.created, now)),
     confirmations: num(fm.confirmations, 0),
@@ -123,6 +129,7 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
     last_confirmed: now,
     confirmations: 0,
     supersedes: [],
+    source_sessions: [],
     tags: [],
     ...partial,
   };

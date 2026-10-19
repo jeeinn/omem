@@ -25,6 +25,8 @@ export interface EntryRow {
   verified: number;
   session_id: string | null;
   project: string | null;
+  topic: string | null;
+  source_sessions: string | null;
   created: string;
   last_confirmed: string;
   confirmations: number;
@@ -103,6 +105,8 @@ export class OmemIndex {
     this.addColumn('sessions', 'agent', 'TEXT');
     this.addColumn('sessions', 'path', 'TEXT');
     this.addColumn('sessions', 'content_hash', 'TEXT');
+    this.addColumn('entries', 'topic', 'TEXT');
+    this.addColumn('entries', 'source_sessions', 'TEXT');
   }
 
   private addColumn(table: string, name: string, decl: string): void {
@@ -129,10 +133,11 @@ export class OmemIndex {
     } catch { /* 文件尚未落盘的极端情况 */ }
     this.db.prepare('DELETE FROM entries WHERE id = ?').run(fm.id);
     this.db.prepare(`INSERT INTO entries
-      (id,path,hash,body_hash,domain,type,profile,status,source,confidence,verified,session_id,project,created,last_confirmed,confirmations,tags,title,summary,size,mtime_ms)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      (id,path,hash,body_hash,domain,type,profile,status,source,confidence,verified,session_id,project,topic,source_sessions,created,last_confirmed,confirmations,tags,title,summary,size,mtime_ms)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       fm.id, path, hash, bodyHash, fm.domain, fm.type, fm.profile, fm.status, fm.source,
       fm.confidence, fm.verified ? 1 : 0, fm.session_id ?? null, fm.project ?? null,
+      fm.topic ?? null, JSON.stringify(fm.source_sessions ?? []),
       fm.created, fm.last_confirmed, fm.confirmations, fm.tags.join(' '),
       title, summary, size, mtime,
     );
@@ -158,6 +163,13 @@ export class OmemIndex {
   /** 按归一化正文 content-hash 查重（规格 §8 save_memory 幂等）。 */
   getByBodyHash(hash: string): EntryRow | null {
     return (this.db.prepare('SELECT * FROM entries WHERE body_hash = ?').get(hash) as unknown as EntryRow) ?? null;
+  }
+
+  /** 该主题当前的 active 活文档。多条时取最近确认的一份。 */
+  findActiveByTopic(topic: string): EntryRow | null {
+    return (this.db.prepare(
+      `SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY last_confirmed DESC LIMIT 1`,
+    ).get(topic) as unknown as EntryRow) ?? null;
   }
 
   private touchMeta(id: string, size: number, mtime: number): void {

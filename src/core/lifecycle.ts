@@ -102,7 +102,7 @@ export function generateMemoryIndex(home: string, index: OmemIndex): { path: str
   for (const loc of active.slice(0, Math.max(0, budget))) {
     const fm = loc.entry.fm;
     const title = truncate(deriveTitle(loc.entry.body), 50);
-    const tags = ['#' + fm.type, '#' + fm.domain, ...fm.tags.map((t) => '#' + t)].join(' ');
+    const tags = ['#' + fm.type, '#' + fm.domain, ...(fm.topic ? [`topic:${fm.topic}`] : []), ...fm.tags.map((t) => '#' + t)].join(' ');
     lines.push(`- [${(fm.created || '').slice(0, 10)}] ${title} ${formatStaleness(fm)} · ${tags} · \`${fm.id}\``);
   }
   if (active.length > budget) {

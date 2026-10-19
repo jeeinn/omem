@@ -50,7 +50,7 @@ const COMMANDS: Record<string, Command> = {
   },
   add: {
     desc: 'Manually add a memory (verified)',
-    usage: 'omem add <content> [--type X] [--domain Y] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]',
+    usage: 'omem add <content> [--type X] [--domain Y] [--tags a,b] [--project fp] [--topic name] [--supersedes id1,id2] [--force]',
     run: cmdAdd,
   },
   search: {

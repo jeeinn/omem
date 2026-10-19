@@ -1,6 +1,6 @@
 // commitEntry：三条写入路径的唯一提交点，以及 supersede 显式入口。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry, isRedactionShell } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
@@ -168,6 +168,90 @@ describe('commitEntry', () => {
     expect(r.dryRun).toBe(true);
     expect(r.id).toBeUndefined();
     expect(listEntries(home)).toHaveLength(0);
+  });
+
+  it('a second write to the same topic must supersede the active document', () => {
+    const first = commitEntry(home, base(), index, {
+      content: '主题 omem 的第一版结论：事实源是 Markdown',
+      type: 'decision',
+      topic: 'omem',
+      session_id: 's1',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+    });
+    expect(first.status).toBe('written');
+    const blocked = commitEntry(home, base(), index, {
+      content: '主题 omem 的第二版结论：索引只是派生的',
+      type: 'decision',
+      topic: 'omem',
+      session_id: 's2',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+    });
+    expect(blocked.status).toBe('excluded');
+    expect(blocked.id).toBe(first.id);
+    const next = commitEntry(home, base(), index, {
+      content: '主题 omem 的第二版结论：索引只是派生的',
+      type: 'decision',
+      topic: 'omem',
+      session_id: 's2',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      supersedes: [first.id!],
+    });
+    expect(next.status).toBe('written');
+    expect(findById(home, first.id!)!.entry.fm.status).toBe('superseded');
+    expect(findById(home, next.id!)!.entry.fm.source_sessions.sort()).toEqual(['s1', 's2']);
+    expect(searchEntries(index, { query: '事实源是 Markdown' })).toHaveLength(0);
+    expect(searchEntries(index, { query: '索引只是派生' }).map((r) => r.id)).toContain(next.id);
+  });
+
+  it('project alone does not block a second memory, and topic is slugified', () => {
+    const a = commitEntry(home, base(), index, {
+      content: '项目 p1 的认证决策用短令牌',
+      type: 'decision',
+      project: 'p1',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+    });
+    const b = commitEntry(home, base(), index, {
+      content: '项目 p1 的部署踩坑改用国内源',
+      type: 'experience',
+      project: 'p1',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+    });
+    expect(a.status).toBe('written');
+    expect(b.status).toBe('written');
+    expect(findById(home, a.id!)!.entry.fm.topic).toBeUndefined();
+    const named = commitEntry(home, base(), index, {
+      content: '膝盖康复每周两次力量训练',
+      type: 'fact',
+      topic: 'Knee Rehab',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+    });
+    expect(findById(home, named.id!)!.entry.fm.topic).toBe('knee-rehab');
+    const forced = commitEntry(home, base(), index, {
+      content: '膝盖康复改成每周三次',
+      type: 'fact',
+      topic: 'knee rehab',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+    }, { force: true });
+    expect(forced.status).toBe('excluded');
+    expect(forced.reason).toContain('--supersedes');
+    expect(forced.reason).toContain('--force does not bypass');
+    const text = readFileSync(files.memoryIndex(home), 'utf8');
+    expect(text).toContain('topic:knee-rehab');
+    expect(text).not.toContain('#knee');
   });
 
   it('supersedes marks old entries superseded; excluded by default, --all brings them back', () => {

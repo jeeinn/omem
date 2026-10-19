@@ -44,7 +44,7 @@ describe('mcp: buildTools tool surface', () => {
   it('search_memory description is trigger-condition style', () => {
     const t = buildTools({}).find((x) => x.name === 'search_memory')!;
     expect(t.description).toContain('Call this tool before answering');
-    expect(t.description).toContain('top-3');
+    expect(t.description).toContain('scope=sessions');
   });
 });
 

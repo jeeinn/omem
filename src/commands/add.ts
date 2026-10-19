@@ -7,7 +7,7 @@ import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { MemoryType } from '../core/entry.js';
 
-const USAGE = 'Usage: omem add <content> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--supersedes id1,id2] [--force]';
+const USAGE = 'Usage: omem add <content> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--topic name] [--supersedes id1,id2] [--force]';
 
 export async function cmdAdd(args: ParsedArgs): Promise<number> {
   const content = args._.join(' ').trim();
@@ -26,6 +26,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       domain: flagStr(args.flags, 'domain'),
       tags,
       project: flagStr(args.flags, 'project'),
+      topic: flagStr(args.flags, 'topic'),
       source: 'manual',
       confidence: 0.9,
       verified: true,
@@ -41,7 +42,9 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     }
     if (result.status === 'excluded' || result.status === 'redacted-empty') {
       console.log(`Not written: ${result.reason}`);
-      if (!flagBool(args.flags, 'force') && result.status === 'excluded' && result.reason !== 'Content is empty' && !result.reason?.startsWith('Old entries not found')) {
+      if (result.reason?.includes('already has an active document')) {
+        console.log('--force does not bypass a topic update. Re-run with the --supersedes id from the message above.');
+      } else if (!flagBool(args.flags, 'force') && result.status === 'excluded' && result.reason !== 'Content is empty' && !result.reason?.startsWith('Old entries not found')) {
         console.log('To record it anyway, add --force (does not bypass redaction or dedup).');
       }
       return 0;

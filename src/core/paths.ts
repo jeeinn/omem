@@ -27,6 +27,8 @@ export const files = {
   db: (h: string) => join(h, 'index', 'omem.db'),
   memoryIndex: (h: string) => join(h, 'MEMORY-INDEX.md'),
   processGuide: (h: string) => join(h, 'PROCESS.md'),
+  /** L2 预留路径。这一版不生成；只汇总已确认的 L1。 */
+  profile: (h: string) => join(h, 'PROFILE.md'),
   usageLog: (h: string) => join(h, 'logs', 'omem.log'),
 };
 

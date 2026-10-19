@@ -115,28 +115,32 @@ alwaysApply: true
 
 ### 模板 1：让 Agent 去蒸馏 PROCESS.md（档 2 的核心动作）
 
-> 适用场景：`omem run` 之后，`~/.omem/PROCESS.md` 里列着待加工会话。**这是把会话原文变成 knowledge 结论的主路径。**
+> 适用场景：`omem run` 之后，`~/.omem/PROCESS.md` 按**项目指纹分组**列出还没吸收进活文档的会话（分组名不是主题名）。**这是把原文收成主题活文档的主路径。** 同一个项目可以有多条记忆；只有你显式传了 `topic`，该主题才同时只允许一份 active 文档。
 
 ```
-请帮我整理 omem 的待加工会话。
+请帮我整理 omem 的待加工队列。
 
 步骤（严格按顺序，不要跳步）：
 
-1. 读 ~/.omem/PROCESS.md。里面列出最多 5 个还没有结论的会话，每个都给了文件路径。
+1. 读 ~/.omem/PROCESS.md。里面最多 5 个主题，每个主题下列着还没吸收的会话路径。
+   没有项目指纹的会话在 Unassigned 一节，写回时你要自己起 topic。
 2. 逐个读那些文件。文件很长就分几次读，不要把全文贴回对话里。
-3. 对每个会话，只把「值得跨会话记住」的东西写回，调用 save_memory，参数这样给：
-   - content：一条一个结论，3-10 句，只留结论、丢掉过程，不要编造没说过的话
+3. 对每个主题，把值得长期记住的短事实写回，调用 save_memory：
+   - content：短事实，不是会话纪要。不要编造没说过的话。
    - type：preference / fact / decision / experience 四选一
-   - session_id：PROCESS.md 里该会话的 session id
-   - evidence：从该会话文件的 "## user" 段里**原样复制至少 12 个字符**。
-     不要引用 "## assistant" 段，也不要自己改写——这直接决定置信度打分。
-   - supersedes：只有当新结论明确取代旧结论时才传，值是 PROCESS.md 里列出的旧条目 id。
-     不传的话新旧两条会同时有效。
-4. 全部写完后问我一次：全部确认 / 部分确认 / 都不确认。我同意哪些，你就
+   - topic：显式主题名（如 knee-rehab）。不要用项目指纹充当 topic，除非你就是要整个项目只留一份活文档。
+     入库时会收成小写加连字符。
+   - session_id：PROCESS.md 里该会话的 session id（写进 source_sessions，之后不再出现在队列里）
+   - evidence：从该会话文件的 "## user" 段里原样复制至少 12 个字符。
+     不要引用 "## assistant" 段。
+   - supersedes：如果该主题已经有 Current document id，必须传这个 id，否则写入会被拒绝。
+     旧文件留在磁盘上，默认检索不再返回。
+4. 这次整理本身不是生活事实，不要把这次对话存成新主题。
+5. 全部写完后问我一次：全部确认 / 部分确认 / 都不确认。我同意哪些，你就
    调用 save_memory 只传 confirm_ids（那些条目会提到 0.8，但不会标 verified）。
-5. 不要自己把条目标成 verified。verified 只能来自 omem add 或 omem review --confirm。
+6. 不要自己把条目标成 verified。verified 只能来自 omem add 或 omem review --confirm。
 
-最后报告：写了几条、各自 id 与置信度、跳过了哪些会话及原因。
+最后报告：更新了哪些主题、各自 id、跳过了哪些会话及原因。
 ```
 
 **为什么强调 evidence**：`save_memory` 的置信度是算出来的，不是写死的——user 段对得上 **0.55**，两个会话都能对上 **0.75**，对不上**封顶 0.35** 并打 `ungrounded`。evidence 写错（引 assistant 段、或自己改写）会直接把分数打到 0.35。
@@ -182,9 +186,9 @@ search_memory / save_memory 访问。
 过某件事，先用 search_memory 查，不要凭空假设。查不到就明说没有。
 
 收工时：如果这次会话产生了稳定的偏好 / 决策 / 环境配置 / 踩坑经验，用 save_memory
-存下来，一条一个结论。evidence 必须从该会话的 user 段原样复制至少 12 个字符。
+存下来。同一项目可以有多条记忆。只有显式 topic 才是一份活文档；该主题已有文档时必须传 supersedes。
 
-如果用户让你整理记忆，先读 ~/.omem/PROCESS.md，那里列着待蒸馏的会话。
+如果用户让你整理记忆，先读 ~/.omem/PROCESS.md。那里是按项目指纹分组的待吸收会话（分组名不是主题名，别拿它当 topic），不是「一会话一条结论」。
 
 不要自己把条目标成已确认（verified），也不要凭印象造 evidence。
 ```

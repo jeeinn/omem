@@ -19,7 +19,9 @@ export interface CommitInput {
   domain?: string;
   tags?: string[];
   project?: string;
+  topic?: string;
   session_id?: string;
+  source_sessions?: string[];
   source: EntrySource;
   confidence: number;
   verified: boolean;
@@ -94,6 +96,19 @@ export function commitEntry(
     return finish(home, { status: 'excluded', redacted, reason: `Old entries not found: ${missing.join(', ')}` }, input, opts);
   }
 
+  const topic = resolveTopic(input);
+  if (topic) {
+    const active = index.findActiveByTopic(topic);
+    if (active && !supersedes.includes(active.id)) {
+      return finish(home, {
+        status: 'excluded',
+        id: active.id,
+        redacted,
+        reason: `Topic "${topic}" already has an active document ${active.id}. Pass --supersedes ${active.id} (or supersedes: ["${active.id}"]) to update it. --force does not bypass this.`,
+      }, input, opts);
+    }
+  }
+
   if (opts.dryRun) {
     return { status: 'written', redacted, dryRun: true, reason: 'dry-run' };
   }
@@ -110,6 +125,8 @@ export function commitEntry(
       source: input.source,
       session_id: input.session_id,
       project: input.project,
+      topic,
+      source_sessions: collectSourceSessions(home, input, supersedes),
       tags: input.tags ?? [],
       supersedes,
     }),
@@ -122,6 +139,36 @@ export function commitEntry(
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
   logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes });
   return { status: 'written', id: entry.fm.id, path: written.path, redacted };
+}
+
+function resolveTopic(input: CommitInput): string | undefined {
+  // 只有调用方显式给了 topic 才成活文档。project 只用于归组，不在这里回落。
+  if (!input.topic?.trim()) return undefined;
+  return normalizeTopic(input.topic);
+}
+
+/** 小写，空白收成连字符，避免热层把「knee rehab」切成两个标签。 */
+export function normalizeTopic(raw: string): string | undefined {
+  const topic = raw.trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return topic || undefined;
+}
+
+/** 新文档继承被取代文档的会话，并加上本次写回的会话。 */
+function collectSourceSessions(home: string, input: CommitInput, supersedes: string[]): string[] {
+  const ids = new Set<string>();
+  const add = (id?: string) => {
+    const v = id?.trim();
+    if (v) ids.add(v);
+  };
+  add(input.session_id);
+  for (const id of input.source_sessions ?? []) add(id);
+  for (const oldId of supersedes) {
+    const old = findById(home, oldId, { includeArchived: true });
+    if (!old) continue;
+    add(old.entry.fm.session_id);
+    for (const id of old.entry.fm.source_sessions) add(id);
+  }
+  return [...ids];
 }
 
 function finish(home: string, result: CommitResult, input: CommitInput, opts: CommitOpts): CommitResult {

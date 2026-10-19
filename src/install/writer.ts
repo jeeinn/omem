@@ -168,7 +168,7 @@ export function markerSection(): string {
     '- Save a memory: `omem add "<content>"`',
     '- Export context: `omem context --for <agent>`',
     '- Prefer the MCP tools search_memory / save_memory when available.',
-    '- If PROCESS.md lists sessions waiting for distillation, read those files and save_memory the conclusions.',
+    '- If PROCESS.md lists groups (by project fingerprint) and sessions not yet absorbed, read those files and update the living document with save_memory. A group is not a topic name: pass your own topic, and pass supersedes when that topic already has a document.',
     MARKER_END,
   ].join('\n');
 }
