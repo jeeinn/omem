@@ -184,4 +184,34 @@ describe('removed config keys are reported, not silently honoured', () => {
       cleanupHome(home);
     }
   });
+
+  it('flags default_tier = "rules", which is silently read as agent', () => {
+    const home = makeHome();
+    try {
+      saveConfig(home, defaultConfig());
+      const p = `${home}/config.toml`;
+      // beta.3 之前的默认值：rules 档已移除，pipeline 会静默按 agent 处理
+      writeFileSync(p, readFileSync(p, 'utf8').replace('default_tier = "agent"', 'default_tier = "rules"'));
+      const found = findRemovedConfigKeys(home);
+      expect(found).toHaveLength(1);
+      expect(found[0]).toContain('default_tier');
+  // 运行时确实按 agent 走——这条提示只是提醒，不改变行为
+      const cfg = loadConfig(home);
+      expect(cfg.process.default_tier).toBe('agent');
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('says nothing once default_tier is the honest value', () => {
+    const home = makeHome();
+    try {
+      const c = defaultConfig();
+      c.process.default_tier = 'agent';
+      saveConfig(home, c);
+      expect(findRemovedConfigKeys(home)).toEqual([]);
+    } finally {
+      cleanupHome(home);
+    }
+  });
 });

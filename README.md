@@ -22,10 +22,10 @@ V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**
 | --- | --- | --- |
 | 默认产物 | 规则抽取的片段写进 `knowledge/` | 会话对话原文写进 `sessions/`，`knowledge/` 只放结论 |
 | `omem run --tier rules` | 可用 | **报错退出码 1**（规则抽取已移除） |
-| 配置 `default_tier = "rules"` | 触发规则抽取 | 按 `agent` 处理 |
+| 配置 `default_tier = "rules"` | 触发规则抽取 | 按 `agent` 处理（`omem init` / `omem run` 会提示你改成 `"agent"`） |
 | `omem install` 非交互（CI/管道） | 自动全装 | **报错，必须显式 `--target`** |
 | `omem redact --source <s>` | 直接删 | **默认只预览，必须 `--yes` 才删** |
-| 配置 `exclude_keywords` | 存在（但已不生效） | **已移除**；`omem init` 会提示删掉残留行 |
+| 配置 `exclude_keywords` | 存在（但已不生效） | **已移除**；`omem init` / `omem run` 会提示删掉残留行 |
 
 升级后已落盘的旧规则碎片不会被自动清理，用 `omem redact --source rules --yes` 一次性删除（先不加 `--yes` 看预览）。
 
@@ -77,6 +77,8 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 ```
 
 客户端接入后即可在会话中直接使用 MCP 工具 `search_memory` / `save_memory`（`memory_feedback` 用 `OMEM_MCP_TOOLS=feedback` 开启）。
+
+Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此后每次 `omem sync` 会把本次改动提交为一笔 `omem: sync <时间>`，所以 `git log` 里每一笔都能回溯到具体哪次同步动了哪些记忆。
 
 ## 命令面
 
@@ -131,7 +133,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 
 ## 加工四档（默认零配置）
 
-1. **规则抽取已移除。** `omem run --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 已从配置中删除：既不过滤条目，也不过滤会话原文（残留的旧配置行会被忽略，`omem init` 会提示删掉）。
+1. **规则抽取已移除。** `omem run --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 已从配置中删除：既不过滤条目，也不过滤会话原文（残留的旧配置行会被忽略，`omem init` 与 `omem run` 会点名提示删掉）。
 2. **Agent 主动保存**（默认开）：MCP `save_memory`。有依据时自动打分，仍是未确认。
 3. **Agent 协作引导**（默认档）：采集原文并写 `PROCESS.md`，由本地 Agent 读文件后写回结论。
 4. **自带 API key**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口。

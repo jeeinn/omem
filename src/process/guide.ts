@@ -13,6 +13,8 @@ export interface GuideTopic {
   topic: string;
   docId?: string;
   docTitle?: string;
+  /** 这一组里除默认文档外还有几份活文档（一个项目可以拆多个 topic）。 */
+  otherDocs?: number;
   sessions: GuideSessionRef[];
 }
 
@@ -43,8 +45,14 @@ export function renderGuide(topics: GuideTopic[], remaining: number, unassigned:
   }
   for (const topic of topics) {
     lines.push(`## ${topic.topic}`);
-    if (topic.docId) lines.push(`- Current document: \`${topic.docId}\`${topic.docTitle ? ` ${topic.docTitle}` : ''}`);
-    else lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
+    if (topic.docId) {
+      const more = topic.otherDocs && topic.otherDocs > 0
+        ? ` · ${topic.otherDocs} more living document(s) in this group; update the one matching the new session's topic`
+        : '';
+      lines.push(`- Current document: \`${topic.docId}\`${topic.docTitle ? ` ${topic.docTitle}` : ''}${more}`);
+    } else {
+      lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
+    }
     lines.push('- Sessions not yet absorbed:');
     for (const s of topic.sessions) {
       let note = '';

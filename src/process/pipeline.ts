@@ -147,36 +147,81 @@ function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: R
   report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
 }
 
+type EntryLoc = ReturnType<typeof listEntries>[number];
+
+function createdOf(loc: EntryLoc): string {
+  return loc.entry.fm.created ?? '';
+}
+
+/** 一组可能同时存在几份活文档（一个项目可以拆成多个 topic），最新那份作为默认 supersede 对象。 */
+function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
+  const sorted = [...docs].sort((a, b) => (createdOf(a) < createdOf(b) ? 1 : -1));
+  const newest = sorted[0];
+  if (!newest) return;
+  topic.docId = newest.entry.fm.id;
+  topic.docTitle = deriveTitle(newest.entry.body);
+  topic.otherDocs = sorted.length - 1;
+}
+
 export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[]] {
   const absorbed = absorbedSessionIds(home);
   const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
+  // 反查表：会话 → 它产出的活文档。项目分组名是 project_fp，而活文档用 Agent 自己起的 topic，
+  // 两者不同命名空间，只能靠「同组里已被吸收的会话 → 当年写出的文档」把待办挂到现实存在的文档上。
+  const docBySession = new Map<string, EntryLoc>();
+  const remember = (key: string | undefined, loc: EntryLoc): void => {
+    if (!key) return;
+    const prev = docBySession.get(key);
+    if (!prev || createdOf(loc) > createdOf(prev)) docBySession.set(key, loc);
+  };
+  for (const loc of active) {
+    remember(loc.entry.fm.session_id, loc);
+    for (const sid of loc.entry.fm.source_sessions) remember(sid, loc);
+  }
+
   const byTopic = new Map<string, GuideTopic>();
+  const groupDocs = new Map<string, Map<string, EntryLoc>>();
   const unassigned: GuideSessionRef[] = [];
   for (const rec of index.listSessions()) {
     const { agent, sessionId } = splitSessionKey(rec.session_id);
-    if (absorbed.has(sessionId) || absorbed.has(rec.session_id)) continue;
+    const absorbedAlready = absorbed.has(sessionId) || absorbed.has(rec.session_id);
+    const project = rec.project_fp || 'unknown';
+    if (absorbedAlready) {
+      // 已吸收的会话不再是待办，但它是这一组与现实文档的连线：记下它产出的文档。
+      const doc = docBySession.get(sessionId) ?? docBySession.get(rec.session_id);
+      if (doc && project !== 'unknown') {
+        let docs = groupDocs.get(project);
+        if (!docs) groupDocs.set(project, (docs = new Map()));
+        docs.set(doc.entry.fm.id, doc);
+      }
+      continue;
+    }
     const ref: GuideSessionRef = {
       path: rec.path,
       sessionId,
       agent: rec.agent || agent,
     };
-    const project = rec.project_fp || 'unknown';
     if (!project || project === 'unknown') {
       unassigned.push(ref);
       continue;
     }
     let topic = byTopic.get(project);
     if (!topic) {
-      const doc = active.find((l) => l.entry.fm.topic === project);
       topic = {
         topic: project,
-        docId: doc?.entry.fm.id,
-        docTitle: doc ? deriveTitle(doc.entry.body) : undefined,
+        docId: undefined,
+        docTitle: undefined,
+        otherDocs: 0,
         sessions: [],
       };
       byTopic.set(project, topic);
     }
     topic.sessions.push(ref);
+  }
+  // 分两趟：先收齐全组的连线，再回填文档，避免受 listSessions() 的会话顺序影响。
+  for (const [project, topic] of byTopic) {
+    const docs = groupDocs.get(project);
+    if (docs) fillDocSlot(topic, [...docs.values()]);
   }
   const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);
   return [all.slice(0, GUIDE_BATCH), Math.max(0, all.length - GUIDE_BATCH), unassigned.slice(0, GUIDE_BATCH)];

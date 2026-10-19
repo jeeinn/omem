@@ -1,6 +1,8 @@
 // omem sync：拉取 + 推送一条命令（规格 §7；§5.5 冲突策略）。
 // 子命令：status | use <git|webdav|dir> | remote <url> | pull | push；无子命令 = pull→push。
 // 冲突是事件不是错误：退出码 0，stdout 列出冲突文件与 .conflict.md 位置。
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { openCtx } from '../core/ctx.js';
 import { getBackend } from '../sync/backend.js';
 import type { SyncReport } from '../sync/backend.js';
@@ -15,7 +17,18 @@ function newReport(backend: string): SyncReport {
 }
 
 export async function cmdSync(args: ParsedArgs): Promise<number> {
-  const { home, config, index } = openCtx();
+  const ctx = openCtx();
+  try {
+    return await syncBody(args, ctx);
+  } finally {
+    // Windows 上 SQLite 句柄不释放的话，临时 OMEM_HOME 连删除都会 EBUSY。
+    ctx.index.close();
+  }
+}
+
+async function syncBody(args: ParsedArgs, ctx: ReturnType<typeof openCtx>): Promise<number> {
+  const home = ctx.home;
+  const config = ctx.config;
   const sub = args._[0];
 
   if (sub === 'status') {
@@ -55,7 +68,10 @@ export async function cmdSync(args: ParsedArgs): Promise<number> {
   }
 
   const backend = getBackend(config.sync.backend, home, config);
-  backend.init();
+  // 只在数据仓还没 git 初始化时才建仓：原来这里每次 sync 都调 init()，而 init() 会 add+commit，
+  // 于是用 init 的提交信息抢在 push() 前把改动提交掉——历史全是同名提交，
+  // push() 的变更检查也永远为空（误导性的 "No local changes; nothing to commit"）。
+  if (!existsSync(join(home, '.git'))) backend.init();
   const report = newReport(backend.id);
 
   if (sub === 'pull') {

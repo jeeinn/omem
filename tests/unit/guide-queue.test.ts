@@ -74,6 +74,58 @@ describe('pendingTopics', () => {
     expect(topics[0].docId).toBeTruthy();
   });
 
+  it('resolves the current document through absorbed sessions when topic != project fingerprint', () => {
+    // 真机形态：分组名是 project_fp（如 local:7578434e），活文档的 topic 是 Agent 起的语义名（如 knee-rehab）。
+    // 二者不同命名空间，只能靠「同组里已被吸收的会话 → 它当年写出的文档」反查。
+    put('old-sess', 'proj-c');
+    put('fresh', 'proj-c');
+    const doc = commitEntry(home, defaultConfig(), index, {
+      content: 'proj-c 分组里第一份活文档，topic 名与分组名无关',
+      type: 'fact',
+      topic: 'a-topic-name-that-is-not-the-fingerprint',
+      session_id: 'old-sess',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+    });
+    const [topics] = pendingTopics(home, index);
+    const group = topics.find((t) => t.topic === 'proj-c')!;
+    expect(group.sessions.map((s) => s.sessionId)).toEqual(['fresh']);
+    expect(group.docId).toBe(doc.id);
+    const text = renderGuide([group], 0, []);
+    expect(text).toContain(doc.id!);
+    expect(text).not.toContain('Current document: none');
+  });
+
+  it('a group with several living documents reports the newest one and the remaining count', () => {
+    put('s1', 'proj-d');
+    put('s2', 'proj-d');
+    put('pending', 'proj-d');
+    const older = commitEntry(home, defaultConfig(), index, {
+      content: 'proj-d 的第一份活文档',
+      type: 'fact',
+      topic: 'proj-d-one',
+      session_id: 's1',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+    });
+    const newer = commitEntry(home, defaultConfig(), index, {
+      content: 'proj-d 的第二份活文档，topic 不同',
+      type: 'fact',
+      topic: 'proj-d-two',
+      session_id: 's2',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+    });
+    const [topics] = pendingTopics(home, index);
+    const group = topics.find((t) => t.topic === 'proj-d')!;
+    expect([older.id, newer.id]).toContain(group.docId);
+    expect(group.otherDocs).toBe(1);
+    expect(renderGuide([group], 0, [])).toContain('1 more living document');
+  });
+
   it('renderGuide tells the agent to pass supersedes', () => {
     const text = renderGuide([
       {

@@ -3,6 +3,8 @@
 import { openCtx } from '../core/ctx.js';
 import { runPipeline, runPipelineAsync } from '../process/pipeline.js';
 import { UsageError } from '../core/util.js';
+import { findRemovedConfigKeys } from '../core/config.js';
+import { files } from '../core/paths.js';
 import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { Tier } from '../core/config.js';
@@ -27,6 +29,12 @@ export async function cmdRun(args: ParsedArgs): Promise<number> {
   const report = tier === 'api'
     ? await runPipelineAsync(home, config, index, opts)
     : runPipeline(home, config, index, opts);
+
+  // 残留的已移除配置键同样在这里点名：init 之外的用户日常也会跑 run，别让它一直沉默。
+  for (const r of findRemovedConfigKeys(home)) {
+    console.log(`config.toml: ignoring removed key ${r}`);
+    console.log(`  → delete that line from ${files.config(home)} to avoid confusion.`);
+  }
 
   console.log(
     `Processing complete (tier ${report.tier}${opts.dryRun ? ', dry-run' : ''}): sessions ${report.sessions} (skipped unchanged ${report.skipped}), ` +

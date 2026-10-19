@@ -11,7 +11,21 @@ import type { ParsedArgs } from '../cli-args.js';
 export async function cmdSearch(args: ParsedArgs): Promise<number> {
   const query = args._.join(' ').trim();
   if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y] [--sessions]');
-  const { home, config, index } = openCtx();
+  const { config, index } = openCtx();
+  try {
+    return await searchBody(args, query, config, index);
+  } finally {
+    // Windows 上 SQLite 句柄不释放的话，临时 OMEM_HOME 连删除都会 EBUSY。
+    index.close();
+  }
+}
+
+async function searchBody(
+  args: ParsedArgs,
+  query: string,
+  config: ReturnType<typeof openCtx>['config'],
+  index: ReturnType<typeof openCtx>['index'],
+): Promise<number> {
   const detail = flagBool(args.flags, 'detail');
   const all = flagBool(args.flags, 'all');
   if (flagBool(args.flags, 'sessions')) {
@@ -44,7 +58,8 @@ export async function cmdSearch(args: ParsedArgs): Promise<number> {
     return 0;
   }
 
-  console.log(`Found ${hits.length} ${all ? '(including archived and superseded)' : ''}:\n`);
+  const unit = hits.length === 1 ? 'memory' : 'memories';
+  console.log(`Found ${hits.length} ${unit}${all ? ' (including archived and superseded)' : ''}:\n`);
   hits.forEach((row, i) => {
     console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
     console.log(`   #${row.type} #${row.domain} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);

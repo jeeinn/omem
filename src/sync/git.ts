@@ -104,13 +104,17 @@ export class GitBackend {
 
   init(): void {
     this.ensureGit();
-    if (!existsSync(join(this.home, '.git'))) {
+    const fresh = !existsSync(join(this.home, '.git'));
+    if (fresh) {
       git(['init'], this.home);
       // 仓库级配置，不污染用户全局 git 配置（规格 §5.3）
       git(['config', 'user.name', 'omem'], this.home);
       git(['config', 'user.email', 'omem@localhost'], this.home);
       writeFileSync(join(this.home, '.gitignore'), DATA_GITIGNORE, 'utf8');
     }
+    // 只有刚建仓时才落第一笔：omem sync 每次都会先 init()，若这里照旧 add+commit，
+    // 会用 init 的提交信息抢在 push() 前面把改动提交掉，历史全是同名提交、版本差异也无从回溯。
+    if (!fresh) return;
     git(['add', '-A'], this.home);
     gitTry(['commit', '-m', 'chore: omem init'], this.home); // 空仓库时无内容可提交，允许失败
   }

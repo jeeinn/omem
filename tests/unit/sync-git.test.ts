@@ -150,4 +150,20 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
   it('GitBackend.available()', () => {
     expect(GitBackend.available()).toBe(true);
   });
+
+  it('init on an existing repo does not write another chore: omem init commit (spec §5.3 history must stay readable)', () => {
+    const b = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
+    b.init();
+    const afterFirst = git(['rev-list', '--count', 'HEAD'], home1);
+    // omem sync 每次都会先 init()；重复调用不得再生出同名提交，否则历史全是 chore: omem init。
+    b.init();
+    b.init();
+    expect(git(['rev-list', '--count', 'HEAD'], home1)).toBe(afterFirst);
+
+    addEntry(home1, '2026-10-15-e1', '第一条记忆');
+    b.push(report());
+    const msgs = git(['log', '--format=%s'], home1).split('\n');
+    expect(msgs.filter((m) => m === 'chore: omem init')).toHaveLength(1);
+    expect(msgs[0]).toContain('omem: sync');
+  });
 });

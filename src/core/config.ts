@@ -70,7 +70,20 @@ const REMOVED_KEYS: { section: string; key: string; note: string }[] = [
   },
 ];
 
-/** 返回 config.toml 里残留的已移除键（人类可读描述），供 init 提示；解析失败时返回空。 */
+/**
+ * 被静默改写的键：值仍在生效，但效果不是字面那样，同样属于「看得见却不知道被骗了」。
+ * 由 findRemovedConfigKeys 连同真正被移除的键一起点名提示。
+ */
+const REWRITTEN_KEYS: { section: string; key: string; expect: unknown; note: string }[] = [
+  {
+    section: 'process',
+    key: 'default_tier',
+    expect: 'rules',
+    note: 'the rules tier was removed; this value is read as "agent" (transcripts only, conclusions come from the Agent via save_memory). Set it to "agent" to match reality.',
+  },
+];
+
+/** 返回 config.toml 里残留的已移除/已被改写的键（人类可读描述），供 init / run 提示；解析失败时返回空。 */
 export function findRemovedConfigKeys(home: string): string[] {
   const p = configPath(home);
   if (!existsSync(p)) return [];
@@ -80,9 +93,9 @@ export function findRemovedConfigKeys(home: string): string[] {
   } catch {
     return []; // 配置本身解析不了时由别的路径报错，这里不重复干扰
   }
-  return REMOVED_KEYS.filter((k) => parsed?.[k.section]?.[k.key] !== undefined).map(
-    (k) => `[${k.section}] ${k.key} — ${k.note}`,
-  );
+  const removed = REMOVED_KEYS.filter((k) => parsed?.[k.section]?.[k.key] !== undefined);
+  const rewritten = REWRITTEN_KEYS.filter((k) => parsed?.[k.section]?.[k.key] === k.expect);
+  return [...removed, ...rewritten].map((k) => `[${k.section}] ${k.key} — ${k.note}`);
 }
 
 // ── 解析 ──
