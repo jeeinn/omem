@@ -14,7 +14,9 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
 
-公开测试版本：`0.1.0-beta.2`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+公开测试版本：`0.1.0-beta.4`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
+
+**beta.4** 在 beta.2 的默认路径上加了可选的 API 档（`omem run --tier api`）。不配端点、不传 `--tier api` 时行为与 beta.2 相同：只采集原文，结论仍由 Agent 写回。beta.3 是活文档模型的中间标签，未作为公开测试版发布。
 
 **beta.1 → beta.2 的破坏性变更**（升级前请先看，行为变化不小）：
 
@@ -161,7 +163,8 @@ omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 ```
 
 - **本机端点**（`localhost` / `127.0.0.0/8` / `::1`）免 key，不发 `Authorization`；回环之外一律要求 key 且强制 https——这条路径会把完整会话原文发给远端。
-- `--limit` 控制本批会话数（默认 20；非本机端点的 config/env 值钳到 50，只有 CLI 显式数字可越过）。批次没跑完的下批自动接续，失败的会自动重试。
+- `--limit` 控制本批会话数（默认 20；非本机端点的 config/env 值钳到 50，只有 CLI 显式数字可越过）。批次没跑完的下批自动接续，失败的会自动重试。结束时的 `pending` 是剩余队列，含本批失败、下次还会重试的会话。
+- 同一次运行会重写 `PROCESS.md`：已经写进活文档的会话从待办里消失。引导全文不会再打到终端。
 - `--dry-run` 零网络调用，只打印批次规模与 token 量级估算。
 - `omem api status` 一条命令看生效配置、队列深度与端点上的模型列表。
 - 会把 key 写进 `config.toml` 的话：`omem sync` 会把它提交进 git 数据仓并推送远端。`omem sync` 开始时会警告；要根治就改用 `OMEM_API_KEY` 环境变量，或把 `config.toml` 加进数据仓的 `.gitignore`。

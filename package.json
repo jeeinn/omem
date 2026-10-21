@@ -1,6 +1,6 @@
 {
   "name": "@jeeinn/omem",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "description": "A git-native personal AI memory layer: Markdown source of truth + MCP + FTS5 trigram search",
   "keywords": [
     "memory",

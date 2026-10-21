@@ -1,8 +1,9 @@
 // 加工流水线：先把对话写入 sessions/，再按档位处理。
 // 默认档 agent 只写原文和 PROCESS.md。规则抽取已移除，不再写入 knowledge。
+// API 档结束时也重写 PROCESS.md（已吸收会话离开待办），但不把引导全文打到终端。
 import type { OmemConfig, Tier } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
-import { nowIso, parseSince } from '../core/util.js';
+import { nowIso, parseSince, BackendUnavailableError } from '../core/util.js';
 import { deriveTitle } from '../core/entry.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
@@ -158,6 +159,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   let parseFailed = 0;
   let quarantinedNow = 0;
   let dupTopics = 0;
+  let stop: BackendUnavailableError | undefined;
 
   const progress = (i: number, line: string): void => {
     if (isTty) {
@@ -167,6 +169,8 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     }
   };
 
+  let fatal: unknown;
+  try {
   for (let i = 0; i < queue.items.length; i++) {
     const item = queue.items[i];
     const t0 = Date.now();
@@ -207,14 +211,16 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
         apiLog({ status: 'transport_failed', error: e.message, http_status: e.status, session: item.key, duration_ms: Date.now() - t0 });
         progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  failed: ${e.message} (logged, continue)${' '.repeat(Math.max(1, 8))}${secs}s`);
         if (transportFails >= 3) {
-          if (isTty) process.stdout.write('\n');
           apiLog({ status: 'aborted', consecutive_failures: transportFails });
-          throw endpointUnavailableError(transportFails);
+          stop = endpointUnavailableError(transportFails);
+          break;
         }
         continue;
       }
       if (e instanceof ApiParseError) {
-        // 规则 4：解析失败计数到 2 即隔离；不计入中止计数
+        // 规则 4：解析失败计数到 2 即隔离；不计入中止计数。
+        // 端点已经返回了正文，连续传输失败在这里断开（§3.4「连续」）。
+        transportFails = 0;
         parseFailed++;
         const strikes = item.failCount + 1;
         const nextState = strikes >= 2
@@ -230,22 +236,38 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
       throw e;
     }
   }
+  } catch (e) {
+    fatal = e;
+  }
   if (isTty && total > 0) process.stdout.write('\n');
 
   report.failed = failed;
   report.parseFailed = parseFailed;
   report.quarantined += quarantinedNow;
   report.elapsedMs = Date.now() - startedAt;
-  // §3.9 汇总分列：parse_failed 与 failed 不混
-  console.log(
-    `[api] done: written ${report.written.length} · deduped ${report.deduped} · failed ${failed} · parse_failed ${parseFailed} · `
-      + `quarantined ${report.quarantined} · elapsed ${formatElapsed(report.elapsedMs)} · pending ${queue.overflow}`,
-  );
-  if (dupTopics > 0) {
-    // §7.4：近似 topic 只报告不合并，由 omem review 人工裁决
-    console.log(`[api] note: ${dupTopics} possible-duplicate-topic event(s) logged; review them before they fragment`);
+  // 跑完再数：溢出的、传输失败的、尚未隔离的 parse_failed 都还在队列里。
+  // 不沿用开跑前的 overflow，否则本批排得下、中间有失败时会报 pending 0。
+  const pendingAfter = materializeQueue(index, {
+    since: opts.since,
+    promptVersion: API_PROMPT_VERSION,
+  }).pending;
+  report.queuePending = pendingAfter;
+  if (!stop && !fatal) {
+    // §3.9 汇总分列：parse_failed 与 failed 不混。中止走退出码 2，不打印看起来已经跑完的 done 行。
+    console.log(
+      `[api] done: written ${report.written.length} · deduped ${report.deduped} · failed ${failed} · parse_failed ${parseFailed} · `
+        + `quarantined ${report.quarantined} · elapsed ${formatElapsed(report.elapsedMs)} · pending ${pendingAfter}`,
+    );
+    if (dupTopics > 0) {
+      // §7.4：近似 topic 只报告不合并，由 omem review 人工裁决
+      console.log(`[api] note: ${dupTopics} possible-duplicate-topic event(s) logged; review them before they fragment`);
+    }
   }
+  // 规则 9：同一次运行就把已吸收会话从 PROCESS.md 待办里去掉。中止前也刷新，已产出留在索引里。
+  publishGuide(home, index, false, report, true);
   finish(home, index, report, false);
+  if (stop) throw stop;
+  if (fatal) throw fatal;
   return report;
 }
 
@@ -388,13 +410,15 @@ function ingest(
   }
 }
 
-function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport): void {
+function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport, silent = false): void {
   const [topics, remaining, unassigned] = pendingTopics(home, index);
   const text = renderGuide(topics, remaining, unassigned);
   if (!dryRun) {
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);
   }
+  // API 档只更新文件。引导全文和「不调用模型」是 agent 档的终端输出。
+  if (silent) return;
   console.log(text);
   report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
 }

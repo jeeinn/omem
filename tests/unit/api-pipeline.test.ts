@@ -1,7 +1,7 @@
 // 档 3 pipeline 集成测试（文档 §3.5/§3.8/§3.9）：队列接入、dry-run 零网络、失败隔离与中止。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { defaultConfig, saveConfig } from '../../src/core/config.js';
@@ -155,6 +155,56 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     expect(next.items[0].sessionId).toBe('s2');
   });
 
+  it('summary pending counts sessions that will retry, not the pre-run overflow', async () => {
+    seedSession('s1', '## user\none', '2026-10-18T10:05:00.000Z');
+    seedSession('s2', '## user\ntwo', '2026-10-19T10:05:00.000Z');
+    seedSession('s3', '## user\nthree', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    // 最新优先：s3 成功，s2 解析失败（仍 pending），s1 传输失败（仍 pending）。开跑前 overflow 为 0。
+    const stub = await startStub((i) => {
+      if (i === 0) return oneDoc('topic-s3');
+      if (i === 1) return okReply('not json at all');
+      return { status: 500, content: 'boom' };
+    });
+    const config = cfgFor(stub.base);
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (s: string) => { lines.push(String(s)); };
+    try {
+      const report = await runPipelineAsync(home, config, index, {});
+      expect(report.failed).toBe(1);
+      expect(report.parseFailed).toBe(1);
+      expect(report.queuePending).toBe(2);
+    } finally {
+      console.log = orig;
+    }
+    const done = lines.find((l) => l.startsWith('[api] done:'));
+    expect(done).toMatch(/pending 2$/);
+    expect(materializeQueue(index, {}).pending).toBe(2);
+    const guide = readFileSync(join(home, 'PROCESS.md'), 'utf8');
+    expect(guide).not.toContain('`s3`');
+    expect(guide).toContain('`s1`');
+    expect(guide).toContain('`s2`');
+  });
+
+  it('parse_failed resets the consecutive transport-failure streak', async () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      seedSession(id, `## user\n${id}`, `2026-10-${String(18 + id.charCodeAt(0) - 97).padStart(2, '0')}T10:05:00.000Z`);
+    }
+    index.catchUp();
+    // 最新优先 e→a。序列：500、解析失败、500、500、成功。解析失败把连续计数归零，不应在第 4 次请求中止。
+    const stub = await startStub((i) => {
+      if (i === 1) return okReply('nope');
+      if (i === 4) return oneDoc('topic-e');
+      return { status: 500, content: 'down' };
+    });
+    const config = cfgFor(stub.base);
+    const report = await runPipelineAsync(home, config, index, {});
+    expect(stub.requests).toHaveLength(5);
+    expect(report.failed).toBe(3);
+    expect(report.parseFailed).toBe(1);
+  });
+
   it('V25: 3 consecutive transport failures abort with BackendUnavailableError (exit 2)', async () => {
     for (const id of ['a', 'b', 'c', 'd']) seedSession(id, `## user\n${id}`, `2026-10-1${id.charCodeAt(0) % 10}T10:05:00.000Z`);
     index.catchUp();
@@ -162,6 +212,33 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     const config = cfgFor(stub.base);
     await expect(runPipelineAsync(home, config, index, {})).rejects.toThrow(BackendUnavailableError);
     expect(stub.requests).toHaveLength(3); // 第 3 次连续失败即中止
+  });
+
+  it('abort keeps partial results and refreshes PROCESS.md and MEMORY-INDEX', async () => {
+    seedSession('a', '## user\na', '2026-10-18T10:05:00.000Z');
+    seedSession('b', '## user\nb', '2026-10-19T10:05:00.000Z');
+    seedSession('c', '## user\nc', '2026-10-20T10:05:00.000Z');
+    seedSession('d', '## user\nd', '2026-10-21T10:05:00.000Z');
+    index.catchUp();
+    // 最新优先：d 先落盘，随后连续 3 次 503 中止。
+    const stub = await startStub((i) => (i === 0 ? oneDoc('kept-topic') : { status: 503, content: 'down' }));
+    const config = cfgFor(stub.base);
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (s: string) => { lines.push(String(s)); };
+    try {
+      await expect(runPipelineAsync(home, config, index, {})).rejects.toThrow(BackendUnavailableError);
+    } finally {
+      console.log = orig;
+    }
+    expect(stub.requests).toHaveLength(4);
+    expect(lines.some((l) => l.startsWith('[api] done:'))).toBe(false);
+    const guide = readFileSync(join(home, 'PROCESS.md'), 'utf8');
+    expect(guide).not.toContain('`d`');
+    expect(guide).toContain('`a`');
+    expect(readFileSync(join(home, 'MEMORY-INDEX.md'), 'utf8')).toContain('a stored conclusion');
+    expect(readStoredSession(join(home, 'sessions', 'claude-code', 'd.md'))?.apiState).toMatch(/^ok:/);
+    expect(readStoredSession(join(home, 'sessions', 'claude-code', 'a.md'))?.apiState).toBeUndefined();
   });
 
   it('V22: parse_failed twice quarantines; success resets nothing (state machine)', async () => {

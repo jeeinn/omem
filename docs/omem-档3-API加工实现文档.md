@@ -1,7 +1,7 @@
 # omem 档 3（API 加工）实现文档（草案）
 
-> 版本：v0.5-draft · 日期：2026-10-21 · 状态：**条款已确认 + 评审修订完成，未开工**
-> 修订：v0.5 按评审裁决落 6 条硬修正（P0-1 镜像 catch-up、P0-2 幂等表述、P0-3 config 往返、P1-5 保状态与计数、O2 示例默认值、O3 术语 + O4 JSON 转义）与 2 条边界句（开工姿势、无 project 会话），另写死队列基数口径。改动清单与验收同步扩充，见文末修订记录。
+> 版本：v0.6-draft · 日期：2026-10-21 · 状态：**已实现，随 0.1.0-beta.4 发布**
+> 修订：v0.6 补三处收尾（跑完后重算 pending、parse_failed 打断连续传输失败、中止前刷新 PROCESS.md 与 MEMORY-INDEX）。v0.5 的评审裁决仍有效，见文末修订记录。
 > 目标：让 `omem run --tier api` 既能接**本机本地模型（免 key，如 ollama / llama-server）**，也能接**云端 OpenAI 兼容端点（带 key，如 DeepSeek / 通义 / OpenAI）**。
 > 默认路径不变：**零模型采集 + 宿主模型加工**。档 3 始终是可选开关。
 > 术语：**本地模型** = 跑在用户自己机器上、omem 不内嵌 runtime 也不分发权重（由 ollama / llama-server 之类的服务提供）；与"云端端点"相对。**档 3** 是四档制时代的历史称呼，现状即 `--tier api`，下文混用。
@@ -133,7 +133,7 @@ limit = 20
 - 超时用 `AbortSignal.timeout(timeout_ms)`，默认按"是否本机"分档（§3.1）。
 - **单条失败不中断整批**：HTTP 非 2xx、超时、JSON 解析失败 → 记一条 `event: api` 日志（含 status/duration/model），跳过该会话继续。
 - **不自动重试** 429/5xx（避免放大与额外账单）。重试的语义由队列承担：传输级失败不写加工状态（§3.5 规则 3），**下一次 `omem run` 自动重新进队列**——重试的单位是"下一次运行"，不是同一次运行里的循环。
-- **连续 3 次传输级失败 → 中止整批**：中止计数器只统计 HTTP 非 2xx / 超时 / 网络错误；`parse_failed` 是会话级事件（由 §3.5 的隔离机制处理），不计入、不触发中止。中止抛 `BackendUnavailableError`（退出码 2），提示 "endpoint appears unavailable; partial results kept — run omem api status"。
+- **连续 3 次传输级失败 → 中止整批**：中止计数器只统计 HTTP 非 2xx / 超时 / 网络错误；`parse_failed` 是会话级事件（由 §3.5 的隔离机制处理），不计入、不触发中止。解析失败说明端点已经返回了正文，中止计数在这里归零——中间夹一次 `parse_failed` 的 500 不能算成连续三次。中止抛 `BackendUnavailableError`（退出码 2），提示 "endpoint appears unavailable; partial results kept — run omem api status"。中止前先刷新 `PROCESS.md` 与 `MEMORY-INDEX.md`，已产出保留，不打印看起来已经跑完的 done 行。
 - **退出码**：整批跑完（含零星失败/隔离）→ **0**，失败数在汇总行与日志里（与"冲突是事件不是错误"同一条哲学）；中止 → **2**；未配置/参数错误 → **1**。定时任务要感知失败，读汇总行或 JSONL 日志，不靠退出码。
 
 ### 3.5 API 档工作队列（评审新增：批次与存量加工的前提）
@@ -165,7 +165,7 @@ limit = 20
 6. **队列顺序 `last_ts DESC`（最新优先）**：新记忆价值最高，存量往下排；隔离上限（规则 4）已封死"坏会话堵住队头"的问题。
 7. **`--session <id>`**：显式点名，越过队列过滤（隔离与 limit），单会话加工；状态改写仍按规则 1/3/4——成功才落新 state，哈希未变不抹旧 state。
 8. **dry-run 不写状态**（V5）。
-9. **两档不抢活**：agent 档不读写该字段；API 档产出的活文档带 `source_sessions` → 会话从 PROCESS.md 待办里消失（`absorbedSessionIds` 既有关联），API 档消化存量反而给 agent 档减负。
+9. **两档不抢活**：agent 档不读写该字段；API 档产出的活文档带 `source_sessions` → 同一次运行结束时重写 `PROCESS.md`，会话从待办里消失（`absorbedSessionIds` 既有关联）。只更新文件，不把引导全文打到终端。API 档消化存量反而给 agent 档减负。
 10. **过滤**：队列物化沿用 `--since`（按 `last_ts`）；默认取全部待加工。
 
 **发送内容 = 存储正文**：队列条目直接携带 `sessions/` 里已脱敏的正文（入库时 `prepareDialogue` 已过 `redactSecrets`，`src/collect/session-store.ts:64`），`extractWithApi` 不再从 `digest.messages` 另拼一份原文——详见 §6.1。
@@ -175,7 +175,7 @@ limit = 20
 ### 3.6 输入预算、每批上限与"非本机硬上限"（D3）
 
 - `max_input_chars` 按是否本机分档（本机 6000 / 云端 12000），截断保留**最近** N 字符（记忆提炼里最新消息信息密度最高），并在发送正文头部注明 `(truncated)`。
-- `--limit N` 限制本批会话数，默认 20；批次**溢出**的会话留在队列里（§3.5），下次运行自动接续，报告写明 `pending M after this run`。
+- `--limit N` 限制本批会话数，默认 20；批次**溢出**的会话留在队列里（§3.5），下次运行自动接续。汇总行的 `pending` 是**本跑结束后**重新物化的剩余数：溢出，加上传输失败和尚未隔离的解析失败。不用开跑前的溢出数，否则本批排得下、中间有失败时会报 `pending 0`。
 - **非本机硬上限 50 只约束 config / env**：`api.limit` / `OMEM_API_LIMIT` 对非回环端点钳制到 50 并打印警告——持久配置不该能静默穿透"知情确认"（为本机配的 `limit = 200`，换云端端点时不该自动生效）。**只有 CLI `--limit` 的显式数字可越过 50**（D3：显式写出即视为知情确认）。本机端点不受此限。
 - 并发固定 1（本地是 CPU 串行，云端先不引入并发复杂度）。
 
@@ -491,3 +491,4 @@ omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 - **v0.3-draft（2026-10-20）**：D1–D10 条款定稿。
 - **v0.4-draft（2026-10-20）**：架构评审后修订——新增 §3.5 工作队列（`api_state` 状态机、frontmatter 事实源、rebuild 存活、崩溃窗口幂等、解析失败隔离）；§3.2 回环判定收紧为字面量集合，明确"显式 key 照发"、`0.0.0.0`/hosts 别名 fail closed、局域网不支持；§3.3 模型探测改为每运行一次并打印多模型列表；§3.4 定义中止条件（仅传输级）、重试单位与退出码；§3.6 硬上限改为只认 CLI `--limit`、config/env 钳到 50；§3.9 进度示例改为第一步语义、汇总分列 parse_failed/quarantined；§3.10 解析改字符串感知括号计数；§3.11 增加 prompt 重排提示行；§4 补 PowerShell 示例与 `default_tier` 分发修正；§6.1 改为"发送存储正文"；§6.3 警告时机提前到任何 git 动作之前并补 smoke；§7.2 输出契约改数组（N:M）+ 注入既有活文档增量合并；新增 §7.4 topic 同一性三道防线；D8 修订（`score.ts` 同步归一化对齐）；§5 改动清单 330→约 500 行、工期半天→2–3 天；验收补 V20–V27（第一步）与 V28–V32（第二步）。
 - **v0.5-draft（2026-10-21）**：对照实现的评审裁决落 6 条硬修正 + 2 条边界句——**P0-1** §3.5 补"重导要覆盖 api_state 单独变化"（`reindexSessionFiles` 快路径只比 `content_hash`，sync 拉回的 `ok`/`skip` 不进镜像），改动 #5 改为 `content_hash` 与 `api_state` 任一不等即重导，新增 V34（方案 b 不采纳）；**P0-2** 规则 5 改为按层处置（活文档 supersede 收敛 / 条目层只保严格幂等 / 近似重复 review 收尾，不加模糊去重）；**P0-3** 改动 #2 风险注释改对（`saveConfig` 整文件按类型重写，文本级段合并是 install 纪律、不适用），`[api]` 须进 `OmemConfig`，新增 V33；**P1-5** V13④ 计数改 `parse_failed +1`，规则 1 改"哈希未变保状态"（`writeSessionFile` 整文件重写且不认识该字段，`--session` 会抹 `ok`）、规则 7 对齐；**O2** 示例 config 注释掉 `timeout_ms`/`max_input_chars`（本机默认，写入即压过按端点分档）；**O3** 术语定死"溢出/截断"两义（§2 目标 6、§3.6、V21）；**O4** §3.10 级 3 转义改"反斜杠跳过下一字符（任意 `\X` 含 `\\`）"；边界句：§0 开工姿势（`--limit 5–20` 验证管道，存量等 prompt v2）、§7.2 无 `project_fp` 会话只新建不合并（不注入全局列表）；队列基数口径写死（全量约 952，已吸收不预置 `ok`；931 仅 PROCESS.md 口径）。
+- **v0.6-draft（2026-10-21）**：实现复核三处收尾——汇总 `pending` 改为跑完后重算；`parse_failed` 将连续传输失败计数归零；API 运行结束（含中止前）重写 `PROCESS.md`，中止前同时刷新 `MEMORY-INDEX.md`。
