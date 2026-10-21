@@ -105,13 +105,13 @@ async function startStub(handler: (i: number, body: string) => { status: number;
 }
 
 const okReply = (content: string) => ({ status: 200, content: JSON.stringify({ choices: [{ message: { content } }] }) });
-const oneCandidate = okReply('[{"type":"fact","content":"a stored conclusion","confidence":0.6}]');
+const oneDoc = (topic: string) => okReply(JSON.stringify([{ topic, content: 'a stored conclusion', type: 'fact', domain: 'general', evidence: ['verbatim quote from the user here'], tags: [] }]));
 
 describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
   it('V5: dry-run makes zero network calls and writes no api_state', async () => {
     seedSession('s1', '## user\nhello', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub(() => oneCandidate);
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
     const config = cfgFor(stub.base);
     const report = await runPipelineAsync(home, config, index, { dryRun: true });
     expect(stub.requests).toHaveLength(0);
@@ -125,7 +125,7 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     seedSession('s2', '## user\nhello two', '2026-10-19T10:05:00.000Z');
     seedSession('s3', '## user\nhello three', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub(() => oneCandidate);
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
     const config = cfgFor(stub.base, { limit: 2 });
     const report = await runPipelineAsync(home, config, index, {});
     expect(stub.requests).toHaveLength(2); // 溢出 1 条留下次
@@ -143,7 +143,7 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     seedSession('s2', '## user\ntwo', '2026-10-19T10:05:00.000Z');
     seedSession('s3', '## user\nthree', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub((i) => (i === 1 ? { status: 500, content: 'boom' } : oneCandidate));
+    const stub = await startStub((i) => (i === 1 ? { status: 500, content: 'boom' } : oneDoc(`topic-${i}`)));
     const config = cfgFor(stub.base);
     const report = await runPipelineAsync(home, config, index, {});
     expect(report.failed).toBe(1);
@@ -185,7 +185,7 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     seedSession('s1', '## user\none', '2026-10-19T10:05:00.000Z');
     seedSession('s2', '## user\ntwo', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub((i) => (i === 0 ? okReply('nope not json') : oneCandidate));
+    const stub = await startStub((i) => (i === 0 ? okReply('nope not json') : oneDoc(`topic-${i}`)));
     const config = cfgFor(stub.base);
     const lines: string[] = [];
     const orig = console.log;
@@ -203,7 +203,7 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
   it('ok state is skipped on rerun (no double processing)', async () => {
     seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub(() => oneCandidate);
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
     const config = cfgFor(stub.base);
     await runPipelineAsync(home, config, index, {});
     expect(stub.requests).toHaveLength(1);
@@ -218,7 +218,7 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
   it('default_tier=api without --tier flag still runs the API path', async () => {
     seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub(() => oneCandidate);
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
     const config = cfgFor(stub.base);
     config.process.default_tier = 'api';
     saveConfig(home, config);
@@ -240,7 +240,7 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     seedSession('s1', '## user\none', '2026-10-19T10:05:00.000Z');
     seedSession('s2', '## user\ntwo', '2026-10-20T10:05:00.000Z');
     index.catchUp();
-    const stub = await startStub(() => oneCandidate);
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
     const config = cfgFor(stub.base);
     saveConfig(home, config);
     vi.stubEnv('OMEM_HOME', home);

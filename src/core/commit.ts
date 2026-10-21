@@ -22,6 +22,8 @@ export interface CommitInput {
   topic?: string;
   session_id?: string;
   source_sessions?: string[];
+  /** 证据锚定原文（文档 §7.2）：落盘保留原文，归一化只用于比对。 */
+  evidence?: string[];
   source: EntrySource;
   confidence: number;
   verified: boolean;
@@ -127,6 +129,7 @@ export function commitEntry(
       project: input.project,
       topic,
       source_sessions: collectSourceSessions(home, input, supersedes),
+      evidence: input.evidence ?? [],
       tags: input.tags ?? [],
       supersedes,
     }),

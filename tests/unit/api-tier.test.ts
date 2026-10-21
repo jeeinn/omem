@@ -193,7 +193,7 @@ describe('api: HTTP layer against stub server', () => {
       res.end(JSON.stringify({ choices: [{ message: { content: '[{"type":"fact","content":"c","confidence":0.6}]' } }] }));
     });
     const cfg = localCfg(stub.base);
-    await extractWithApi({ body: 'hello', projectFp: 'p', sessionId: 's1' }, cfg, 'm');
+    await extractWithApi({ body: 'hello', projectFp: 'p', sessionId: 's1', existingDocs: [] }, cfg, 'm');
     expect(stub.requests).toHaveLength(1);
     expect(stub.requests[0].headers.authorization).toBeUndefined();
   });
@@ -204,7 +204,7 @@ describe('api: HTTP layer against stub server', () => {
       res.end(JSON.stringify({ choices: [{ message: { content: '[]' } }] }));
     });
     const cfg = localCfg(stub.base, { key: 'sk-llama', keyWillSend: true });
-    await extractWithApi({ body: 'hello', projectFp: 'p', sessionId: 's1' }, cfg, 'm');
+    await extractWithApi({ body: 'hello', projectFp: 'p', sessionId: 's1', existingDocs: [] }, cfg, 'm');
     expect(stub.requests[0].headers.authorization).toBe('Bearer sk-llama');
   });
 
@@ -214,7 +214,7 @@ describe('api: HTTP layer against stub server', () => {
       res.end(JSON.stringify({ choices: [{ message: { content: '[]' } }] }));
     });
     const stored = '## user\nplease deploy with this key\n\n## assistant\ndone';
-    await extractWithApi({ body: stored, projectFp: 'proj-x', sessionId: 's1' }, localCfg(stub.base), 'm');
+    await extractWithApi({ body: stored, projectFp: 'proj-x', sessionId: 's1', existingDocs: [] }, localCfg(stub.base), 'm');
     const sent = JSON.parse(stub.requests[0].body);
     expect(sent.messages[1].content).toContain('## user\nplease deploy with this key');
     expect(sent.messages[1].content).toContain('Session (project proj-x)');
@@ -226,7 +226,7 @@ describe('api: HTTP layer against stub server', () => {
       res.writeHead(500);
       res.end('boom');
     });
-    await expect(extractWithApi({ body: 'x', projectFp: 'p', sessionId: 's' }, localCfg(stub.base), 'm'))
+    await expect(extractWithApi({ body: 'x', projectFp: 'p', sessionId: 's', existingDocs: [] }, localCfg(stub.base), 'm'))
       .rejects.toMatchObject({ name: 'ApiTransportError', status: 500 });
   });
 
@@ -235,7 +235,7 @@ describe('api: HTTP layer against stub server', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ choices: [{ message: { content: 'sorry, nothing to extract' } }] }));
     });
-    const err = await extractWithApi({ body: 'x', projectFp: 'p', sessionId: 's' }, localCfg(stub.base), 'm')
+    const err = await extractWithApi({ body: 'x', projectFp: 'p', sessionId: 's', existingDocs: [] }, localCfg(stub.base), 'm')
       .then(() => null, (e) => e as ApiParseError);
     expect(err).toBeInstanceOf(ApiParseError);
     expect(err?.raw).toContain('sorry, nothing');

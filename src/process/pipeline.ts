@@ -27,9 +27,11 @@ import {
   endpointUnavailableError,
   ApiTransportError,
   ApiParseError,
+  type DocItem,
 } from './api.js';
-import { materializeQueue, formatApiState, API_PROMPT_VERSION } from './queue.js';
-import type { Candidate } from './rules.js';
+import { materializeQueue, formatApiState, API_PROMPT_VERSION, type QueueItem } from './queue.js';
+import { scoreApiDoc } from './score.js';
+import { normalizeTopic } from '../core/commit.js';
 
 export interface RunOpts {
   since?: string; // '7d' | 'YYYY-MM-DD'
@@ -155,6 +157,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   let failed = 0;
   let parseFailed = 0;
   let quarantinedNow = 0;
+  let dupTopics = 0;
 
   const progress = (i: number, line: string): void => {
     if (isTty) {
@@ -170,20 +173,31 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     const short = item.sessionId.slice(0, 8);
     try {
       const body = readStoredSession(item.path)?.body ?? '';
-      const candidates = await extractWithApi(
-        { body, projectFp: item.project_fp, sessionId: item.sessionId },
+      // §7.2 注入既有活文档：按会话的 project_fp 取该项目的 active 活文档（无 project 的会话为空）
+      const existingDocs = projectDocs(home, item.project_fp);
+      const { docs, notes } = await extractWithApi(
+        { body, projectFp: item.project_fp, sessionId: item.sessionId, existingDocs },
         cfg,
         resolved.model,
       );
       transportFails = 0;
-      report.candidates += candidates.length;
-      for (const c of candidates) commitCandidate(home, config, index, c, false, report);
+      for (const n of notes) apiLog({ status: 'response_note', session: item.key, note: n });
+      report.candidates += docs.length;
+      const landedTopics: string[] = [];
+      for (const d of docs) {
+        const landed = commitDoc(home, config, index, item, d, report, (note) => {
+          dupTopics++;
+          apiLog({ status: 'possible-duplicate-topic', session: item.key, note });
+        });
+        if (landed) landedTopics.push(landed);
+      }
       // 规则 5 写序：先文件后索引
       const okState = formatApiState({ status: 'ok', prompt: API_PROMPT_VERSION, hash: item.content_hash, count: 0 });
       updateSessionApiState(item.path, okState);
       index.setSessionApiState(item.key, okState);
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
-      progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}${candidates.length === 0 ? ' (nothing kept)' : ''}${' '.repeat(Math.max(1, 28 - short.length))}${secs}s`);
+      const topicPart = landedTopics.length > 0 ? ` (${landedTopics.join(', ')})` : ' (nothing kept)';
+      progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  ${docs.length} doc${docs.length === 1 ? '' : 's'}${topicPart}${' '.repeat(Math.max(1, 20 - short.length))}${secs}s`);
     } catch (e) {
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
       if (e instanceof ApiTransportError) {
@@ -227,6 +241,10 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     `[api] done: written ${report.written.length} · deduped ${report.deduped} · failed ${failed} · parse_failed ${parseFailed} · `
       + `quarantined ${report.quarantined} · elapsed ${formatElapsed(report.elapsedMs)} · pending ${queue.overflow}`,
   );
+  if (dupTopics > 0) {
+    // §7.4：近似 topic 只报告不合并，由 omem review 人工裁决
+    console.log(`[api] note: ${dupTopics} possible-duplicate-topic event(s) logged; review them before they fragment`);
+  }
   finish(home, index, report, false);
   return report;
 }
@@ -239,6 +257,87 @@ function formatElapsed(ms: number): string {
   const s = Math.round(ms / 1000);
   const m = Math.floor(s / 60);
   return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
+}
+
+function isUnassigned(projectFp: string | undefined): boolean {
+  return !projectFp || projectFp === 'unknown';
+}
+
+/** §7.2 注入源：该项目的 active 活文档（topic + 全文）。无 project 的会话为空——不做增量合并。 */
+function projectDocs(home: string, projectFp: string | undefined): { topic: string; content: string }[] {
+  if (isUnassigned(projectFp)) return [];
+  return listEntries(home)
+    .filter((l) => l.entry.fm.status === 'active' && l.entry.fm.topic && l.entry.fm.project === projectFp)
+    .map((l) => ({ topic: l.entry.fm.topic as string, content: l.entry.body }));
+}
+
+function activeTopics(home: string): string[] {
+  return listEntries(home)
+    .filter((l) => l.entry.fm.status === 'active' && l.entry.fm.topic)
+    .map((l) => l.entry.fm.topic as string);
+}
+
+/** §7.4-3 近似判据：归一化后互为前缀、或去掉分隔符后相同（且不是同一个 topic）。 */
+function isNearDupTopic(a: string, b: string): boolean {
+  if (a === b) return false;
+  const strip = (s: string) => s.replace(/[-_]/g, '');
+  return a.startsWith(b) || b.startsWith(a) || strip(a) === strip(b);
+}
+
+/**
+ * 单份活文档落盘（§7）：topic 收敛 → 自动 supersede（§7.3）→ 证据锚定（§7.1）→ commitEntry。
+ * 无 project 的会话只新建 topic：撞上既有 active 时不合并、不覆盖，告警后跳过（O1 边界）。
+ * 返回落盘的 topic；跳过/去重返回 null。
+ */
+function commitDoc(
+  home: string,
+  config: OmemConfig,
+  index: OmemIndex,
+  item: QueueItem,
+  doc: DocItem,
+  report: RunReport,
+  warnDup: (note: string) => void,
+): string | null {
+  const topic = normalizeTopic(doc.topic);
+  if (!topic) return null;
+  const unassigned = isUnassigned(item.project_fp);
+  const active = index.findActiveByTopic(topic);
+  let supersedes: string[] = [];
+  if (active) {
+    if (unassigned) {
+      warnDup(`unassigned session ${item.sessionId}: topic ${topic} already active (${active.id}); skipped (only new topics without a project)`);
+      return null;
+    }
+    // §7.3：API 档没有 Agent 在环，supersede 由 omem 自己补，否则每次都被 commitEntry 拒
+    supersedes = [active.id];
+  } else {
+    for (const t of activeTopics(home)) {
+      if (isNearDupTopic(topic, t)) {
+        warnDup(`new topic ${topic} is suspiciously close to active ${t}; both kept for review`);
+        break;
+      }
+    }
+  }
+  const scored = scoreApiDoc(home, { sessionId: item.sessionId, evidence: doc.evidence, content: doc.content }, index);
+  const result = commitEntry(home, config, index, {
+    content: doc.content,
+    type: doc.type,
+    domain: doc.domain,
+    tags: [...doc.tags, ...scored.tags],
+    project: unassigned ? undefined : item.project_fp,
+    topic,
+    evidence: doc.evidence,
+    session_id: item.sessionId,
+    source: 'llm',
+    confidence: scored.confidence,
+    verified: false,
+    supersedes,
+  }, { dryRun: false, refreshIndex: false });
+  if ((result.redacted ?? 0) > 0) report.redacted++;
+  if (result.status === 'excluded' || result.status === 'redacted-empty') report.excluded++;
+  if (result.status === 'deduped') report.deduped++;
+  if (result.status === 'written' && result.id) report.written.push(result.id);
+  return result.status === 'written' ? topic : null;
 }
 
 function emptyReport(tier: Tier): RunReport {
@@ -417,30 +516,4 @@ function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
     report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${env})`);
   }
   return scan.roots.some((r) => r.exists);
-}
-
-/** 单候选走 commitEntry。热层由 run 结束时统一刷新。 */
-function commitCandidate(
-  home: string,
-  config: OmemConfig,
-  index: OmemIndex,
-  c: Candidate,
-  dryRun: boolean,
-  report: RunReport,
-): void {
-  const result = commitEntry(home, config, index, {
-    content: c.content,
-    type: c.type,
-    domain: c.domain,
-    tags: c.tags,
-    project: c.project_fp,
-    session_id: c.session_id,
-    source: c.source,
-    confidence: c.confidence,
-    verified: false,
-  }, { dryRun, refreshIndex: false });
-  if ((result.redacted ?? 0) > 0) report.redacted++;
-  if (result.status === 'excluded' || result.status === 'redacted-empty') report.excluded++;
-  if (result.status === 'deduped') report.deduped++;
-  if (result.status === 'written' && result.id) report.written.push(result.id);
 }

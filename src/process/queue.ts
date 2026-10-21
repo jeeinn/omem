@@ -5,8 +5,8 @@
 import type { OmemIndex, SessionRecord } from '../core/index.js';
 import { parseSince } from '../core/util.js';
 
-/** 当前加工 prompt 的版本号；prompt 内容变化必须同步升版（规则 2 全量重排）。 */
-export const API_PROMPT_VERSION = 'v1';
+/** 当前加工 prompt 的版本号（§7 prompt v2，活文档语义）；prompt 内容变化必须同步升版（规则 2 全量重排）。 */
+export const API_PROMPT_VERSION = 'v2';
 
 export type ApiStateStatus = 'ok' | 'fail' | 'skip';
 

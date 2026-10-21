@@ -22,6 +22,8 @@ export interface Frontmatter {
   topic?: string;
   /** 已吸收进这份活文档的会话 id。 */
   source_sessions: string[];
+  /** 证据锚定原文（文档 §7.2）：从 ## user 段原样摘出，归一化只用于比对、不写进文档。 */
+  evidence: string[];
   created: string;
   last_confirmed: string;
   confirmations: number;
@@ -37,7 +39,7 @@ export interface Entry {
 
 const FM_ORDER: (keyof Frontmatter)[] = [
   'id', 'type', 'domain', 'profile', 'status', 'confidence', 'verified', 'source',
-  'session_id', 'project', 'topic', 'source_sessions', 'created', 'last_confirmed', 'confirmations',
+  'session_id', 'project', 'topic', 'source_sessions', 'evidence', 'created', 'last_confirmed', 'confirmations',
   'supersedes', 'superseded_by', 'tags',
 ];
 
@@ -47,7 +49,7 @@ export function serializeEntry(e: Entry): string {
     const v = e.fm[key];
     if (v === undefined || v === null || v === '') continue;
     if (Array.isArray(v)) {
-      lines.push(`${key}: [${v.map((x) => `"${String(x).replace(/"/g, '\\"')}"`).join(', ')}]`);
+      lines.push(`${key}: [${v.map((x) => `"${escapeFmString(String(x))}"`).join(', ')}]`);
     } else if (typeof v === 'boolean' || typeof v === 'number') {
       lines.push(`${key}: ${v}`);
     } else {
@@ -56,6 +58,15 @@ export function serializeEntry(e: Entry): string {
   }
   lines.push('---', '', e.body.trimEnd(), '');
   return lines.join('\n');
+}
+
+/** 数组元素的单行转义：`\` `"` 与换行必须可逆（evidence 原文含逗号/引号/换行时仍无损往返）。 */
+function escapeFmString(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n');
+}
+
+function unescapeFmString(s: string): string {
+  return s.replace(/\\(.)/g, (_m, c: string) => (c === 'n' ? '\n' : c === 'r' ? '\r' : c));
 }
 
 export function parseEntry(text: string): Entry | null {
@@ -75,14 +86,48 @@ export function parseEntry(text: string): Entry | null {
 
 function parseFmValue(v: string): any {
   if (v.startsWith('[') && v.endsWith(']')) {
-    const inner = v.slice(1, -1).trim();
-    if (!inner) return [];
-    return inner.split(',').map((s) => s.trim().replace(/^"(.*)"$/, '$1')).filter(Boolean);
+    return splitFmArray(v.slice(1, -1));
   }
   if (v === 'true') return true;
   if (v === 'false') return false;
   if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
   return v.replace(/^"(.*)"$/, '$1');
+}
+
+/** 字符串感知的数组切分：引号内的逗号不算分隔，`\"`/`\\`/转义换行可逆。 */
+function splitFmArray(inner: string): string[] {
+  const out: string[] = [];
+  let buf = '';
+  let inStr = false;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (inStr) {
+      if (ch === '\\') {
+        buf += ch + (inner[i + 1] ?? '');
+        i++;
+        continue;
+      }
+      if (ch === '"') inStr = false;
+      buf += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+      buf += ch;
+      continue;
+    }
+    if (ch === ',') {
+      out.push(buf);
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  out.push(buf);
+  return out
+    .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
+    .map((s) => unescapeFmString(s))
+    .filter((s) => s.length > 0);
 }
 
 function normalizeFm(fm: Record<string, any>): Frontmatter {
@@ -107,6 +152,7 @@ function normalizeFm(fm: Record<string, any>): Frontmatter {
     project: fm.project ? String(fm.project) : undefined,
     topic: fm.topic ? String(fm.topic) : undefined,
     source_sessions: arr(fm.source_sessions),
+    evidence: arr(fm.evidence),
     created: str(fm.created, now),
     last_confirmed: str(fm.last_confirmed, str(fm.created, now)),
     confirmations: num(fm.confirmations, 0),
@@ -130,6 +176,7 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
     confirmations: 0,
     supersedes: [],
     source_sessions: [],
+    evidence: [],
     tags: [],
     ...partial,
   };

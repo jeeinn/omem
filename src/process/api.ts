@@ -1,15 +1,32 @@
 // 档 3：API 加工的端点/鉴权/模型探测/宽松解析（文档 §3.1–§3.4、§3.10–§3.11、§6.1）。
 // 发送内容 = sessions/ 存储正文（已脱敏）；未配置/策略拒绝抛 UsageError(1)，
 // 端点不可用抛 BackendUnavailableError(2)，单条传输失败抛 ApiTransportError 由 pipeline 计数。
+// 加工语义（§7，prompt v2）：多条 session → 一份 topic 活文档；证据锚定定置信度，不采信模型自评。
 import type { OmemConfig } from '../core/config.js';
-import type { Candidate } from './rules.js';
+import type { MemoryType } from '../core/entry.js';
 import { inferDomain } from './rules.js';
+import { MIN_EVIDENCE } from './score.js';
 import { UsageError, BackendUnavailableError } from '../core/util.js';
 
-export const EXTRACT_PROMPT_V1 = `You are a personal memory extractor. Distill entries worth remembering long-term from the session.
+export const EXTRACT_PROMPT_V2 = `You are a personal memory extractor. Distill long-term living documents from the session.
 Output a JSON array only, with no other text. Each item follows this format:
-{"type":"preference|fact|decision|experience","domain":"coding|general|...","content":"3-10 sentences, faithful to the original","confidence":0.0-1.0,"tags":["..."]}
-Rules: store conclusions and discard process; do not fabricate; lower confidence for imperative tone; one item per entry.`;
+{"topic":"kebab-case-slug","content":"3-10 sentences, conclusions only","type":"preference|fact|decision|experience","domain":"coding|general|...","evidence":["verbatim quote from a user message, at least 12 characters"],"tags":["..."]}
+Rules:
+- At most 5 items; one topic per item; each topic appears at most once in the array.
+- If existing living documents are provided and the session belongs to one of their topics, output the UPDATED full document for that topic (merge the new evidence, keep conclusions only) and reuse its topic slug exactly as given.
+- Create a new topic slug only when the session is truly about a new subject; prefer the provided slugs.
+- Store conclusions and discard process; do not fabricate.
+- evidence strings must be copied verbatim from user messages; do not paraphrase.`;
+
+/** 活文档抽取产物（§7.2 契约；置信度不由模型给出，由证据锚定决定）。 */
+export interface DocItem {
+  topic: string;
+  content: string;
+  type: MemoryType;
+  domain: string;
+  evidence: string[];
+  tags: string[];
+}
 
 export interface ApiOverrides {
   base?: string;
@@ -269,6 +286,8 @@ export interface ExtractInput {
   body: string;
   projectFp: string;
   sessionId: string;
+  /** 注入的该项目既有 active 活文档（§7.2）；无 project 的会话为空数组（边界：只新建 topic）。 */
+  existingDocs: { topic: string; content: string }[];
 }
 
 /** 截断保留最近 N 字符（§3.6），头部标注 (truncated)。 */
@@ -278,15 +297,23 @@ export function truncateBody(body: string, maxInputChars: number): string {
 }
 
 /**
- * 调用 OpenAI 兼容 chat completions 加工一个会话 → 候选条目（source: 'llm'）。
+ * 调用 OpenAI 兼容 chat completions 加工一个会话 → 活文档（source: 'llm'）。
  * 传输级失败抛 ApiTransportError；输出解析失败抛 ApiParseError（raw 在内）。
+ * 响应校验（§7.2/V31）：≤5 份、topic 唯一（重复取第一份）、evidence ≥12 原文字符——违规项跳过并记进 notes。
  */
 export async function extractWithApi(
   input: ExtractInput,
   cfg: ApiRuntimeConfig,
   model: string,
-): Promise<Candidate[]> {
+): Promise<{ docs: DocItem[]; notes: string[] }> {
+  const notes: string[] = [];
   const transcript = truncateBody(input.body, cfg.maxInputChars);
+  let userMsg = `Session (project ${input.projectFp}):\n${transcript}`;
+  if (input.existingDocs.length > 0) {
+    // §7.2 增量合并的实现机制：模型看得见既有活文档全文，同主题输出更新版
+    userMsg += `\n\nExisting living documents for this project (if this session belongs to one of these topics, output the updated full document and reuse its topic slug exactly; otherwise create a new topic):\n`
+      + input.existingDocs.map((d) => `--- topic: ${d.topic}\n${d.content}`).join('\n\n');
+  }
   let res: Response;
   try {
     res = await fetch(`${cfg.base}/chat/completions`, {
@@ -298,8 +325,8 @@ export async function extractWithApi(
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: EXTRACT_PROMPT_V1 },
-          { role: 'user', content: `Session (project ${input.projectFp}):\n${transcript}` },
+          { role: 'system', content: EXTRACT_PROMPT_V2 },
+          { role: 'user', content: userMsg },
         ],
         temperature: 0.2,
       }),
@@ -323,23 +350,37 @@ export async function extractWithApi(
   if (!parsed.ok) throw new ApiParseError(text);
   if (!Array.isArray(parsed.value)) throw new ApiParseError(text);
 
-  const out: Candidate[] = [];
-  for (const item of parsed.value) {
+  const rawItems = parsed.value;
+  const items = rawItems.slice(0, 5);
+  if (rawItems.length > 5) notes.push(`response has ${rawItems.length} docs; keeping first 5`);
+  const out: DocItem[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
     if (!item || typeof item.content !== 'string' || !item.content.trim()) continue;
+    const topic = typeof item.topic === 'string' ? item.topic.trim() : '';
+    if (!topic) {
+      notes.push('doc without topic skipped');
+      continue;
+    }
+    if (seen.has(topic)) {
+      notes.push(`duplicate topic ${topic} in one response; keeping first`);
+      continue;
+    }
+    seen.add(topic);
     const type = (['preference', 'fact', 'decision', 'experience'] as const).includes(item.type) ? item.type : 'fact';
-    const conf = typeof item.confidence === 'number' ? Math.min(1, Math.max(0, item.confidence)) : 0.6;
+    const rawEvidence: string[] = Array.isArray(item.evidence) ? item.evidence.map(String).map((e: string) => e.trim()) : [];
+    const evidence = rawEvidence.filter((e: string) => [...e].length >= MIN_EVIDENCE);
+    if (evidence.length < rawEvidence.length) notes.push(`doc ${topic}: ${rawEvidence.length - evidence.length} evidence string(s) below ${MIN_EVIDENCE} chars dropped`);
     out.push({
+      topic,
+      content: item.content.trim(),
       type,
       domain: typeof item.domain === 'string' && item.domain ? item.domain : inferDomain(item.content),
-      content: item.content.trim(),
-      confidence: conf,
+      evidence,
       tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
-      project_fp: input.projectFp,
-      session_id: input.sessionId,
-      source: 'llm',
     });
   }
-  return out;
+  return { docs: out, notes };
 }
 
 /** §6.2：未配置文案（档 0 已移除，不能再引用）。 */
