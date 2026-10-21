@@ -119,7 +119,8 @@ export function materializeQueue(index: OmemIndex, opts: QueueOptions = {}): Que
       project_fp: rec.project_fp || 'unknown',
       last_ts: rec.last_ts,
       content_hash: rec.content_hash,
-      failCount,
+      // 显式重跑隔离会话：failCount 顶到 2，再解析失败保持 skip（规则 4 计数不因显式点名清零）
+      failCount: isExplicit && verdict === 'quarantined' ? 2 : failCount,
       requeuedByPrompt: Boolean(requeued && !isExplicit),
     });
   }

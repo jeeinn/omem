@@ -296,6 +296,11 @@ export class OmemIndex {
     this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(sessionId);
   }
 
+  /** 只更新 api_state 镜像列（写序：先改 session 文件，再调这里，文档 §3.5 规则 5）。 */
+  setSessionApiState(sessionId: string, apiState: string | null): void {
+    this.db.prepare('UPDATE sessions SET api_state = ? WHERE session_id = ?').run(apiState, sessionId);
+  }
+
   private catchUpSessions(): void {
     this.reindexSessionFiles(false);
   }

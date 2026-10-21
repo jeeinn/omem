@@ -11,13 +11,24 @@ import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
 import {
   prepareDialogue,
+  readStoredSession,
   sessionKey,
   splitSessionKey,
+  updateSessionApiState,
   writeSessionFile,
 } from '../collect/session-store.js';
 import type { SessionDigest } from '../collect/types.js';
 import { GUIDE_BATCH, renderGuide, writeProcessGuide, type GuideSessionRef, type GuideTopic } from './guide.js';
-import { extractWithApi, apiConfigured, apiSetupHint } from './api.js';
+import {
+  extractWithApi,
+  resolveApiConfig,
+  resolveModel,
+  estimateTokens,
+  endpointUnavailableError,
+  ApiTransportError,
+  ApiParseError,
+} from './api.js';
+import { materializeQueue, formatApiState, API_PROMPT_VERSION } from './queue.js';
 import type { Candidate } from './rules.js';
 
 export interface RunOpts {
@@ -26,6 +37,10 @@ export interface RunOpts {
   /** 命令行显式传入的档位。缺省时不把 config 里的 rules 当成自动抽取。 */
   tier?: Tier;
   dryRun?: boolean;
+  /** API 档 CLI 覆盖（§4）：--base / --model / --limit。 */
+  apiBase?: string;
+  apiModel?: string;
+  apiLimit?: number;
 }
 
 export interface RunReport {
@@ -39,6 +54,12 @@ export interface RunReport {
   redacted: number;
   excluded: number;
   notes: string[];
+  /** API 档汇总（§3.9 分列计数）。 */
+  failed?: number;
+  parseFailed?: number;
+  quarantined?: number;
+  queuePending?: number;
+  elapsedMs?: number;
 }
 
 /** 显式 --tier 优先。rules 已从产品路径移除，残留配置按 agent 处理。 */
@@ -64,7 +85,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   return report;
 }
 
-/** 档 3 的异步版本（API 加工需要网络调用）。原文仍先落盘。 */
+/** 档 3 的异步版本（API 加工需要网络调用）。原文仍先落盘；加工走 §3.5 工作队列。 */
 export async function runPipelineAsync(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): Promise<RunReport> {
   const { tier } = resolveTier(config, opts.tier ?? 'api');
   if (tier !== 'api') return runPipeline(home, config, index, opts);
@@ -74,19 +95,150 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     report.notes.push('Collection paused (run omem resume to resume)');
     return report;
   }
-  if (!apiConfigured()) throw new Error(apiSetupHint());
+  // §6.2：策略/配置错误抛 UsageError（exit 1），不再用裸 Error
+  const cfg = resolveApiConfig(config, process.env, {
+    base: opts.apiBase,
+    model: opts.apiModel,
+    limit: opts.apiLimit,
+  });
 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
   ingest(home, index, scan.digests, opts.dryRun ?? false, report);
-  for (const digest of scan.digests) {
-    const candidates = await extractWithApi(digest);
-    report.candidates += candidates.length;
-    for (const c of candidates) commitCandidate(home, config, index, c, opts.dryRun ?? false, report);
+
+  const queue = materializeQueue(index, {
+    since: opts.since,
+    sessionId: opts.sessionId,
+    limit: cfg.limit,
+    promptVersion: API_PROMPT_VERSION,
+  });
+  report.queuePending = queue.pending;
+  report.quarantined = queue.quarantined;
+
+  for (const w of cfg.warnings) console.warn(`[api] warning: ${w}`);
+  for (const n of cfg.notes) console.log(`[api] note: ${n}`);
+
+  // §3.11：批量预估行——dry-run 也打印，给用户看量级的机会
+  const estChars = queue.items.reduce((n, it) => n + readBodyChars(it.path), 0);
+  const tokens = estimateTokens(estChars);
+  console.log(
+    `[api] batch: ${queue.items.length} sessions · ~${Math.round(tokens / 1000)}k tokens (rough estimate) · `
+      + `base ${cfg.base} (${cfg.isLocal ? 'local' : 'non-local'}, ${cfg.keyWillSend ? 'key will be sent' : 'no key'})`,
+  );
+  if (!cfg.isLocal) {
+    console.log('[api] note: session transcripts will leave this machine; secrets are redacted, business content is not.');
   }
-  finish(home, index, report, opts.dryRun ?? false);
+  if (queue.requeuedByPrompt > 0) {
+    console.log(`[api] pending ${queue.pending} (${queue.requeuedByPrompt} requeued by ${API_PROMPT_VERSION} upgrade)`);
+  }
+
+  // §3.8：dry-run 零网络调用、不改任何加工状态，到此为止
+  if (opts.dryRun) {
+    report.notes.push(`dry-run: ${queue.items.length} session(s) would be processed (${queue.overflow} overflow, ${queue.quarantined} quarantined)`);
+    finish(home, index, report, true);
+    return report;
+  }
+
+  // 模型：显式给了就用；否则探测一次 /v1/models（§3.3）
+  const resolved = await resolveModel(cfg);
+  for (const n of resolved.notes) console.log(`[api] note: ${n}`);
+
+  const apiLog = (extra: Record<string, unknown>): void => {
+    appendLog(home, 'api', { model: resolved.model, base: cfg.base, ...extra });
+  };
+
+  const isTty = Boolean(process.stdout.isTTY);
+  const total = queue.items.length;
+  const startedAt = Date.now();
+  let transportFails = 0;
+  let failed = 0;
+  let parseFailed = 0;
+  let quarantinedNow = 0;
+
+  const progress = (i: number, line: string): void => {
+    if (isTty) {
+      process.stdout.write(`\r\x1b[2K${line}`);
+    } else if (i % 10 === 0 || i === total) {
+      console.log(line);
+    }
+  };
+
+  for (let i = 0; i < queue.items.length; i++) {
+    const item = queue.items[i];
+    const t0 = Date.now();
+    const short = item.sessionId.slice(0, 8);
+    try {
+      const body = readStoredSession(item.path)?.body ?? '';
+      const candidates = await extractWithApi(
+        { body, projectFp: item.project_fp, sessionId: item.sessionId },
+        cfg,
+        resolved.model,
+      );
+      transportFails = 0;
+      report.candidates += candidates.length;
+      for (const c of candidates) commitCandidate(home, config, index, c, false, report);
+      // 规则 5 写序：先文件后索引
+      const okState = formatApiState({ status: 'ok', prompt: API_PROMPT_VERSION, hash: item.content_hash, count: 0 });
+      updateSessionApiState(item.path, okState);
+      index.setSessionApiState(item.key, okState);
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  ${candidates.length} candidate${candidates.length === 1 ? '' : 's'}${candidates.length === 0 ? ' (nothing kept)' : ''}${' '.repeat(Math.max(1, 28 - short.length))}${secs}s`);
+    } catch (e) {
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      if (e instanceof ApiTransportError) {
+        // 规则 3：传输失败不写状态 → 下次自动重试；连续 3 次中止整批（§3.4）
+        failed++;
+        transportFails++;
+        apiLog({ status: 'transport_failed', error: e.message, http_status: e.status, session: item.key, duration_ms: Date.now() - t0 });
+        progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  failed: ${e.message} (logged, continue)${' '.repeat(Math.max(1, 8))}${secs}s`);
+        if (transportFails >= 3) {
+          if (isTty) process.stdout.write('\n');
+          apiLog({ status: 'aborted', consecutive_failures: transportFails });
+          throw endpointUnavailableError(transportFails);
+        }
+        continue;
+      }
+      if (e instanceof ApiParseError) {
+        // 规则 4：解析失败计数到 2 即隔离；不计入中止计数
+        parseFailed++;
+        const strikes = item.failCount + 1;
+        const nextState = strikes >= 2
+          ? formatApiState({ status: 'skip', prompt: API_PROMPT_VERSION, hash: item.content_hash, count: 0 })
+          : formatApiState({ status: 'fail', prompt: API_PROMPT_VERSION, hash: item.content_hash, count: strikes });
+        updateSessionApiState(item.path, nextState);
+        index.setSessionApiState(item.key, nextState);
+        if (strikes >= 2) quarantinedNow++;
+        apiLog({ status: 'parse_failed', session: item.key, strikes, duration_ms: Date.now() - t0, raw: e.raw.slice(0, 2000) });
+        progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  parse_failed (raw in log; ${strikes}${strikes === 2 ? 'nd' : strikes === 1 ? 'st' : 'th'} strike${strikes >= 2 ? ' → quarantined' : ''})${' '.repeat(Math.max(1, 4))}${secs}s`);
+        continue;
+      }
+      throw e;
+    }
+  }
+  if (isTty && total > 0) process.stdout.write('\n');
+
+  report.failed = failed;
+  report.parseFailed = parseFailed;
+  report.quarantined += quarantinedNow;
+  report.elapsedMs = Date.now() - startedAt;
+  // §3.9 汇总分列：parse_failed 与 failed 不混
+  console.log(
+    `[api] done: written ${report.written.length} · deduped ${report.deduped} · failed ${failed} · parse_failed ${parseFailed} · `
+      + `quarantined ${report.quarantined} · elapsed ${formatElapsed(report.elapsedMs)} · pending ${queue.overflow}`,
+  );
+  finish(home, index, report, false);
   return report;
+}
+
+function readBodyChars(path: string): number {
+  return readStoredSession(path)?.body.length ?? 0;
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
 }
 
 function emptyReport(tier: Tier): RunReport {
