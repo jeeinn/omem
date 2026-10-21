@@ -22,6 +22,7 @@ import { cmdSnapshot } from './commands/snapshot.js';
 import { cmdServe } from './commands/serve.js';
 import { cmdAudit } from './commands/audit.js';
 import { cmdEval } from './commands/eval.js';
+import { cmdApi } from './commands/api.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version: string };
@@ -45,7 +46,7 @@ const COMMANDS: Record<string, Command> = {
   },
   run: {
     desc: 'Ingest session transcripts (conclusions are not extracted)',
-    usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run]',
+    usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
     run: cmdRun,
   },
   add: {
@@ -122,6 +123,11 @@ const COMMANDS: Record<string, Command> = {
     desc: 'Extraction eval: substring-recall baseline (weak proxy) and annotation export',
     usage: 'omem eval recall [--golden <dir>] [--write-baseline] [--min-recall <n>] | omem eval sample [--n 20] [--out <file>]',
     run: cmdEval,
+  },
+  api: {
+    desc: 'API tier diagnostics: effective config, queue depth, model probe',
+    usage: 'omem api status',
+    run: cmdApi,
   },
 };
 

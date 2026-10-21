@@ -1,5 +1,5 @@
 // 档 3 pipeline 集成测试（文档 §3.5/§3.8/§3.9）：队列接入、dry-run 零网络、失败隔离与中止。
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,6 +10,7 @@ import { runPipelineAsync } from '../../src/process/pipeline.js';
 import { materializeQueue, API_PROMPT_VERSION } from '../../src/process/queue.js';
 import { readStoredSession } from '../../src/collect/session-store.js';
 import { BackendUnavailableError } from '../../src/core/util.js';
+import { main } from '../../src/cli.js';
 import { makeHome, cleanupHome } from './helpers.js';
 
 const ABSENT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', 'nonexistent');
@@ -210,5 +211,72 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
     expect(stub.requests).toHaveLength(1); // 不再请求
     expect(second.candidates).toBe(0);
     expect(readStoredSession(join(home, 'sessions', 'claude-code', 's1.md'))?.apiState).toMatch(/^ok:/);
+  });
+});
+
+describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
+  it('default_tier=api without --tier flag still runs the API path', async () => {
+    seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    const stub = await startStub(() => oneCandidate);
+    const config = cfgFor(stub.base);
+    config.process.default_tier = 'api';
+    saveConfig(home, config);
+    vi.stubEnv('OMEM_HOME', home);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const code = await main(['run']);
+      expect(code).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
+    // 走了 API 路径：会话被加工并写 ok 状态（旧 bug：静默走 agent 路径、0 请求）
+    expect(stub.requests.length).toBeGreaterThanOrEqual(1);
+    expect(readStoredSession(join(home, 'sessions', 'claude-code', 's1.md'))?.apiState).toMatch(/^ok:/);
+  });
+
+  it('--limit is threaded through to the queue', async () => {
+    seedSession('s1', '## user\none', '2026-10-19T10:05:00.000Z');
+    seedSession('s2', '## user\ntwo', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    const stub = await startStub(() => oneCandidate);
+    const config = cfgFor(stub.base);
+    saveConfig(home, config);
+    vi.stubEnv('OMEM_HOME', home);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await main(['run', '--tier', 'api', '--limit', '1']);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
+    expect(stub.requests).toHaveLength(1);
+  });
+
+  it('omem api status prints effective config, queue depth and model probe', async () => {
+    seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    const stub = await startStub((_i, _b) => null);
+    // probe 打 /models，status 命令里用 cfg.base
+    const probeStub = await startStub(() => ({ status: 200, content: JSON.stringify({ data: [{ id: 'alpha' }, { id: 'beta' }] }) }));
+    const config = cfgFor(`${probeStub.base}/v1`, { model: '' });
+    saveConfig(home, config);
+    vi.stubEnv('OMEM_HOME', home);
+    const lines: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')); });
+    try {
+      const code = await main(['api', 'status']);
+      expect(code).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
+    const text = lines.join('\n');
+    expect(text).toMatch(/base: .*loopback/);
+    expect(text).toMatch(/key: empty \(Authorization header omitted\)/);
+    expect(text).toMatch(/Queue: pending 1 · quarantined 0/);
+    expect(text).toMatch(/Models at endpoint: alpha, beta/);
+    expect(stub.requests).toHaveLength(0); // status 不发任何会话内容
   });
 });

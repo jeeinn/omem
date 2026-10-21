@@ -41,3 +41,11 @@ export function flagStr(flags: Record<string, string | true>, key: string): stri
 export function flagBool(flags: Record<string, string | true>, key: string): boolean {
   return flags[key] !== undefined;
 }
+
+/** 正整数旗标（如 --limit 5）；缺失或非数字返回 undefined，由调用方决定回退。 */
+export function flagNum(flags: Record<string, string | true>, key: string): number | undefined {
+  const v = flags[key];
+  if (typeof v !== 'string') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+}
