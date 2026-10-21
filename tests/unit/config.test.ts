@@ -215,3 +215,104 @@ describe('removed config keys are reported, not silently honoured', () => {
     }
   });
 });
+
+describe('config: [api] section (档 3 文档 §3.1)', () => {
+  it('defaults: loopback base, empty key/model, locality-dependent fields unset, limit 20', () => {
+    const api = defaultConfig().api;
+    expect(api.base).toBe('http://localhost:11434/v1');
+    expect(api.key).toBe('');
+    expect(api.model).toBe('');
+    expect(api.timeout_ms).toBe(0); // 0 = per-endpoint default
+    expect(api.max_input_chars).toBe(0);
+    expect(api.limit).toBe(20);
+  });
+
+  it('round-trips through serialize → load', () => {
+    const home = makeHome();
+    try {
+      const c = defaultConfig();
+      c.api.base = 'https://api.deepseek.com/v1';
+      c.api.key = 'sk-abc123';
+      c.api.model = 'deepseek-chat';
+      c.api.timeout_ms = 60_000;
+      c.api.max_input_chars = 12_000;
+      c.api.limit = 50;
+      saveConfig(home, c);
+      const back = loadConfig(home);
+      expect(back.api.base).toBe('https://api.deepseek.com/v1');
+      expect(back.api.key).toBe('sk-abc123');
+      expect(back.api.model).toBe('deepseek-chat');
+      expect(back.api.timeout_ms).toBe(60_000);
+      expect(back.api.max_input_chars).toBe(12_000);
+      expect(back.api.limit).toBe(50);
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('V33: non-empty [api].key survives a pause/resume-style load → save rewrite', () => {
+    const home = makeHome();
+    try {
+      const c = defaultConfig();
+      c.api.key = 'sk-must-survive';
+      saveConfig(home, c);
+      // pause / resume / profile use / sync use 都走 loadConfig → 改一个无关字段 → saveConfig
+      const again = loadConfig(home);
+      again.general.paused = true;
+      saveConfig(home, again);
+      const third = loadConfig(home);
+      expect(third.api.key).toBe('sk-must-survive');
+      expect(third.api.base).toBe('http://localhost:11434/v1');
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('V33: hand-written [api] key in config.toml survives saveConfig rewrite', () => {
+    const home = makeHome();
+    try {
+      const p = configPath(home);
+      writeFileSync(p, readFileSync(p, 'utf8').replace('[search]', '[api]\nkey = "sk-handwritten"\nbase = "https://example.com/v1"\n\n[search]'));
+      const parsed = loadConfig(home);
+      expect(parsed.api.key).toBe('sk-handwritten');
+      expect(parsed.api.base).toBe('https://example.com/v1');
+      const again = loadConfig(home);
+      again.general.paused = false;
+      saveConfig(home, again);
+      expect(loadConfig(home).api.key).toBe('sk-handwritten');
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('invalid numbers fall back to defaults; limit floor is 1', () => {
+    const home = makeHome();
+    try {
+      const p = configPath(home);
+      writeFileSync(p, readFileSync(p, 'utf8').replace('[search]', '[api]\ntimeout_ms = -5\nlimit = 0\nmax_input_chars = "oops"\n\n[search]'));
+      const parsed = loadConfig(home);
+      expect(parsed.api.timeout_ms).toBe(0);
+      expect(parsed.api.limit).toBe(20);
+      expect(parsed.api.max_input_chars).toBe(0);
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('unset timeout_ms / max_input_chars are written as comments, explicit values as lines', () => {
+    const home = makeHome();
+    try {
+      const c = defaultConfig();
+      saveConfig(home, c);
+      const text = readFileSync(configPath(home), 'utf8');
+      expect(text).toContain('# timeout_ms');
+      expect(text).toContain('# max_input_chars');
+      expect(text).not.toMatch(/^timeout_ms = /m);
+      c.api.timeout_ms = 300_000;
+      saveConfig(home, c);
+      expect(readFileSync(configPath(home), 'utf8')).toMatch(/^timeout_ms = 300000/m);
+    } finally {
+      cleanupHome(home);
+    }
+  });
+});
