@@ -158,6 +158,17 @@ echo "$OUT" | grep -q "Hard deleted" && ok "--yes performs the delete" || bad "-
 OUT=$(run redact --source llm)
 echo "$OUT" | grep -q "No entries match" && ok "zero matches is a no-op" || bad "unexpected zero-match output: $OUT"
 
+echo "== S17 (V12) sync warns about non-empty [api].key before committing =="
+sed -i 's/^\[search\]/[api]\nkey = "sk-smoke-guard"\n\n[search]/' "$OMEM_HOME/config.toml"
+OUT=$(run sync); CODE=$?
+[ $CODE -eq 0 ] && ok "sync with key in config exits 0" || bad "exit code $CODE: $OUT"
+echo "$OUT" | grep -q "non-empty \[api\].key" && ok "key warning printed" || bad "no key warning: $OUT"
+echo "$OUT" | grep -q "OMEM_API_KEY" && ok "warning suggests env var alternative" || bad "no alternative suggested: $OUT"
+grep -q 'key = "sk-smoke-guard"' "$OMEM_HOME/config.toml" && ok "config not rewritten by sync" || bad "sync modified config"
+sed -i 's/^key = "sk-smoke-guard"/key = ""/' "$OMEM_HOME/config.toml"
+OUT=$(run sync)
+echo "$OUT" | grep -q "non-empty \[api\].key" && bad "warning fires with empty key" || ok "no warning when key empty"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "Result: $PASS passed / $FAIL failed"

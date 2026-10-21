@@ -29,6 +29,12 @@ export async function cmdSync(args: ParsedArgs): Promise<number> {
 async function syncBody(args: ParsedArgs, ctx: ReturnType<typeof openCtx>): Promise<number> {
   const home = ctx.home;
   const config = ctx.config;
+  // D9：任何 git 动作之前扫非空 [api].key——pull 的 autosave 也会 git add -A，
+  // 等到 push 再拦，密钥已经进了 pull 的自动提交。只警告：不阻塞、不改文件、退出码不变。
+  if (config.api.key) {
+    console.log('config.toml contains a non-empty [api].key; it will be committed to the git data repo.');
+    console.log('  → prefer OMEM_API_KEY in the environment, or add config.toml to .gitignore.');
+  }
   const sub = args._[0];
 
   if (sub === 'status') {
