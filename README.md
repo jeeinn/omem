@@ -86,7 +86,8 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 | --- | --- |
 | `omem init` | 建数据仓并默认采集会话原文到 `sessions/`（`--no-scan` 只建库） |
 | `omem install` | 交互勾选客户端并写入 MCP 配置（六条写入纪律）；`--target a,b` 跳过交互、`--print-config <id\|generic>` 只预览、`--list` 列全部 |
-| `omem run [--since 7d] [--tier agent\|api]` | 采集对话到 `sessions/` 并写 `PROCESS.md`。`--tier rules` 已移除 |
+| `omem run [--since 7d] [--tier agent\|api] [--base URL] [--model X] [--limit N]` | 采集对话到 `sessions/` 并写 `PROCESS.md`。`--tier rules` 已移除；`--tier api` 见「API 档用法」 |
+| `omem api status` | API 档诊断：生效配置、队列深度、端点模型探测 |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <query> [--detail] [--sessions] [--domain X]` | 默认只查结论；`--sessions` 只查对话原文 |
 | `omem review [--confirm <id>]` | 审阅队列。`--confirm` 把该条标为已确认并把置信度提到 0.9 |
@@ -136,9 +137,34 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 1. **规则抽取已移除。** `omem run --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 已从配置中删除：既不过滤条目，也不过滤会话原文（残留的旧配置行会被忽略，`omem init` 与 `omem run` 会点名提示删掉）。
 2. **Agent 主动保存**（默认开）：MCP `save_memory`。有依据时自动打分，仍是未确认。
 3. **Agent 协作引导**（默认档）：采集原文并写 `PROCESS.md`，由本地 Agent 读文件后写回结论。
-4. **自带 API key**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口。
+4. **API 加工**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口，本机模型免 key、云端带 key。
 
 MCP sampling 在 V0.1 不可用。
+
+## API 档用法（可选）
+
+`omem run --tier api` 把 `sessions/` 里的脱敏会话原文发给 OpenAI 兼容端点，产出与 Agent 路径同构的活文档（一主题一份、证据锚定置信度、自动 supersede）。端点与模型可配在 `config.toml` 的 `[api]` 段或环境变量（env 优先）：
+
+```bash
+# 本机模型（ollama / llama-server 等，回环地址免 key）
+omem run --tier api
+omem run --tier api --model minicpm5-2b --limit 5
+
+# 云端（key 建议走环境变量；写进 config.toml 会被 omem sync 提交进 git 数据仓）
+OMEM_API_KEY=sk-xxx omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
+```
+
+```powershell
+# Windows PowerShell（Windows 是本项目的一等公民平台）
+$env:OMEM_API_KEY = 'sk-xxx'
+omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
+```
+
+- **本机端点**（`localhost` / `127.0.0.0/8` / `::1`）免 key，不发 `Authorization`；回环之外一律要求 key 且强制 https——这条路径会把完整会话原文发给远端。
+- `--limit` 控制本批会话数（默认 20；非本机端点的 config/env 值钳到 50，只有 CLI 显式数字可越过）。批次没跑完的下批自动接续，失败的会自动重试。
+- `--dry-run` 零网络调用，只打印批次规模与 token 量级估算。
+- `omem api status` 一条命令看生效配置、队列深度与端点上的模型列表。
+- 会把 key 写进 `config.toml` 的话：`omem sync` 会把它提交进 git 数据仓并推送远端。`omem sync` 开始时会警告；要根治就改用 `OMEM_API_KEY` 环境变量，或把 `config.toml` 加进数据仓的 `.gitignore`。
 
 ## 定时采集（可选）
 
