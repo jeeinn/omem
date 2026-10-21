@@ -43,6 +43,8 @@ export interface SessionRecord {
   agent: string;
   path: string;
   content_hash: string;
+  /** API 档加工状态镜像（文档 §3.5）；事实源是 session 文件 frontmatter，这里只是加速读取。 */
+  api_state?: string | null;
   project_fp: string;
   msg_count: number;
   last_ts: string;
@@ -105,6 +107,7 @@ export class OmemIndex {
     this.addColumn('sessions', 'agent', 'TEXT');
     this.addColumn('sessions', 'path', 'TEXT');
     this.addColumn('sessions', 'content_hash', 'TEXT');
+    this.addColumn('sessions', 'api_state', 'TEXT');
     this.addColumn('entries', 'topic', 'TEXT');
     this.addColumn('entries', 'source_sessions', 'TEXT');
   }
@@ -273,13 +276,14 @@ export class OmemIndex {
 
   putSession(rec: SessionRecord, body = ''): void {
     this.db.prepare(`INSERT INTO sessions
-      (session_id, project_fp, msg_count, last_ts, processed_at, agent, path, content_hash)
-      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
+      (session_id, project_fp, msg_count, last_ts, processed_at, agent, path, content_hash, api_state)
+      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
       project_fp = excluded.project_fp, msg_count = excluded.msg_count,
       last_ts = excluded.last_ts, processed_at = excluded.processed_at,
-      agent = excluded.agent, path = excluded.path, content_hash = excluded.content_hash`).run(
+      agent = excluded.agent, path = excluded.path, content_hash = excluded.content_hash,
+      api_state = excluded.api_state`).run(
       rec.session_id, rec.project_fp, rec.msg_count, rec.last_ts, rec.processed_at,
-      rec.agent, rec.path, rec.content_hash,
+      rec.agent, rec.path, rec.content_hash, rec.api_state ?? null,
     );
     this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(rec.session_id);
     if (body) {
@@ -311,12 +315,18 @@ export class OmemIndex {
       seen.add(key);
       const st = statSync(path);
       const prev = this.getSession(key);
-      if (!force && prev && prev.path === path && prev.content_hash === stored.contentHash) continue;
+      // 快路径必须同时比对 api_state（文档 §3.5）：content_hash 只覆盖正文，
+      // sync 拉回的 ok/skip 或外部改 frontmatter 都属于「正文未变、状态变了」，跳过就不回导。
+      if (
+        !force && prev && prev.path === path && prev.content_hash === stored.contentHash
+        && (prev.api_state ?? null) === (stored.apiState ?? null)
+      ) continue;
       this.putSession({
         session_id: key,
         agent: stored.agent,
         path,
         content_hash: stored.contentHash,
+        api_state: stored.apiState ?? null,
         project_fp: stored.project,
         msg_count: stored.messages,
         last_ts: stored.ended,

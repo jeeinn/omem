@@ -1,6 +1,6 @@
 // 索引与检索集成测试（规格 §2.3；spike 结论：trigram ≥3 字符 MATCH，<3 字符 LIKE 兜底，stale 降权）。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { searchEntries } from '../../src/core/search.js';
@@ -158,5 +158,89 @@ describe('index: sessions ledger', () => {
     index.putSession({ session_id: 's1', agent: 'cursor', path: 'p', content_hash: 'h', project_fp: 'fp', msg_count: 9, last_ts: 'x', processed_at: 'now2' });
     expect(index.getSession('s1')!.msg_count).toBe(9);
     expect(index.getSession('nope')).toBeNull();
+  });
+});
+
+describe('index: api_state mirror (档 3 文档 §3.5)', () => {
+  function sessionFile(name: string, apiState?: string): string {
+    const lines = [
+      '---',
+      'agent: claude-code',
+      `session_id: ${name}`,
+      'project: proj-x',
+      'started: 2026-10-20T10:00:00.000Z',
+      'ended: 2026-10-20T10:05:00.000Z',
+      'messages: 2',
+      'content_hash: body-hash-1',
+    ];
+    if (apiState) lines.push(`api_state: ${apiState}`);
+    return [...lines, '---', '', '## user', 'hello', ''].join('\n');
+  }
+
+  it('V34: catch-up re-imports api_state when only frontmatter changed', () => {
+    const home = makeHome();
+    const dir = join(home, 'sessions', 'claude-code');
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, 'sess-m1.md');
+    try {
+      writeFileSync(f, sessionFile('sess-m1'));
+      // 第一次对账：导入镜像（api_state 缺省）
+      let index = new OmemIndex(home);
+      index.catchUp();
+      expect(index.getSession('claude-code:sess-m1')?.api_state ?? null).toBeNull();
+      index.close();
+      // 只改 frontmatter（正文哈希不变）——等价于 sync 拉回另一台机器写好的 ok
+      writeFileSync(f, sessionFile('sess-m1', 'ok:v1:body-hash-1'));
+      index = new OmemIndex(home);
+      index.catchUp();
+      expect(index.getSession('claude-code:sess-m1')?.api_state).toBe('ok:v1:body-hash-1');
+      index.close();
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('V23: rebuild restores api_state from files', () => {
+    const home = makeHome();
+    try {
+      const dir = join(home, 'sessions', 'claude-code');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'sess-m2.md'), sessionFile('sess-m2', 'skip:v1:body-hash-1'));
+      const index = new OmemIndex(home);
+      try {
+        index.catchUp();
+        expect(index.getSession('claude-code:sess-m2')?.api_state).toBe('skip:v1:body-hash-1');
+        index.rebuild();
+        expect(index.getSession('claude-code:sess-m2')?.api_state).toBe('skip:v1:body-hash-1');
+      } finally {
+        index.close();
+      }
+    } finally {
+      cleanupHome(home);
+    }
+  });
+
+  it('fast path skips only when content_hash AND api_state both match', () => {
+    const home = makeHome();
+    try {
+      const dir = join(home, 'sessions', 'claude-code');
+      mkdirSync(dir, { recursive: true });
+      const f = join(dir, 'sess-m3.md');
+      writeFileSync(f, sessionFile('sess-m3', 'ok:v1:body-hash-1'));
+      const index = new OmemIndex(home);
+      try {
+        index.catchUp();
+        const before = index.getSession('claude-code:sess-m3')?.processed_at;
+        // 手改索引行模拟「镜像与文件暂时不一致」，再次 catch-up 应修正
+        index.putSession({ session_id: 'claude-code:sess-m3', agent: 'claude-code', path: f, content_hash: 'body-hash-1', api_state: null, project_fp: 'proj-x', msg_count: 2, last_ts: '2026-10-20T10:05:00.000Z', processed_at: before ?? 'old' });
+        expect(index.getSession('claude-code:sess-m3')?.api_state ?? null).toBeNull();
+        index.catchUp();
+        expect(index.getSession('claude-code:sess-m3')?.api_state).toBe('ok:v1:body-hash-1');
+      } finally {
+        index.close();
+      }
+    } finally {
+      cleanupHome(home);
+    }
   });
 });

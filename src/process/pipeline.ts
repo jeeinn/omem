@@ -122,12 +122,13 @@ function ingest(
     report.messages += digest.messages.length;
     const { body, hash } = prepareDialogue(digest);
     if (dryRun) continue;
-    const { path, text } = writeSessionFile(home, digest, body, hash);
+    const { path, text, apiState } = writeSessionFile(home, digest, body, hash);
     index.putSession({
       session_id: sessionKey(digest.agent, digest.session_id),
       agent: digest.agent,
       path,
       content_hash: hash,
+      api_state: apiState ?? null,
       project_fp: digest.project_fp,
       msg_count: digest.messages.length,
       last_ts: digest.ended_ts,

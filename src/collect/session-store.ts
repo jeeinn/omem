@@ -139,9 +139,10 @@ export function userSectionText(body: string): string {
  * `--session` 点名在内容未变时也会走到这里，不保状态会把已有 `ok` 先抹掉，
  * 随后传输失败（规则 3 不写新状态）就永久丢失。
  */
-export function writeSessionFile(home: string, digest: SessionDigest, body: string, hash: string): { path: string; text: string } {
+export function writeSessionFile(home: string, digest: SessionDigest, body: string, hash: string): { path: string; text: string; apiState?: string } {
   const path = sessionFilePath(home, digest.agent, digest.session_id);
   const prev = readStoredSession(path);
+  const apiState = prev && prev.contentHash === hash ? prev.apiState : undefined;
   const meta: StoredSession = {
     agent: digest.agent,
     sessionId: digest.session_id,
@@ -150,13 +151,13 @@ export function writeSessionFile(home: string, digest: SessionDigest, body: stri
     ended: digest.ended_ts,
     messages: digest.messages.length,
     contentHash: hash,
-    apiState: prev && prev.contentHash === hash ? prev.apiState : undefined,
+    apiState,
     body,
   };
   mkdirSync(join(dirs.sessions(home), safeSeg(digest.agent)), { recursive: true });
   const text = renderSessionFile(meta);
   atomicWrite(path, text);
-  return { path, text };
+  return { path, text, apiState };
 }
 
 /**
