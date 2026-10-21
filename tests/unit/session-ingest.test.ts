@@ -7,7 +7,14 @@ import { tmpdir } from 'node:os';
 import { rmSync } from 'node:fs';
 import { stripHarness } from '../../src/collect/dialogue.js';
 import { parseCursorTranscript } from '../../src/collect/cursor.js';
-import { renderDialogue, sessionKey, writeSessionFile } from '../../src/collect/session-store.js';
+import {
+  renderDialogue,
+  sessionKey,
+  writeSessionFile,
+  parseStoredSession,
+  readStoredSession,
+  updateSessionApiState,
+} from '../../src/collect/session-store.js';
 import type { SessionDigest } from '../../src/collect/types.js';
 import { OmemIndex } from '../../src/core/index.js';
 import { runPipeline } from '../../src/process/pipeline.js';
@@ -182,5 +189,76 @@ describe('evidence score', () => {
     const done = listEntries(home)[0].entry.fm;
     expect(done.verified).toBe(true);
     expect(done.confidence).toBe(0.9);
+  });
+});
+
+describe('session-store: api_state frontmatter (档 3 文档 §3.5)', () => {
+  function digestOf(): SessionDigest {
+    return {
+      agent: 'claude-code',
+      session_id: 'sess-api-state-1',
+      project_fp: 'proj-x',
+      started_ts: '2026-10-20T10:00:00.000Z',
+      ended_ts: '2026-10-20T10:05:00.000Z',
+      messages: [
+        { role: 'user', content: 'hello world', ts: '2026-10-20T10:00:00.000Z' },
+        { role: 'assistant', content: 'hi', ts: '2026-10-20T10:01:00.000Z' },
+      ],
+    };
+  }
+
+  it('parses and renders api_state; unknown keys are ignored', () => {
+    const home = mkdtempSync(join(tmpdir(), 'omem-api-state-'));
+    try {
+      const d = digestOf();
+      const { path, text } = writeSessionFile(home, d, '## user\nhello world\n\n## assistant\nhi', 'abc123');
+      expect(text).not.toContain('api_state');
+      // 手写一个带 api_state 与未知键的文件
+      const manual = text.replace('---\n\n', 'api_state: ok:v1:abc123\nmystery_key: 42\n---\n\n');
+      writeFileSync(path, manual);
+      const stored = parseStoredSession(manual);
+      expect(stored?.apiState).toBe('ok:v1:abc123');
+      expect((stored as any).mystery_key).toBeUndefined();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('writeSessionFile keeps api_state when content hash is unchanged', () => {
+    const home = mkdtempSync(join(tmpdir(), 'omem-api-state-'));
+    try {
+      const d = digestOf();
+      const body = '## user\nhello world\n\n## assistant\nhi';
+      const first = writeSessionFile(home, d, body, 'hash-1');
+      expect(updateSessionApiState(first.path, 'ok:v1:hash-1')).toBe(true);
+      expect(readStoredSession(first.path)?.apiState).toBe('ok:v1:hash-1');
+      // 同哈希重写（--session 点名未变内容的路径）→ 状态保留
+      writeSessionFile(home, d, body, 'hash-1');
+      expect(readStoredSession(first.path)?.apiState).toBe('ok:v1:hash-1');
+      // 哈希变化 → 状态丢弃（重新进队列）
+      writeSessionFile(home, d, `${body}\nmore`, 'hash-2');
+      expect(readStoredSession(first.path)?.apiState).toBeUndefined();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('updateSessionApiState only touches the frontmatter line', () => {
+    const home = mkdtempSync(join(tmpdir(), 'omem-api-state-'));
+    try {
+      const d = digestOf();
+      const body = '## user\nhello world\n\n## assistant\nhi';
+      const { path } = writeSessionFile(home, d, body, 'hash-1');
+      updateSessionApiState(path, 'fail:v1:hash-1:1');
+      const after = readFileSync(path, 'utf8');
+      expect(after).toContain('api_state: fail:v1:hash-1:1');
+      expect(after).toContain('content_hash: hash-1');
+      expect(after).toContain('hello world');
+      // 清空（undefined）→ 行消失
+      updateSessionApiState(path, undefined);
+      expect(readFileSync(path, 'utf8')).not.toContain('api_state');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

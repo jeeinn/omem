@@ -15,6 +15,8 @@ export interface StoredSession {
   ended: string;
   messages: number;
   contentHash: string;
+  /** API 档加工状态（文档 §3.5）：`ok|fail|skip : <prompt版本> : <content_hash> [: 计数]`；缺省=未加工。 */
+  apiState?: string;
   body: string;
 }
 
@@ -75,7 +77,7 @@ export function keywordHit(body: string, keywords: string[]): string | null {
 }
 
 export function renderSessionFile(meta: StoredSession): string {
-  return [
+  const lines = [
     '---',
     `agent: ${meta.agent}`,
     `session_id: ${meta.sessionId}`,
@@ -84,6 +86,10 @@ export function renderSessionFile(meta: StoredSession): string {
     `ended: ${meta.ended}`,
     `messages: ${meta.messages}`,
     `content_hash: ${meta.contentHash}`,
+  ];
+  if (meta.apiState) lines.push(`api_state: ${meta.apiState}`);
+  return [
+    ...lines,
     '---',
     '',
     meta.body.trimEnd(),
@@ -110,6 +116,8 @@ export function parseStoredSession(text: string): StoredSession | null {
     ended: fm.ended || '',
     messages: Number.isFinite(messages) ? messages : 0,
     contentHash: fm.content_hash,
+    // 未知键天然忽略；api_state 是唯一被认领的加工字段（文档 §3.5）
+    apiState: fm.api_state || undefined,
     body: m[2].trim(),
   };
 }
@@ -126,7 +134,14 @@ export function userSectionText(body: string): string {
   return parts.join('\n');
 }
 
+/**
+ * 整文件重写。哈希未变时保留原 `api_state`（文档 §3.5 规则 1）：
+ * `--session` 点名在内容未变时也会走到这里，不保状态会把已有 `ok` 先抹掉，
+ * 随后传输失败（规则 3 不写新状态）就永久丢失。
+ */
 export function writeSessionFile(home: string, digest: SessionDigest, body: string, hash: string): { path: string; text: string } {
+  const path = sessionFilePath(home, digest.agent, digest.session_id);
+  const prev = readStoredSession(path);
   const meta: StoredSession = {
     agent: digest.agent,
     sessionId: digest.session_id,
@@ -135,13 +150,32 @@ export function writeSessionFile(home: string, digest: SessionDigest, body: stri
     ended: digest.ended_ts,
     messages: digest.messages.length,
     contentHash: hash,
+    apiState: prev && prev.contentHash === hash ? prev.apiState : undefined,
     body,
   };
-  const path = sessionFilePath(home, digest.agent, digest.session_id);
   mkdirSync(join(dirs.sessions(home), safeSeg(digest.agent)), { recursive: true });
   const text = renderSessionFile(meta);
   atomicWrite(path, text);
   return { path, text };
+}
+
+/**
+ * 外科手术式更新 `api_state`：只动 frontmatter 那一行，正文与其余键原样保留。
+ * 先写文件、再由调用方更新索引行（文档 §3.5 规则 5 的写序）。
+ */
+export function updateSessionApiState(path: string, apiState: string | undefined): boolean {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return false;
+  }
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!m) return false;
+  const fmLines = m[1].split(/\r?\n/).filter((l) => !/^api_state\s*:/.test(l));
+  if (apiState) fmLines.push(`api_state: ${apiState}`);
+  atomicWrite(path, ['---', ...fmLines, '---', '', m[2].replace(/^\r?\n/, '')].join('\n'));
+  return true;
 }
 
 /** 列出 sessions/ 下的原文文件（不递归进无关目录名）。 */
