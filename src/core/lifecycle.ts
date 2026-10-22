@@ -27,8 +27,11 @@ export function applySupersedes(home: string, index: OmemIndex, newEntry: Locate
 
 /** 时效标注（规格 §4.4）：把事实和时效一起给消费者，把判断权交给它。 */
 export function formatStaleness(fm: Frontmatter): string {
-  if (fm.verified) return `— confirmed ${relTime(fm.last_confirmed)}`;
+  // 状态标注优先于 verified：被取代/归档的 verified 条目（omem add 写的都是 verified）
+  // 必须先显示 superseded/archived，否则消费者会把已作废的记忆当成有效确认记忆。
   if (fm.status === 'superseded') return `— superseded by ${fm.superseded_by ?? 'a newer entry'}`;
+  if (fm.status === 'archived') return '— archived';
+  if (fm.verified) return `— confirmed ${relTime(fm.last_confirmed)}`;
   if (fm.status === 'stale') return `— recorded ${relTime(fm.created)}, not reconfirmed (cooled)`;
   return `— recorded ${relTime(fm.created)}, unconfirmed`;
 }

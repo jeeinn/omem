@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CLIENTS, getClient } from '../install/clients.js';
-import { writeClientConfig, writeMarkerSection, renderClientConfig, renderGenericMcpSnippet } from '../install/writer.js';
+import { writeClientConfig, writeMarkerSection, previewClientConfig, renderGenericMcpSnippet } from '../install/writer.js';
 import { buildItems, selectClients } from '../install/prompt.js';
 import type { ChoiceItem } from '../install/prompt.js';
 import { loadConfig } from '../core/config.js';
@@ -44,17 +44,9 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     const spec = getClient(printId);
     const path = spec.configPath(homedir());
     const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
-    const rendered = renderClientConfig(spec, command, raw);
     console.log(`# Target file: ${path}${raw === null ? ' (does not exist; will be created on install)' : ''}`);
-    if (rendered.text !== undefined) {
-      console.log(rendered.text);
-    } else {
-      console.log(`# Cannot auto-generate: ${rendered.reason}`);
-      if (rendered.manual) {
-        console.log('# Please add the following snippet manually:');
-        console.log(rendered.manual);
-      }
-    }
+    console.log('# Preview: only the omem entry is shown below; all other content in the file is preserved untouched.');
+    console.log(previewClientConfig(spec, command, raw));
     return 0;
   }
 

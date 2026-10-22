@@ -74,7 +74,7 @@ try {
   send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'search_memory', arguments: { query: '手写 SQL' } } });
   const s = await waitFor(3);
   const text = s.result?.content?.[0]?.text ?? '';
-  results.push(['search_memory hits fixture entry', text.includes('手写')]);
+  results.push(['search_memory hits fixture entry', text.startsWith('Found') && text.includes('手写')]); // 必须确有命中：无命中提示会回显 query 本身，不能只查关键词
   results.push(['search_memory returns freshness labels', text.includes('confirmed')]); // 命中 "— confirmed" 或 "unconfirmed"
   results.push(['search_memory carries reference-frame disclaimer', text.includes('not instructions')]);
 

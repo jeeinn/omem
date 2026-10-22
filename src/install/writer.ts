@@ -126,6 +126,65 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
   return { text: JSON.stringify(parsed.value, null, 2) + '\n' };
 }
 
+/**
+ * --print-config 预览（规格 §6.3）：只打印 omem 段本身 + 目标文件里将保留的其他键名，
+ * 不回显整个目标文件内容——claude-code 的 ~/.claude.json 含 machineID、使用统计等隐私字段，
+ * 整文件打印等于把用户隐私泄进终端/重定向文件。实际写入仍走 renderClientConfig 的完整合并视图。
+ */
+export function previewClientConfig(spec: ClientSpec, command: string, raw: string | null): string {
+  const entry = omemEntry(command);
+  const lines: string[] = [];
+  if (spec.kind === 'toml-mcp') {
+    lines.push('[mcp_servers.omem]', `command = "${entry.command}"`, 'args = ["serve"]');
+  } else if (spec.kind === 'json-array-mcp') {
+    lines.push(JSON.stringify({ name: 'omem', ...entry }, null, 2));
+  } else {
+    const container = spec.kind === 'json-zed' ? 'context_servers' : 'mcpServers';
+    lines.push(JSON.stringify({ [container]: { omem: entry } }, null, 2));
+  }
+  if (raw === null) {
+    lines.push('', '(target file does not exist yet; install will create it with this entry)');
+    return lines.join('\n') + '\n';
+  }
+  if (spec.kind === 'toml-mcp') {
+    const sections = [...raw.matchAll(/^\s*\[([^\]]+)\]/gm)]
+      .map((m) => m[1].trim())
+      .filter((s) => s !== 'mcp_servers.omem');
+    lines.push('', `Other sections in the target file are left untouched (${sections.length} found):`);
+    lines.push(...sections.slice(0, 20).map((s) => `  [${s}]`));
+    if (sections.length > 20) lines.push(`  …and ${sections.length - 20} more`);
+    return lines.join('\n') + '\n';
+  }
+  const parsed = parseJsonc(raw);
+  if (!parsed.ok) {
+    lines.push('', `(existing file could not be parsed: ${parsed.error}; install will print a manual snippet instead of writing)`);
+    return lines.join('\n') + '\n';
+  }
+  const container = spec.kind === 'json-zed' ? 'context_servers' : 'mcpServers';
+  const top = parsed.value && typeof parsed.value === 'object' ? Object.keys(parsed.value) : [];
+  const others = top.filter((k) => k !== container);
+  lines.push('', `Other top-level keys in the target file are preserved (${others.length}):`);
+  lines.push(...others.slice(0, 20).map((k) => `  ${k}`));
+  if (others.length > 20) lines.push(`  …and ${others.length - 20} more`);
+  const existing = (parsed.value as any)?.[container];
+  if (Array.isArray(existing)) {
+    // continue 形态：mcpServers 是数组，列其他条目的 name（只列名不列值）
+    const names = existing.map((x: any) => x?.name).filter((n: unknown) => typeof n === 'string' && n !== 'omem');
+    lines.push(`Other ${container} entries are preserved (${names.length}):`);
+    lines.push(...names.slice(0, 20).map((n) => `  ${n}`));
+    if (names.length > 20) lines.push(`  …and ${names.length - 20} more`);
+  } else if (existing && typeof existing === 'object') {
+    const sibs = Object.keys(existing).filter((k) => k !== 'omem');
+    if (sibs.length > 0) {
+      lines.push(`Other ${container} entries are preserved (${sibs.length}):`);
+      lines.push(...sibs.slice(0, 20).map((k) => `  ${k}`));
+      if (sibs.length > 20) lines.push(`  …and ${sibs.length - 20} more`);
+    }
+  }
+  lines.push('', 'Only the omem entry is added or updated; nothing else in the file is modified.');
+  return lines.join('\n') + '\n';
+}
+
 export function writeClientConfig(spec: ClientSpec, command: string): WriteOutcome {
   const path = spec.configPath(homedir());
   const outcome: WriteOutcome = { ok: false, client: spec.id, path };

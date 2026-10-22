@@ -10,7 +10,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const main = join(here, '..', 'dist', 'cli.js');
 
 if (!process.execArgv.includes('--experimental-sqlite')) {
-  const res = spawnSync(process.execPath, ['--experimental-sqlite', main, ...process.argv.slice(2)], {
+  // --no-warnings：抑制 Node 对 node:sqlite 的 ExperimentalWarning（规格 §10：V0.1 用内建 sqlite）。
+  // 否则每次 CLI 调用都往 stderr 打一行实验特性警告——MCP 场景 stderr 无害，CLI 场景是纯噪音。
+  const res = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', main, ...process.argv.slice(2)], {
     stdio: 'inherit',
     env: { ...process.env, OMEM_CLI_ENTRY: '1' },
   });

@@ -1,8 +1,35 @@
 // CLI 参数解析（零依赖）：positional + --key=value / --key value / --key（布尔）。
+// 带值旗标必须在 VALUE_FLAGS 注册——未注册的 --key 一律按布尔处理，绝不吞下一个 token。
+// 这样 `omem search --sessions "查询词"`（布尔旗标前置）不会把查询词吞成旗标的值；
+// 新增带值旗标时同步注册，tests/unit/cli-args.test.ts 的防漂移用例会扫描 src/ 校验。
 export interface ParsedArgs {
   _: string[];
   flags: Record<string, string | true>;
 }
+
+/** 全部带值旗标（--key value 或 --key=value）。与 src/commands/* 的 flagStr/flagNum 调用点一一对应。 */
+export const VALUE_FLAGS = new Set([
+  // add
+  'type', 'tags', 'supersedes', 'domain', 'project', 'topic',
+  // search
+  // （domain/project 已在上）
+  // run
+  'tier', 'since', 'session', 'base', 'model', 'limit',
+  // review
+  'confirm', 'dismiss', 'stale',
+  // redact
+  'id', 'source',
+  // install
+  'command', 'print-config', 'target',
+  // gc
+  'days',
+  // eval
+  'golden', 'min-recall', 'n', 'out',
+  // context
+  'for',
+  // audit
+  'tail',
+]);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const _: string[] = [];
@@ -17,8 +44,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       const key = a.slice(2);
       const next = argv[i + 1];
-      // 值不以 '-' 开头才吞——否则 '-v' 这类短旗会被误吞为上一个 flag 的值
-      if (next !== undefined && !next.startsWith('-')) {
+      // 仅注册过的带值旗标才吞下一个 token；且值不以 '-' 开头（避免把 -v 这类短旗误吞为值）。
+      // 未注册的旗标退化为布尔：位置参数原样留在 _ 里，查询词不会被吃掉。
+      if (VALUE_FLAGS.has(key) && next !== undefined && !next.startsWith('-')) {
         flags[key] = next;
         i++;
       } else {

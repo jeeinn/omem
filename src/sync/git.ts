@@ -188,6 +188,9 @@ export class GitBackend {
           report.conflicts.push(f);
         }
         gitTry(['commit', '--no-edit'], this.home);
+      } else if (/couldn't find remote ref/.test(pr.err)) {
+        // 空远端（首次推送前的正常状态）不是失败：降级为说明性措辞，避免红字惊吓
+        report.notes.push('Remote has no commits yet; nothing to pull. The first push will publish the branch.');
       } else {
         report.notes.push(`Pull failed: ${pr.err.trim().split('\n')[0]}`);
       }

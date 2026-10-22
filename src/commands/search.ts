@@ -61,7 +61,14 @@ async function searchBody(
   const unit = hits.length === 1 ? 'memory' : 'memories';
   console.log(`Found ${hits.length} ${unit}${all ? ' (including archived and superseded)' : ''}:\n`);
   hits.forEach((row, i) => {
-    console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
+    // 索引行不带 superseded_by（派生列未入表）；superseded 标注需要具体 id 时读文件补全
+    // （只有 --all 才带回 superseded 行，量小；md 是事实源）。
+    let fm = row as unknown as Record<string, unknown>;
+    if (row.status === 'superseded') {
+      const entry = readEntryFile(row.path);
+      if (entry) fm = { ...row, superseded_by: entry.fm.superseded_by };
+    }
+    console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(fm as any)}`);
     console.log(`   #${row.type} #${row.domain} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
     if (detail) {
       const entry = readEntryFile(row.path);

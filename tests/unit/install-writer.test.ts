@@ -11,6 +11,7 @@ import {
   omemEntry,
   renderClientConfig,
   renderGenericMcpSnippet,
+  previewClientConfig,
 } from '../../src/install/writer.js';
 import type { ClientSpec } from '../../src/install/clients.js';
 import { upsertTomlSection } from '../../src/install/toml-bridge.js';
@@ -281,6 +282,72 @@ describe('install: renderClientConfig pure render (--print-config read-only prev
     const spec = jsonSpec();
     const raw = JSON.stringify({ mcpServers: {} });
     expect(renderClientConfig(spec, 'omem', raw).text).toBe(renderClientConfig(spec, 'omem', raw).text);
+  });
+});
+
+describe('install: previewClientConfig (--print-config shows the omem entry only, never the whole file)', () => {
+  it('defect fix: existing file with many other keys → preview shows the omem entry and key names, not their values', () => {
+    // 真实 ~/.claude.json 含 machineID、使用统计等隐私字段；整文件打印=泄进终端
+    const spec = jsonSpec();
+    const raw = JSON.stringify({
+      numStartups: 76,
+      machineID: 'deadbeefcafebabe',
+      tipsHistory: { 'theme-command': 63 },
+      mcpServers: { other: { command: 'x', env: { SECRET_TOKEN: 'sk-123' } } },
+    });
+    const text = previewClientConfig(spec, 'omem', raw);
+    expect(text).toContain('"command": "omem"');
+    expect(text).toContain('"serve"');
+    expect(text).toContain('other'); // 原有 mcpServers 键名仍在（用户能确认不丢）
+    expect(text).toContain('machineID'); // 顶层键名列出
+    // 隐私与噪音：其他键的值、整个原文件结构都不出现
+    expect(text).not.toContain('deadbeefcafebabe');
+    expect(text).not.toContain('sk-123');
+    expect(text).not.toContain('numStartups": 76');
+    expect(text).not.toContain('"tipsHistory": {');
+  });
+
+  it('new file: says the target will be created', () => {
+    const text = previewClientConfig(jsonSpec(), 'omem', null);
+    expect(text).toContain('does not exist yet');
+    expect(text).toContain('"command": "omem"');
+  });
+
+  it('unparseable existing file: says install will degrade to a manual snippet', () => {
+    const text = previewClientConfig(jsonSpec(), 'omem', '{ 坏 JSON');
+    expect(text).toContain('could not be parsed');
+    expect(text).toContain('manual snippet');
+  });
+
+  it('TOML target: shows the section plus other section names, not their bodies', () => {
+    const spec: ClientSpec = {
+      id: 'codex',
+      name: 'Codex',
+      kind: 'toml-mcp',
+      configPath: () => join(dir, 'config.toml'),
+      detect: () => true,
+      verified: false,
+    };
+    const raw = 'model = "gpt-5"\n\n[history]\nmax_bytes = 1000\n';
+    const text = previewClientConfig(spec, 'omem', raw);
+    expect(text).toContain('[mcp_servers.omem]');
+    expect(text).toContain('command = "omem"');
+    expect(text).toContain('[history]');
+    expect(text).not.toContain('max_bytes'); // 段体不回显
+  });
+
+  it('continue array shape: previews a named array entry', () => {
+    const spec: ClientSpec = {
+      id: 'continue',
+      name: 'Continue',
+      kind: 'json-array-mcp',
+      configPath: () => join(dir, 'continue.json'),
+      detect: () => true,
+      verified: false,
+    };
+    const text = previewClientConfig(spec, 'omem', JSON.stringify({ mcpServers: [{ name: 'other', command: 'x' }] }));
+    expect(text).toContain('"name": "omem"');
+    expect(text).toContain('other');
   });
 });
 

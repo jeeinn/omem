@@ -54,4 +54,14 @@ describe('cli: omem search output', () => {
     await main(['search', 'Doris', '--all']);
     expect(out.join('\n')).toContain('Found 1 memory (including archived and superseded):');
   });
+
+  it('--all shows the concrete superseding id on a superseded entry (defect: stale label)', async () => {
+    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-old', type: 'fact', domain: 'coding', status: 'superseded', superseded_by: '2026-10-16-new' }), body: 'Doris 旧约定' });
+    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-16-new', type: 'fact', domain: 'coding' }), body: 'Doris 新约定' });
+    const out = capture();
+    await main(['search', 'Doris', '--all']);
+    const text = out.join('\n');
+    expect(text).toContain('superseded by 2026-10-16-new');
+    expect(text).not.toContain('confirmed just now');
+  });
 });

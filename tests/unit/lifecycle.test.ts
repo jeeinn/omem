@@ -108,4 +108,17 @@ describe('lifecycle: freshness label format', () => {
     expect(formatStaleness(newFrontmatter({ id: 'x', type: 'fact', domain: 'd', status: 'superseded', superseded_by: 'y' }))).toContain('y');
     expect(formatStaleness(newFrontmatter({ id: 'x', type: 'fact', domain: 'd' }))).toContain('unconfirmed');
   });
+
+  it('defect fix: a superseded entry shows "superseded by" even when verified (omem add writes verified)', () => {
+    const fm = newFrontmatter({ id: 'x', type: 'fact', domain: 'd', verified: true, status: 'superseded', superseded_by: '2026-10-21-new' });
+    const label = formatStaleness(fm);
+    expect(label).toContain('superseded by 2026-10-21-new');
+    expect(label).not.toContain('confirmed'); // 不能把已作废记忆显示成有效确认
+  });
+
+  it('defect fix: an archived entry shows "archived" even when verified', () => {
+    const fm = newFrontmatter({ id: 'x', type: 'fact', domain: 'd', verified: true, status: 'archived' });
+    expect(formatStaleness(fm)).toContain('archived');
+    expect(formatStaleness(fm)).not.toContain('confirmed');
+  });
 });

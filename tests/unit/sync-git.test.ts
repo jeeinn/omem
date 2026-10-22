@@ -94,6 +94,17 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(existsSync(join(home2, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
   });
 
+  it('empty remote: pull reports an explanatory note, not a red "Pull failed" (defect: first-sync UX)', () => {
+    const b1 = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
+    b1.init();
+    b1.setRemote(bare); // bare 刚 init，没有任何提交
+    addEntry(home1, '2026-10-15-e1', '第一条记忆');
+    const r = report();
+    b1.pull(r);
+    expect(r.notes.some((n) => n.includes('Remote has no commits yet'))).toBe(true);
+    expect(r.notes.some((n) => n.includes('Pull failed'))).toBe(false);
+  });
+
   it('status: gives a note when there is no upstream', () => {
     new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } }).init();
     const st = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } }).status();

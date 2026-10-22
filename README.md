@@ -80,7 +80,7 @@ omem sync            # pull → push；冲突只报告，远端版另存 .confli
 
 客户端接入后即可在会话中直接使用 MCP 工具 `search_memory` / `save_memory`（`memory_feedback` 用 `OMEM_MCP_TOOLS=feedback` 开启）。
 
-Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此后每次 `omem sync` 会把本次改动提交为一笔 `omem: sync <时间>`，所以 `git log` 里每一笔都能回溯到具体哪次同步动了哪些记忆。
+Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此后每次 `omem sync` 会把本次改动固化为提交并推送——由于 omem 的写入（`add` / `run`）不自动 commit，同步时若有未提交改动会先记为 `omem: autosave before pull`（拉取前固化，它将成为冲突时的本地保留版），所以 `git log` 里每一笔都能回溯到具体哪次同步动了哪些记忆。
 
 ## 命令面
 
