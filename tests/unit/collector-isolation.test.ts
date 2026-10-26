@@ -8,12 +8,13 @@
 //
 // 这个文件把「隔离不能破」变成测试期就会红的断言，而不是靠人记得。
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { COLLECTOR_IDS, COLLECTOR_SPECS, allCollectorEnvKeys } from '../../src/collect/registry.js';
 import { getCollector } from '../../src/collect/collector.js';
 import { defaultQoderCnRoot } from '../../src/collect/qoder.js';
 import { defaultConfig } from '../../src/core/config.js';
+import { isolateAllCollectors, allCollectorConfigKeys } from './helpers.js';
 
 const ROOT = process.cwd();
 const SMOKE = readFileSync(join(ROOT, 'tests', 'smoke.sh'), 'utf8');
@@ -114,5 +115,53 @@ describe('collector isolation: the smoke script cannot drift from the registry',
     // 隔离清单从 dist/ 读取。dist 过期 = 新采集器不在清单里 = 隔离破。
     // 所以 smoke 必须先构建，杜绝「改了 src 忘了 build」。
     expect(PKG.scripts.smoke).toMatch(/npm run build/);
+  });
+});
+
+describe('collector isolation: unit tests isolate structurally, not by hand-written lists', () => {
+  const UNIT_DIR = join(ROOT, 'tests', 'unit');
+
+  it('isolateAllCollectors covers every collector config key', () => {
+    // helper 必须覆盖注册表声明的全部配置键。新增采集器却忘了在 helper 里覆盖 → 这里红。
+    const config = defaultConfig();
+    isolateAllCollectors(config, '/absent-probe');
+    const collect = config.collect as unknown as Record<string, string>;
+    for (const key of allCollectorConfigKeys()) {
+      expect(collect[key], `${key} must be isolated by isolateAllCollectors`).toBe('/absent-probe');
+    }
+  });
+
+  it('no unit test sets collector roots by hand without also isolating the rest', () => {
+    // 结构性检查：任何手写 `config.collect.<x>_projects = ...` 的测试文件，
+    // 都必须同时调用 isolateAllCollectors（或明确列出全部采集器）。
+    // 手写清单必然漏——历史上 api-docs 漏了 catpaw、init-collectors 漏了四个。
+    const offenders: string[] = [];
+    for (const name of readdirSync(UNIT_DIR)) {
+      if (!name.endsWith('.test.ts')) continue;
+      const text = readFileSync(join(UNIT_DIR, name), 'utf8');
+      const handWritesRoots = /\.collect\.[a-z_]+_projects\s*=/.test(text);
+      if (!handWritesRoots) continue;
+      const isolated = text.includes('isolateAllCollectors(');
+      // collector.test.ts 是逐个采集器的专项测试，它显式列出全部根是刻意的。
+      const exhaustive = name === 'collector.test.ts';
+      if (!isolated && !exhaustive) offenders.push(name);
+    }
+    expect(offenders, 'these tests set collector roots by hand without isolating the rest').toEqual([]);
+  });
+
+  it('every unit test that scans sessions isolates all collectors', () => {
+    // 更强的一道：凡是可能触发 scanSessions 的测试（用到 runPipeline / scanSessions /
+    // main(['sync'...])），必须调用 isolateAllCollectors 或穷举全部采集器。
+    const offenders: string[] = [];
+    for (const name of readdirSync(UNIT_DIR)) {
+      if (!name.endsWith('.test.ts')) continue;
+      const text = readFileSync(join(ROOT, 'tests', 'unit', name), 'utf8');
+      const scans = /runPipeline\(|scanSessions\(|main\(\['sync'/.test(text);
+      if (!scans) continue;
+      const isolated = text.includes('isolateAllCollectors(');
+      const exhaustive = name === 'collector.test.ts';
+      if (!isolated && !exhaustive) offenders.push(name);
+    }
+    expect(offenders, 'these tests can scan sessions without isolating collectors').toEqual([]);
   });
 });

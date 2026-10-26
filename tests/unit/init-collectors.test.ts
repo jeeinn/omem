@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../../src/cli.js';
-import { makeHome, cleanupHome, withConfig } from './helpers.js';
+import { makeHome, cleanupHome, withConfig, isolateAllCollectors } from './helpers.js';
 
 const homes: string[] = [];
 const dirs: string[] = [];
@@ -44,10 +44,12 @@ function fixtureRoot(): { root: string; absent: string } {
 
 function pointAt(home: string, root: string, absent: string): void {
   withConfig(home, (c) => {
+    // 先把所有采集根隔离掉（注册表驱动），再点名要用的两个。
+    // 此前这里只设了 4 个采集器，doubao/deepseek/qoder/catpaw 全部指向
+    // 开发者本机的真实目录——这个测试会扫到真实会话。
+    isolateAllCollectors(c, absent);
     c.collect.claude_projects = join(root, 'claude');
     c.collect.cursor_projects = join(root, 'cursor');
-    c.collect.workbuddy_projects = absent;
-    c.collect.qwenwork_projects = absent;
   });
 }
 

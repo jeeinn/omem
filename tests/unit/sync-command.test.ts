@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { main } from '../../src/cli.js';
 import { writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
-import { makeHome, cleanupHome, withConfig } from './helpers.js';
+import { makeHome, cleanupHome, withConfig, isolateAllCollectors } from './helpers.js';
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -126,13 +126,12 @@ describe('cli: omem sync rejects git subcommands', () => {
 
   beforeEach(() => {
     home = makeHome();
-    // 四个采集器全部指向不存在的路径：守卫若失效也不会有真实扫描
+    // 所有采集器全部指向不存在的路径：守卫若失效也不会有真实扫描。
+    // 用注册表驱动的 isolateAllCollectors——手写清单在新增采集器时会漏
+    // （这段注释原来写的是「四个采集器」，2026-10-26 新增四个后就漏了）。
     const absent = join(home, 'no-such-projects');
     withConfig(home, (c) => {
-      c.collect.claude_projects = absent;
-      c.collect.workbuddy_projects = absent;
-      c.collect.cursor_projects = absent;
-      c.collect.qwenwork_projects = absent;
+      isolateAllCollectors(c, absent);
     });
     vi.stubEnv('OMEM_HOME', home);
   });

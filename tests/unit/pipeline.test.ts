@@ -8,10 +8,9 @@ import { searchEntries } from '../../src/core/search.js';
 import { defaultConfig, saveConfig } from '../../src/core/config.js';
 import { listEntries } from '../../src/core/store.js';
 import { files } from '../../src/core/paths.js';
-import { makeHome, cleanupHome, withConfig } from './helpers.js';
+import { makeHome, cleanupHome, withConfig, isolateAllCollectors, ABSENT_ROOT } from './helpers.js';
 
 const FIXTURE_ROOT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects');
-const ABSENT = join(FIXTURE_ROOT, 'nonexistent');
 
 let home: string;
 let index: OmemIndex;
@@ -26,14 +25,9 @@ afterEach(() => {
 });
 
 function isolateOthers(config: ReturnType<typeof defaultConfig>) {
-  config.collect.workbuddy_projects = ABSENT;
-  config.collect.cursor_projects = ABSENT;
-  config.collect.qwenwork_projects = ABSENT;
-  config.collect.doubao_projects = ABSENT;
-  config.collect.deepseek_projects = ABSENT;
-  config.collect.qoder_projects = ABSENT;
-  config.collect.qoder_cn_projects = ABSENT;
-  config.collect.catpaw_projects = ABSENT;
+  // 注册表驱动：新增采集器自动纳入隔离，手写清单必然漏（历史上已漏过三次）。
+  // claude_projects 保留调用方设的值——本组测试用它读合成 fixture。
+  isolateAllCollectors(config, undefined, ['claude_projects']);
 }
 
 function cfgWithFixture() {
@@ -80,7 +74,7 @@ describe('pipeline: runPipeline (ingest only)', () => {
 
   it('missing session directories give actionable hints', () => {
     const config = withConfig(home, (c) => {
-      c.collect.claude_projects = ABSENT;
+      c.collect.claude_projects = ABSENT_ROOT;
       isolateOthers(c);
     });
     const report = runPipeline(home, config, index, {});

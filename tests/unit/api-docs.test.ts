@@ -14,9 +14,8 @@ import { listEntries } from '../../src/core/store.js';
 import { searchEntries } from '../../src/core/search.js';
 import { tailLog } from '../../src/core/log.js';
 import { main } from '../../src/cli.js';
-import { makeHome, cleanupHome } from './helpers.js';
+import { makeHome, cleanupHome, isolateAllCollectors } from './helpers.js';
 
-const ABSENT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', 'nonexistent');
 
 /**
  * 近似/撞车 topic 的记录通道是日志 + 总结提示（终端不逐条刷屏），
@@ -83,14 +82,10 @@ function cfgFor(base: string, over: Partial<OmemConfig['api']> = {}): OmemConfig
   const config = defaultConfig();
   const emptyRoot = join(home, 'empty-collect');
   mkdirSync(emptyRoot, { recursive: true });
+  // 所有采集根统一隔离（注册表驱动，新增采集器自动覆盖）。
+  // 此前这里是手写清单，漏了 catpaw —— 该测试会扫到本机真实 ~/.catpaw。
+  isolateAllCollectors(config);
   config.collect.claude_projects = emptyRoot;
-  config.collect.workbuddy_projects = ABSENT;
-  config.collect.cursor_projects = ABSENT;
-  config.collect.qwenwork_projects = ABSENT;
-  config.collect.doubao_projects = ABSENT;
-  config.collect.deepseek_projects = ABSENT;
-  config.collect.qoder_projects = ABSENT;
-  config.collect.qoder_cn_projects = ABSENT;
   config.api.base = base;
   config.api.model = 'test-model';
   config.api.timeout_ms = 5_000;

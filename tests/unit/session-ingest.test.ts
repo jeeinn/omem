@@ -25,11 +25,10 @@ import { files } from '../../src/core/paths.js';
 import { commitEntry } from '../../src/core/commit.js';
 import { reconfirm } from '../../src/core/lifecycle.js';
 import { applyAssent, scoreEvidence } from '../../src/process/score.js';
-import { makeHome, cleanupHome } from './helpers.js';
+import { makeHome, cleanupHome, isolateAllCollectors } from './helpers.js';
 
 const FIXTURE_ROOT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects');
 const FIXTURE_FILE = join(FIXTURE_ROOT, '-x-demo-project', 'sess-fixture-1.jsonl');
-const ABSENT = join(FIXTURE_ROOT, 'nonexistent');
 
 let home: string;
 let index: OmemIndex;
@@ -45,15 +44,9 @@ afterEach(() => {
 
 function fixtureConfig() {
   const config = defaultConfig();
+  // 注册表驱动：所有采集根统一隔离，只留 Claude Code 的合成 fixture。
+  isolateAllCollectors(config);
   config.collect.claude_projects = FIXTURE_ROOT;
-  config.collect.workbuddy_projects = ABSENT;
-  config.collect.cursor_projects = ABSENT;
-  config.collect.qwenwork_projects = ABSENT;
-  config.collect.doubao_projects = ABSENT;
-  config.collect.deepseek_projects = ABSENT;
-  config.collect.qoder_projects = ABSENT;
-  config.collect.qoder_cn_projects = ABSENT;
-  config.collect.catpaw_projects = ABSENT;
   saveConfig(home, config);
   return config;
 }

@@ -11,9 +11,8 @@ import { materializeQueue, API_PROMPT_VERSION } from '../../src/process/queue.js
 import { readStoredSession } from '../../src/collect/session-store.js';
 import { BackendUnavailableError } from '../../src/core/util.js';
 import { main } from '../../src/cli.js';
-import { makeHome, cleanupHome } from './helpers.js';
+import { makeHome, cleanupHome, isolateAllCollectors } from './helpers.js';
 
-const ABSENT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', 'nonexistent');
 
 let home: string;
 let index: OmemIndex;
@@ -65,15 +64,9 @@ function cfgFor(base: string, over: Partial<OmemConfig['api']> = {}): OmemConfig
   // 采集根必须存在（noteMissingRoots 全缺会提前返回）但为空：本组测试直接造 sessions/ 存量
   const emptyRoot = join(home, 'empty-collect');
   mkdirSync(emptyRoot, { recursive: true });
+  // 所有采集根统一隔离（注册表驱动，新增采集器自动覆盖）。
+  isolateAllCollectors(config);
   config.collect.claude_projects = emptyRoot;
-  config.collect.workbuddy_projects = ABSENT;
-  config.collect.cursor_projects = ABSENT;
-  config.collect.qwenwork_projects = ABSENT;
-  config.collect.doubao_projects = ABSENT;
-  config.collect.deepseek_projects = ABSENT;
-config.collect.qoder_projects = ABSENT;
-config.collect.qoder_cn_projects = ABSENT;
-config.collect.catpaw_projects = ABSENT;
 config.api.base = base;
   config.api.model = 'test-model';
   config.api.timeout_ms = 5_000;
