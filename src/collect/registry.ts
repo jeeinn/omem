@@ -20,6 +20,7 @@ export const COLLECTOR_IDS = [
   'deepseek',
   'qoder',
   'catpaw',
+  'codebuddy',
 ] as const;
 
 export type CollectorId = (typeof COLLECTOR_IDS)[number];
@@ -48,6 +49,10 @@ export const COLLECTOR_SPECS: Record<CollectorId, CollectorSpec> = {
     envKeys: ['OMEM_QODER_PROJECTS', 'OMEM_QODER_CN_PROJECTS'],
   },
   catpaw: { configKeys: ['catpaw_projects'], envKeys: ['OMEM_CATPAW_PROJECTS'] },
+  codebuddy: {
+    configKeys: ['codebuddy_projects', 'codebuddy_cn_projects'],
+    envKeys: ['OMEM_CODEBUDDY_PROJECTS', 'OMEM_CODEBUDDY_CN_PROJECTS'],
+  },
 };
 
 /** 注册表里出现过的全部环境变量名（去重，保持注册顺序）。 */

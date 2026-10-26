@@ -21,6 +21,8 @@ export interface OmemConfig {
     qoder_projects: string;
     qoder_cn_projects: string;
     catpaw_projects: string;
+    codebuddy_projects: string;
+    codebuddy_cn_projects: string;
     exclude_paths: string[];
   };
   process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
@@ -52,6 +54,8 @@ export function defaultConfig(): OmemConfig {
       qoder_projects: '~/.qoder',
       qoder_cn_projects: '~/.qoder-cn',
       catpaw_projects: '~/.catpaw/projects',
+      codebuddy_projects: '~/.codebuddy',
+      codebuddy_cn_projects: '~/.codebuddycn',
       exclude_paths: [],
     },
     process: {
@@ -124,6 +128,8 @@ export function findMissingConfigKeys(home: string): string[] {
     { section: 'collect', key: 'qoder_projects', value: d.collect.qoder_projects },
     { section: 'collect', key: 'qoder_cn_projects', value: d.collect.qoder_cn_projects },
     { section: 'collect', key: 'catpaw_projects', value: d.collect.catpaw_projects },
+    { section: 'collect', key: 'codebuddy_projects', value: d.collect.codebuddy_projects },
+    { section: 'collect', key: 'codebuddy_cn_projects', value: d.collect.codebuddy_cn_projects },
   ];
   return candidates
     .filter((k) => parsed?.[k.section]?.[k.key] === undefined)
@@ -163,6 +169,8 @@ export function appendMissingConfigKeys(home: string): string[] {
     { section: 'collect', key: 'qoder_projects', value: d.collect.qoder_projects },
     { section: 'collect', key: 'qoder_cn_projects', value: d.collect.qoder_cn_projects },
     { section: 'collect', key: 'catpaw_projects', value: d.collect.catpaw_projects },
+    { section: 'collect', key: 'codebuddy_projects', value: d.collect.codebuddy_projects },
+    { section: 'collect', key: 'codebuddy_cn_projects', value: d.collect.codebuddy_cn_projects },
   ];
   for (const k of candidates) {
     if (parsed?.[k.section]?.[k.key] !== undefined) continue;
@@ -362,6 +370,8 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       qoder_projects: typeof p?.collect?.qoder_projects === 'string' ? p.collect.qoder_projects : d.collect.qoder_projects,
       qoder_cn_projects: typeof p?.collect?.qoder_cn_projects === 'string' ? p.collect.qoder_cn_projects : d.collect.qoder_cn_projects,
       catpaw_projects: typeof p?.collect?.catpaw_projects === 'string' ? p.collect.catpaw_projects : d.collect.catpaw_projects,
+      codebuddy_projects: typeof p?.collect?.codebuddy_projects === 'string' ? p.collect.codebuddy_projects : d.collect.codebuddy_projects,
+      codebuddy_cn_projects: typeof p?.collect?.codebuddy_cn_projects === 'string' ? p.collect.codebuddy_cn_projects : d.collect.codebuddy_cn_projects,
       exclude_paths: strArr(p?.collect?.exclude_paths),
     },
     process: {
@@ -415,6 +425,8 @@ export function serializeConfig(c: OmemConfig): string {
     `qoder_projects = ${tomlStr(c.collect.qoder_projects)}`,
     `qoder_cn_projects = ${tomlStr(c.collect.qoder_cn_projects)}`,
     `catpaw_projects = ${tomlStr(c.collect.catpaw_projects)}`,
+    `codebuddy_projects = ${tomlStr(c.collect.codebuddy_projects)}`,
+    `codebuddy_cn_projects = ${tomlStr(c.collect.codebuddy_cn_projects)}`,
     `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
     '',
     '[process]',

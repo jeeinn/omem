@@ -17,6 +17,7 @@ flowchart TB
     DS[DeepSeek Harness]
     QD[Qoder IDE]
     CP[CatPaw]
+    CB[CodeBuddy]
     MCP[其他 MCP 客户端]
   end
 
@@ -53,6 +54,7 @@ flowchart TB
   DS --> COL
   QD --> COL
   CP --> COL
+  CB --> COL
   REG -.-> COL
   SYNC --> COL
   COL --> SESS
@@ -74,7 +76,7 @@ flowchart TB
 | 层 | 代码 | 职责 |
 | --- | --- | --- |
 | 入口 | `src/cli.ts`、`src/mcp/` | 命令分发；stdio MCP，默认只有 `search_memory` / `save_memory` |
-| 采集 | `src/collect/` | 只读扫描 8 个平台的会话目录，转成统一会话 |
+| 采集 | `src/collect/` | 只读扫描 9 个平台的会话目录，转成统一会话 |
 | 采集注册表 | `src/collect/registry.ts` | 采集器 id、config 字段、隔离 env 的唯一真相源 |
 | 加工 | `src/process/` | 默认只落原文并写 `PROCESS.md`；`--tier api` 才调用模型 |
 | 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、SQLite/FTS5 |
@@ -95,6 +97,7 @@ flowchart TB
 | `deepseek` | DeepSeek Harness | **zstd 压缩**的 typed JSONL | `~/.dsh/sessions` |
 | `qoder` | Qoder IDE | 纯 JSONL | `~/.qoder` + `~/.qoder-cn`（双根） |
 | `catpaw` | CatPaw | 纯文本 transcript | `~/.catpaw/projects` |
+| `codebuddy` | CodeBuddy | JSONL（WorkBuddy 同构，timestamp 为毫秒） | `~/.codebuddy` + `~/.codebuddycn`（双根） |
 
 每个采集器的根目录都可以用 `OMEM_<ID>_PROJECTS` 环境变量覆盖（Qoder 中文版是 `OMEM_QODER_CN_PROJECTS`）。这些环境变量是测试隔离的唯一手段——配置里的绝对路径优先于 env，只有以 `~` 开头的默认值才允许被 env 接管。变量名清单由 `src/collect/registry.ts` 统一定义，测试和冒烟脚本都从它派生，不各写一份。
 

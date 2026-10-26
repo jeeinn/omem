@@ -13,6 +13,12 @@ import { listDoubaoSessions, parseDoubaoFile, defaultDoubaoRoot } from './doubao
 import { listDeepSeekSessions, parseDeepSeekFile, defaultDeepSeekRoot } from './deepseek.js';
 import { listQoderSessions, parseQoderFile, defaultQoderRoot, defaultQoderCnRoot } from './qoder.js';
 import { listCatpawTranscripts, parseCatpawFile, defaultCatpawRoot } from './catpaw.js';
+import {
+  listCodeBuddySessionsBothRoots,
+  parseCodeBuddyFile,
+  defaultCodeBuddyRoot,
+  defaultCodeBuddyCnRoot,
+} from './codebuddy.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 import { COLLECTOR_IDS, COLLECTOR_SPECS, type CollectorId } from './registry.js';
@@ -95,6 +101,22 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
   if (id === 'catpaw') {
     const root = rootFrom(config.collect.catpaw_projects, COLLECTOR_SPECS.catpaw.envKeys[0], env);
     return { id, root: () => root, list: () => listCatpawTranscripts(root), parse: (path) => parseCatpawFile(path) };
+  }
+  if (id === 'codebuddy') {
+    const rootIntl = config.collect.codebuddy_projects.startsWith('~')
+      ? defaultCodeBuddyRoot(env)
+      : config.collect.codebuddy_projects;
+    const rootCn = config.collect.codebuddy_cn_projects.startsWith('~')
+      ? defaultCodeBuddyCnRoot(env)
+      : config.collect.codebuddy_cn_projects;
+    // CodeBuddy 双根：国际版 + 中文版，格式相同。
+    // root() 返回主根（国际版）用于展示；list() 合并两边并按 session_id 去重。
+    return {
+      id,
+      root: () => rootIntl,
+      list: () => listCodeBuddySessionsBothRoots(rootIntl, rootCn),
+      parse: (path) => parseCodeBuddyFile(path),
+    };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }

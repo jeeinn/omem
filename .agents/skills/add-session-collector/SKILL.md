@@ -3,14 +3,16 @@ name: add-session-collector
 description: >-
   Add a read-only session collector to omem, converting a new Agent's sessions into the Unified Session Schema and registering it into scanSessions;
   optionally wire up `omem install` MCP configuration for the same client.
-  Use when integrating sessions from Qoder, Kimi, WorkBuddy, Cursor, Claude Code, CatPaw, or other platforms, adding a collector, adding an install client, or changing the omem sync scan scope.
+  Use when integrating sessions from Qoder, Kimi, WorkBuddy, Cursor, Claude Code, CatPaw, CodeBuddy, or other platforms, adding a collector, adding an install client, or changing the omem sync scan scope.
 ---
 
 # Add a session collector (and optional install wiring)
 
 The processing layer only recognizes `SessionDigest`. A new platform needs just one read-only adapter plus a single line in the registry. Do not bend extraction rules to accommodate a particular JSON shape.
 
-Registered: `claude-code`, `workbuddy`, `cursor`, `qwenwork`, `doubao`, `deepseek`, `qoder`, `catpaw`. Compare against the similarly shaped one in `src/collect/`; do not invent a directory layout from scratch.
+Registered: `claude-code`, `workbuddy`, `cursor`, `qwenwork`, `doubao`, `deepseek`, `qoder`, `catpaw`, `codebuddy`. Compare against the similarly shaped one in `src/collect/`; do not invent a directory layout from scratch.
+
+The registry lives in `src/collect/registry.ts` and is the single source of truth for collector ids, their `config.collect.*` keys, and their `OMEM_*_PROJECTS` isolation env vars. Adding one row there covers the config file, the missing-directory note, and the smoke test's isolation list — everything else derives from it.
 
 ## Two parts (always read both)
 
@@ -52,7 +54,7 @@ Find session files in the other party's data directory. Use a script to count: l
 
 Watch out for multiple dot-dir variants (e.g. `.catpaw` vs `.catpawai`); check each to find the one that actually holds sessions.
 
-Compare against the existing eight and pick the closest style:
+Compare against the existing nine and pick the closest style:
 
 | Collector | Listing | How to recognize a message | Scaffold to drop |
 | --- | --- | --- | --- |
@@ -64,6 +66,13 @@ Compare against the existing eight and pick the closest style:
 | `deepseek` | `~/.dsh/sessions/<project>/<sid>/session{.v4}.jsonl.zstd` | zstd-compressed typed JSONL. | zstd decompression, type markers |
 | `qoder` | `~/.qoder/cache/projects/<project>/conversation-history/<cid>/<cid>.jsonl` | OpenAI-messages style text JSONL. | `<user_query>`, `<attached_files>`, `<system-reminder>`, `UltraPlan` |
 | `catpaw` | `<root>/<project>/<session>/agent-transcripts/transcript.txt` | Plain text. `user:` + `<user_query>...</user_query>` blocks, `assistant:` replies. | `[Thinking]`, `[Tool call]`, `[Tool result]` blocks |
+| `codebuddy` | `<root>/projects/<encoded-cwd>/<sid>.jsonl` | `type === "message"`, `role` at top level; blocks are `input_text` / `output_text`. `timestamp` is a millisecond number, not an ISO string. | `function_call`, `function_call_result` rows |
+
+Two traps seen in the wild (both cost real debugging time):
+
+- **Millisecond timestamps.** CodeBuddy writes `timestamp: 1763955079125`. Reading it as an ISO string yields garbage dates; convert with `new Date(ms).toISOString()`.
+- **Directory names are encoded paths.** CodeBuddy's project directory is the cwd with `:` and `\` replaced by `-` (`e:\projects\boss-sql` → `e-projects-boss-sql`). The encoding is lossy — `boss-sql` and `boss\sql` produce the same name. Do not guess: resolve it against the filesystem (walk from the drive root matching prefixes), and leave the cwd unknown when nothing matches. Never fabricate a path.
+
 
 ### 2. Adapter file
 
@@ -91,13 +100,19 @@ Field conventions:
 
 Apply changes in this order; missing any one means `omem sync` will not scan it, or tests will scan into the user's home directory.
 
-1. `src/collect/collector.ts`: append the id to `COLLECTOR_IDS` (the `as const` tuple); add a branch in `getCollector`. For paths starting with `~`, use `rootFrom(config.collect.xxx_projects, 'OMEM_<ID>_PROJECTS', env)`. Do not misapply another collector's filter as the listing function.
-2. `src/core/config.ts`: add `xxx_projects: string` to `OmemConfig.collect` interface, `defaultConfig()`, `fromParsed()`, and `serializeConfig()`, defaulting to `'~/.xxx/projects'` (per the real directory you verified). Old configs missing this key fall back to the default.
-3. Add the id → `OMEM_<ID>_PROJECTS` mapping to `ROOT_ENV` in `src/process/pipeline.ts`. The missing-directory note comes from this table.
-4. Docs — add the collector name, one sentence each:
+**Since 2026-10-26 the collector registry is the single source of truth.** `src/collect/registry.ts` holds one row per collector (id, `config.collect.*` keys, `OMEM_*_PROJECTS` env vars). Everything else derives from it, and `tests/unit/collector-isolation.test.ts` fails if any of them drifts apart. Do not hand-write a second copy of that mapping.
+
+1. `src/collect/registry.ts`: add one row to `COLLECTOR_SPECS` and append the id to `COLLECTOR_IDS`. The row declares the `config.collect.*` keys and their `OMEM_*_PROJECTS` env vars, in the same order (one env var per config key). For a dual-root collector (Qoder, CodeBuddy) list both roots — the env keys then read `OMEM_<ID>_PROJECTS` and `OMEM_<ID>_CN_PROJECTS`.
+2. `src/collect/collector.ts`: add a branch in `getCollector`. For paths starting with `~`, use `rootFrom(config.collect.xxx_projects, COLLECTOR_SPECS.<id>.envKeys[0], env)`. Do not misapply another collector's filter as the listing function.
+3. `src/core/config.ts`: add `xxx_projects: string` to the `OmemConfig.collect` interface, `defaultConfig()`, `fromParsed()`, and `serializeConfig()`, defaulting to `'~/.xxx/projects'` (per the real directory you verified). Old configs missing this key fall back to the default, and `omem init` appends the missing line on the next run.
+4. `src/process/pipeline.ts`: **no change** — its missing-directory note now derives from the registry.
+5. Docs — add the collector name, one sentence each:
    - `README.md` collector support table (append a row)
    - `docs/手动测试指南.md` §2 bullet (collector count + env var name + one-line format description)
    - `AGENTS.md` module table `src/collect/` cell
+   - `ARCHITECTURE.md` collector table (append a row)
+
+`tests/unit/docs-consistency.test.ts` checks items 5 — if you skip the docs, the test fails and says which file is missing what.
 
 ### 4. Tests
 
@@ -111,13 +126,9 @@ Apply changes in this order; missing any one means `omem sync` will not scan it,
 - `--since` filtering works (future date → empty).
 - `defaultXxxRoot`: env override wins; default matches expected pattern (account for Windows backslashes).
 
-`tests/unit/collector.test.ts`: add the new id to the `COLLECTOR_IDS` assertion; have `scanSessions` scan it via a temp absolute path. Add the new `*_projects = ABSENT` in the first config() block and a nonexistent-path assertion in the roots block. Assert final scan (all real dirs) includes the new agent in digests.
+`tests/unit/collector.test.ts`: the registry assertion is now a loop over `COLLECTOR_IDS`, so a new collector is picked up automatically. Add the new collector's fixture directory and a temp absolute path to the `scanSessions` case.
 
-`isolateOthers` in `tests/unit/pipeline.test.ts`: add `config.collect.xxx_projects = ABSENT;`. Otherwise `defaultConfig()` will scan real sessions on the developer's machine — this is the single most common regression when adding a collector.
-
-`fixtureConfig()` in `tests/unit/session-ingest.test.ts`: same — add `config.collect.xxx_projects = ABSENT;`.
-
-`cfgFor()` in `tests/unit/api-pipeline.test.ts`: same — add `config.collect.xxx_projects = ABSENT;`.
+**Do not add `xxx_projects = ABSENT` lines by hand.** `tests/unit/helpers.ts` exposes `isolateAllCollectors(config, absent?, except?)`, which walks `COLLECTOR_IDS` and points every collector root at a non-existent path. Call it instead — a hand-written list is what let three collectors leak into the user's real session directories (2026-10-26).
 
 ### 5. Smoke and local verification
 
@@ -157,9 +168,10 @@ Find the client's MCP settings file on the real machine. Common patterns:
 | --- | --- | --- |
 | Claude Desktop | `~/.claude/claude_desktop_config.json` | json-mcp |
 | Cursor | `~/.cursor/mcp.json` | json-mcp |
+| CodeBuddy | `~/.codebuddy/mcp.json` (CN edition: `~/.codebuddycn/mcp.json`) | json-mcp |
 | VS Code / CatPaw / Cline | Extension global storage `settings/mcopilot_mcp_settings.json` or similar | json-mcp |
 
-Note that a single product family may have multiple dot-dir variants (e.g. `.catpaw` vs `.catpawai`). Check each to find the one that actually holds the config.
+Note that a single product family may have multiple dot-dir variants (e.g. `.catpaw` vs `.catpawai`, `.codebuddy` vs `.codebuddycn`). Check each to find the one that actually holds the config. For CodeBuddy the CLI writes `~/.codebuddy/mcp.json`; the IDE's own data lives under `%APPDATA%/CodeBuddy` and is not the MCP config — do not confuse the two.
 
 The config almost always has the shape:
 ```json
@@ -218,6 +230,10 @@ Verify:
 - Other `mcpServers` entries and top-level keys are preserved (merge-only, no clobber).
 - Clean up: `Remove-Item -Recurse -Force $env:OMEM_HOME`.
 
+**`OMEM_HOME` isolates the omem data directory, not the client config file.** `install` writes the client's real config path, so the live test above *does* touch the user's `~/.cursor/mcp.json` (or whatever the target is). Probe read-only first; if you must write, back the file up and restore it afterwards.
+
+The same applies to unit tests: `writeClientConfig(spec, cmd)` resolves the path via `homedir()`, ignoring any `configPath(home)` argument — so a test that calls it with the real client spec writes to the user's home. Use a throwaway spec whose `configPath` points at a temp directory (see `tests/unit/codebuddy-install.test.ts`).
+
 No unit tests are required for a new install client — the existing `install-writer.test.ts` already covers the merge/backup discipline generically.
 
 ---
@@ -226,7 +242,8 @@ No unit tests are required for a new install client — the existing `install-wr
 
 Collector:
 - `getCollector('<id>')` returns the adapter; unknown ids still throw "Unknown collector".
-- `npx vitest run tests/unit/collector.test.ts tests/unit/<id>-collector.test.ts tests/unit/pipeline.test.ts tests/unit/session-ingest.test.ts tests/unit/api-pipeline.test.ts` passes.
+- `npx vitest run tests/unit/collector.test.ts tests/unit/<id>-collector.test.ts tests/unit/collector-isolation.test.ts` passes.
+- `npm test` and `npm run smoke` both pass — the isolation guards will name the missing registration if you forgot the registry row.
 - Session source files have no writes whatsoever.
 
 Install wiring (when requested):

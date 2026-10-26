@@ -83,13 +83,17 @@ describe('collector: registry', () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  it('registers claude-code / workbuddy / cursor / qwenwork / doubao / deepseek / qoder / catpaw; unknown id errors', () => {
-    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek', 'qoder', 'catpaw']);
+  it('registers every collector in the registry; unknown id errors', () => {
+    // 断言写成「注册表里有几个就注册了几个」，而不是手写一份列表——
+    // 手写的那份每加一个采集器就会漏（已经漏过三次）。
+    expect([...COLLECTOR_IDS]).toEqual([
+      'claude-code', 'workbuddy', 'cursor', 'qwenwork',
+      'doubao', 'deepseek', 'qoder', 'catpaw', 'codebuddy',
+    ]);
     const config = defaultConfig();
-    expect(getCollector('workbuddy', config).id).toBe('workbuddy');
-    expect(getCollector('cursor', config).id).toBe('cursor');
-    expect(getCollector('qwenwork', config).id).toBe('qwenwork');
-    expect(getCollector('doubao', config).id).toBe('doubao');
+    for (const id of COLLECTOR_IDS) {
+      expect(getCollector(id, config).id, `${id} must be constructible`).toBe(id);
+    }
     expect(() => getCollector('codex', config)).toThrow(/Unknown collector/);
   });
 
@@ -108,6 +112,7 @@ describe('collector: registry', () => {
     const deepseek = join(root, 'deepseek', 'proj', 'ds-sess-1');
     const qoder = join(root, 'qoder', 'cache', 'projects', 'qp', 'conversation-history', 'qid-1');
     const catpaw = join(root, 'catpaw', 'idex--cp', 'sess-cp-1', 'agent-transcripts');
+    const codebuddy = join(root, 'codebuddy', 'projects', 'e-projects-demo');
     mkdirSync(claude, { recursive: true });
     mkdirSync(workbuddy, { recursive: true });
     mkdirSync(cursor, { recursive: true });
@@ -116,6 +121,7 @@ describe('collector: registry', () => {
     mkdirSync(deepseek, { recursive: true });
     mkdirSync(qoder, { recursive: true });
     mkdirSync(catpaw, { recursive: true });
+    mkdirSync(codebuddy, { recursive: true });
     writeFileSync(join(claude, 's1.jsonl'), '{"type":"user","message":{"role":"user","content":"claude 以后都用手写 SQL"},"uuid":"u","timestamp":"2026-10-10T09:00:00Z","sessionId":"s1"}\n');
     writeFileSync(join(workbuddy, 'wb-1.jsonl'), '{"type":"message","id":"u1","sessionId":"wb-1","timestamp":"2026-10-15T01:00:01.000Z","role":"user","content":[{"type":"input_text","text":"workbuddy 以后都用手写 SQL"}]}\n');
     writeFileSync(join(cursor, 'cur-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"cursor 以后都用手写 SQL"}]}}\n');
@@ -128,6 +134,25 @@ describe('collector: registry', () => {
     writeFileSync(join(deepseek, 'session.v4.jsonl.zstd'), new Encoder(3).encodeSync(Buffer.from(deepseekLines, 'utf8')));
     writeFileSync(join(qoder, 'qid-1.jsonl'), JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>qoder 以后都用手写 SQL</user_query>' }] } }));
     writeFileSync(join(catpaw, 'transcript.txt'), 'user:\n<user_query>catpaw 以后都用手写 SQL</user_query>\n\nassistant:\n好的。\n');
+    writeFileSync(
+      join(codebuddy, 'sess-cb-1.jsonl'),
+      [
+        JSON.stringify({
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'codebuddy 以后都用手写 SQL' }],
+          id: 'cb-u1',
+          timestamp: 1763955079125,
+        }),
+        JSON.stringify({
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: '好的。' }],
+          id: 'cb-a1',
+          timestamp: 1763955080000,
+        }),
+      ].join('\n') + '\n',
+    );
     const config = defaultConfig();
     config.collect.claude_projects = join(root, 'claude');
     config.collect.workbuddy_projects = join(root, 'wb');
@@ -138,6 +163,8 @@ describe('collector: registry', () => {
     config.collect.qoder_projects = join(root, 'absent-qoder');
     config.collect.qoder_cn_projects = join(root, 'absent-qoder-cn');
     config.collect.catpaw_projects = join(root, 'absent-catpaw');
+    config.collect.codebuddy_projects = join(root, 'absent-codebuddy');
+    config.collect.codebuddy_cn_projects = join(root, 'absent-codebuddy-cn');
     let scan = scanSessions(index, config, {});
     expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'workbuddy']);
     expect(scan.roots.find((r) => r.id === 'cursor')?.exists).toBe(false);
@@ -146,6 +173,7 @@ describe('collector: registry', () => {
     expect(scan.roots.find((r) => r.id === 'deepseek')?.exists).toBe(false);
     expect(scan.roots.find((r) => r.id === 'qoder')?.exists).toBe(false);
     expect(scan.roots.find((r) => r.id === 'catpaw')?.exists).toBe(false);
+    expect(scan.roots.find((r) => r.id === 'codebuddy')?.exists).toBe(false);
 
     config.collect.cursor_projects = join(root, 'cursor');
     config.collect.qwenwork_projects = join(root, 'qw');
@@ -154,8 +182,12 @@ describe('collector: registry', () => {
     config.collect.qoder_projects = join(root, 'qoder');
     config.collect.qoder_cn_projects = join(root, 'absent-qoder-cn');
     config.collect.catpaw_projects = join(root, 'catpaw');
+    config.collect.codebuddy_projects = join(root, 'codebuddy');
+    config.collect.codebuddy_cn_projects = join(root, 'absent-codebuddy-cn');
     scan = scanSessions(index, config, {});
-    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['catpaw', 'claude-code', 'cursor', 'deepseek', 'doubao', 'qoder', 'qwenwork', 'workbuddy']);
+    expect(scan.digests.map((d) => d.agent).sort()).toEqual([
+      'catpaw', 'claude-code', 'codebuddy', 'cursor', 'deepseek', 'doubao', 'qoder', 'qwenwork', 'workbuddy',
+    ]);
     } finally {
       index.close();
     }

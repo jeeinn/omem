@@ -202,6 +202,28 @@ export const CLIENTS: ClientSpec[] = [
       })),
     verified: true, // 本机（Windows）已核实：mcopilot_mcp_settings.json 存在且格式为 mcpServers
   },
+  {
+    id: 'codebuddy',
+    name: 'CodeBuddy',
+    kind: 'json-mcp',
+    // CodeBuddy CLI 的 MCP 配置：~/.codebuddy/mcp.json，格式 {"mcpServers": {...}}，
+    // 与 Cursor / Claude Desktop 同构。本机已核实该文件存在且已有 omem 条目。
+    configPath: (h) => join(h, '.codebuddy', 'mcp.json'),
+    detect: (h) => existsSync(join(h, '.codebuddy')),
+    verified: true, // 本机已核实：~/.codebuddy/mcp.json
+    note: 'The Chinese edition (~/.codebuddycn) uses the same layout',
+  },
+  {
+    id: 'codebuddy-cn',
+    name: 'CodeBuddy CN',
+    kind: 'json-mcp',
+    // 中文版根目录：~/.codebuddycn/mcp.json。目录默认不存在（装了 IDE 才有），
+    // detect 因此查目录而不是查配置文件。
+    configPath: (h) => join(h, '.codebuddycn', 'mcp.json'),
+    detect: (h) => existsSync(join(h, '.codebuddycn')),
+    verified: false,
+    note: 'Not verified on this machine; the CN edition shares the CLI layout',
+  },
 ];
 
 export function getClient(id: string): ClientSpec {

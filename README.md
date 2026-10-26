@@ -5,7 +5,7 @@
 omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLite 只是可以删掉重建的索引。MCP 让多个客户端共用同一份记忆。
 
 - 默认零配置：`omem sync` 把对话原文放进 `sessions/`，结论由 Agent 写回 `knowledge/`
-- 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）、豆包办公（Doubao）的会话目录，不改对方的文件
+- 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）、豆包办公（Doubao）、CodeBuddy 等 9 个平台的会话目录，不改对方的文件
 - Markdown 是事实源，Obsidian 里改完，下次访问会吸回索引
 - `omem backup` 用 git 做备份和跨机器同步；冲突只报告，不自动合并
 - 不自动删除。硬删只有 `omem redact`
@@ -60,6 +60,8 @@ omem backup
 
 `omem install` 默认只预选路径已核实的客户端。非交互环境要写 `omem install --target claude-code,cursor`。不在列表里的客户端用 `omem install --print-config generic`。千问办公（QwenWork）、豆包办公（Doubao）、DeepSeek Harness 与 Qoder IDE 的 MCP 配置在应用内部管理，没有可写文件：`omem install --target qwenwork,doubao,deepseek,qoder` 会打印应用内添加指引（设置 → 连接器 / MCP，或在会话里让 agent 添加 `omem serve`）。
 
+CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/mcp.json`），是普通 JSON 文件，可以直接写：`omem install --target codebuddy`。
+
 接入后，会话里可以直接用 `search_memory` / `save_memory`。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
 
 `add` 和 `sync` 不自动 commit。`omem backup` 在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
@@ -76,6 +78,7 @@ omem backup
 | `deepseek` | DeepSeek Harness | 会话目录（zstd 压缩，读时解压） |
 | `qoder` | Qoder IDE | 国际版 + 中文版双根 |
 | `catpaw` | CatPaw | 会话纯文本，`~/.catpaw/projects/` |
+| `codebuddy` | CodeBuddy | 会话 JSONL，国际版 + 中文版双根（`~/.codebuddy` / `~/.codebuddycn`） |
 
 每新增一个采集器，在此表追加一行。`omem sync --collectors id,id` 可指定子集；不指定时扫全部。
 
