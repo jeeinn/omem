@@ -44,6 +44,29 @@ omem init
 
 数据在 `~/.omem`，可用 `OMEM_HOME` 换位置。
 
+### 多机同步
+
+第一台机器：
+
+```bash
+omem init
+omem backup remote git@gitee.com:you/omem-backup.git
+omem backup          # pull（空远端，跳过）→ push（发布分支）
+```
+
+后续机器（**用 `--clone`，不要直接 `init`**，否则两边历史不相干会 pull 失败）：
+
+```bash
+omem init --clone git@gitee.com:you/omem-backup.git
+omem sync            # 采集本机会话
+```
+
+如果某台机器已经有了不相干的本地历史，`omem backup pull` 会自动用 `--allow-unrelated-histories` 合并；也可以手动重置：
+
+```bash
+omem init --force --clone git@gitee.com:you/omem-backup.git   # 丢弃本地 git，重新从远端克隆
+```
+
 Windows 上若 MCP 起不来，把客户端配置改成用 node 直接启动：`"command"` 填 `node.exe` 绝对路径，`"args"` 为 `["<全局 node_modules>/omem/bin/omem.js", "serve"]`。
 
 ## 快速开始
@@ -88,7 +111,7 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 
 | 命令 | 作用 |
 | --- | --- |
-| `omem init` | 只建库（数据目录、配置、git 数据仓）。采集用 `omem sync` |
+| `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
 | `omem sync [--since 7d] [--collectors id,id] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。不带 `--collectors` 时扫全部已有目录 |
 | `omem api status` | 查看 API 档的生效配置、队列和模型 |

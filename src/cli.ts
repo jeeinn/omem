@@ -35,7 +35,7 @@ interface Command {
 const COMMANDS: Record<string, Command> = {
   init: {
     desc: 'Initialize store + git data repo (does not ingest sessions)',
-    usage: 'omem init [--no-scan] [--no-git]',
+    usage: 'omem init [--no-scan] [--no-git] [--force] [--clone <url>]',
     run: cmdInit,
   },
   install: {

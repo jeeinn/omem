@@ -29,6 +29,8 @@ export const VALUE_FLAGS = new Set([
   'for',
   // audit
   'tail',
+  // init
+  'clone',
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

@@ -162,6 +162,33 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(GitBackend.available()).toBe(true);
   });
 
+  it('pull auto-retries with --allow-unrelated-histories when local inits independently (multi-machine scenario)', () => {
+    // 机器 A：init → 推送 → 远端有了 A 的历史
+    const b1 = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
+    b1.init();
+    b1.setRemote(bare);
+    addEntry(home1, '2026-10-15-e1', '来自机器 A');
+    b1.push(report());
+
+    // 机器 B：独立 init（不是 clone！），设同一个 remote。
+    // 两边 git 各自产生不相干的首提交 → 标准 pull 会报 unrelated histories。
+    // omem 应自动检测并用 --allow-unrelated-histories 重试。
+    const home3 = makeHome();
+    const b3 = new GitBackend(home3, { sync: { git: { remote: bare }, auto_snapshot: false } });
+    b3.init();
+    b3.setRemote(bare); // init 只建本地仓，不设远端；这里手动设 remote 模拟"独立装好的电脑 B"
+    addEntry(home3, '2026-10-16-e2', '来自机器 B');
+
+    const r = report();
+    b3.pull(r);
+    // pull 应成功（远端条目被拉入），不相干历史的提示应出现在 notes 里
+    expect(r.notes.some((n) => n.includes('no common ancestor'))).toBe(true);
+    expect(existsSync(join(home3, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
+    // 本地条目也保留
+    expect(existsSync(join(home3, 'knowledge', 'coding', '2026', '2026-10-16-e2.md'))).toBe(true);
+    rmSync(home3, { recursive: true, force: true });
+  });
+
   it('init on an existing repo does not write another chore: omem init commit (spec §5.3 history must stay readable)', () => {
     const b = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
     b.init();

@@ -169,7 +169,13 @@ export class GitBackend {
       if (c.ok) report.notes.push('Uncommitted local changes fixed as an autosave commit (omem: autosave before pull)');
     }
 
-    const pr = gitTry(['pull', '--no-rebase', '--no-edit', 'origin', branch], this.home);
+    let pr = gitTry(['pull', '--no-rebase', '--no-edit', 'origin', branch], this.home);
+    // 多机场景：本地独立 init 再设 remote，两边历史没有共同祖先 → 首次 pull 报 unrelated histories。
+    // 自动重试：将 flag 加在 pull 上。这不会覆盖用户的冲突策略（冲突仍走下面的 .conflict.md 分支）。
+    if (!pr.ok && /refusing to merge unrelated histories/.test(pr.err)) {
+      report.notes.push('Local and remote have no common ancestor; retrying pull with --allow-unrelated-histories.');
+      pr = gitTry(['pull', '--no-rebase', '--no-edit', '--allow-unrelated-histories', 'origin', branch], this.home);
+    }
     if (!pr.ok) {
       const conflicted = gitTry(['diff', '--name-only', '--diff-filter', 'U'], this.home).out
         .split('\n')

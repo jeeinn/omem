@@ -1,6 +1,7 @@
 // init 不扫描；omem sync --collectors 只处理点名的采集器。
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main } from '../../src/cli.js';
@@ -105,5 +106,104 @@ describe('sync --collectors', () => {
     expect(await main(['sync', '--collectors', 'codex'])).toBe(1);
     expect(err.join('\n')).toMatch(/Unknown collector: codex/);
     expect(sessionMd(home)).toEqual([]);
+  });
+});
+
+describe('init --force guard', () => {
+  it('warns on second init without --force', async () => {
+    const home = makeHome();
+    homes.push(home);
+    vi.stubEnv('OMEM_HOME', home);
+    // 首次 init：建仓成功
+    expect(await main(['init'])).toBe(0);
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.join(' '));
+    });
+    // 再次 init 不带 --force：提示已初始化
+    expect(await main(['init'])).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('already initialized');
+    expect(text).toContain('--force');
+    expect(existsSync(join(home, '.git'))).toBe(true);
+  });
+
+  it('re-inits with --force when already initialized', async () => {
+    const home = makeHome();
+    homes.push(home);
+    vi.stubEnv('OMEM_HOME', home);
+    expect(await main(['init'])).toBe(0);
+    expect(existsSync(join(home, '.git'))).toBe(true);
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.join(' '));
+    });
+    expect(await main(['init', '--force'])).toBe(0);
+    expect(out.join('\n')).toContain('Removed existing .git');
+    expect(existsSync(join(home, '.git'))).toBe(true);
+  });
+
+  it('init --force on fresh home behaves as normal init', async () => {
+    const home = makeHome();
+    homes.push(home);
+    vi.stubEnv('OMEM_HOME', home);
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.join(' '));
+    });
+    expect(await main(['init', '--force'])).toBe(0);
+    expect(out.join('\n')).toContain('git data repo initialized');
+    expect(existsSync(join(home, '.git'))).toBe(true);
+  });
+});
+
+describe('init --clone', () => {
+  it('clones from a local file:// URL instead of git init', async () => {
+    const src = join(tmpdir(), `omem-clone-src-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    dirs.push(src);
+    mkdirSync(src, { recursive: true });
+    execFileSync('git', ['init'], { cwd: src });
+    execFileSync('git', ['config', 'user.name', 'test'], { cwd: src });
+    execFileSync('git', ['config', 'user.email', 'test@localhost'], { cwd: src });
+    writeFileSync(join(src, 'README.md'), '# test\n');
+    execFileSync('git', ['add', '-A'], { cwd: src });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: src });
+
+    const home = join(tmpdir(), `omem-clone-dst-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    homes.push(home);
+    vi.stubEnv('OMEM_HOME', home);
+
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.join(' '));
+    });
+    expect(await main(['init', '--clone', `file://${src.replace(/\\/g, '/')}`])).toBe(0);
+    expect(out.join('\n')).toContain('Cloned from');
+    expect(existsSync(join(home, '.git'))).toBe(true);
+    expect(existsSync(join(home, 'README.md'))).toBe(true);
+  });
+
+  it('refuses to clone into existing directory without --force', async () => {
+    const src = join(tmpdir(), `omem-clone-src2-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    dirs.push(src);
+    mkdirSync(src, { recursive: true });
+    execFileSync('git', ['init'], { cwd: src });
+    execFileSync('git', ['config', 'user.name', 'test'], { cwd: src });
+    execFileSync('git', ['config', 'user.email', 'test@localhost'], { cwd: src });
+    writeFileSync(join(src, 'x.md'), 'x\n');
+    execFileSync('git', ['add', '-A'], { cwd: src });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: src });
+
+    const home = join(tmpdir(), `omem-clone-dst2-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    dirs.push(home);
+    mkdirSync(home, { recursive: true });
+    vi.stubEnv('OMEM_HOME', home);
+
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
+      out.push(a.join(' '));
+    });
+    expect(await main(['init', '--clone', `file://${src.replace(/\\/g, '/')}`])).toBe(1);
+    expect(out.join('\n')).toContain('already exists');
   });
 });
