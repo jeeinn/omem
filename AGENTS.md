@@ -31,7 +31,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/cli.ts` `src/cli-args.ts` | Command dispatch. Must not call `process.exit` when imported (`OMEM_CLI_ENTRY`) |
 | `src/commands/` | One file per command, returns an exit code |
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots |
-| `src/collect/` | Read-only session collection (`claude-code`, `workbuddy`, `cursor`, `qwenwork`). Transcripts land in `sessions/`. New platforms: see "Skills" |
+| `src/collect/` | Read-only session collection (`claude-code`, `workbuddy`, `cursor`, `qwenwork`, `doubao`). Transcripts land in `sessions/`. New platforms: see "Skills" |
 | `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `api` (off by default). `rules` is removed |
 | `src/mcp/` | stdio MCP server and tool implementations |
 | `src/install/` | Client registry, config writing, TOML subset |

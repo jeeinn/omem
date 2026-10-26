@@ -45,17 +45,30 @@ export function renderGenericMcpSnippet(command: string): string {
 }
 
 /**
- * manual-connector 片段（qwenwork）：MCP 配置在应用内部，无用户可编辑文件。
- * 走纪律 5 的降级路径——打印应用内添加指引，不写任何文件。
+ * manual-connector 片段：MCP 配置在应用内部，无用户可编辑文件。
+ * 走纪律 5 的降级路径——打印应用内添加指引，不写任何文件。文案按客户端 id 分发。
  */
-export function renderManualConnectorSnippet(command: string): string {
+export function renderManualConnectorSnippet(command: string, spec: ClientSpec): string {
+  const entry = JSON.stringify({ command, args: ['serve'] }, null, 2);
+  if (spec.id === 'doubao') {
+    return [
+      'Doubao manages MCP servers inside the app; there is no user-editable config file.',
+      'Add omem as a local stdio MCP server in Doubao (open the app\'s MCP/connector settings, 设置 → MCP/连接器),',
+      'or just ask the agent in a chat:',
+      '  "add a local stdio MCP server named omem, command ' + command + ', args [serve]"',
+      'Server config:',
+      entry,
+      '',
+    ].join('\n');
+  }
+  // qwenwork 及其他 manual-connector
   return [
     'QwenWork keeps MCP server configs inside the app; there is no user-editable config file.',
     'Add omem as a custom MCP server inside QwenWork:',
     '  Settings → Connectors → Custom MCP (设置 → 连接器 → 自定义 MCP), or just ask the agent in a chat:',
     '    "add a custom MCP server named omem, command ' + command + ', args [serve]"',
     'Server config:',
-    JSON.stringify({ command, args: ['serve'] }, null, 2),
+    entry,
     '',
   ].join('\n');
 }
@@ -111,8 +124,8 @@ function mergeInto(obj: any, spec: ClientSpec, command: string): void {
 export function renderClientConfig(spec: ClientSpec, command: string, raw: string | null): RenderOutcome {
   const entry = omemEntry(command);
   if (spec.kind === 'manual-connector') {
-    // 千问办公无文件形态配置：永远走降级路径，打印应用内添加指引
-    return { reason: 'This client manages MCP servers inside the app; omem cannot write its config file.', manual: renderManualConnectorSnippet(command) };
+    // 千问办公 / 豆包办公无文件形态配置：永远走降级路径，打印应用内添加指引
+    return { reason: 'This client manages MCP servers inside the app; omem cannot write its config file.', manual: renderManualConnectorSnippet(command, spec) };
   }
   const manual =
     spec.kind === 'toml-mcp'
@@ -154,7 +167,7 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
 export function previewClientConfig(spec: ClientSpec, command: string, raw: string | null): string {
   const entry = omemEntry(command);
   if (spec.kind === 'manual-connector') {
-    return renderManualConnectorSnippet(command);
+    return renderManualConnectorSnippet(command, spec);
   }
   const lines: string[] = [];
   if (spec.kind === 'toml-mcp') {

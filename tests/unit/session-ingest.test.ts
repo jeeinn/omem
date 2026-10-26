@@ -49,6 +49,7 @@ function fixtureConfig() {
   config.collect.workbuddy_projects = ABSENT;
   config.collect.cursor_projects = ABSENT;
   config.collect.qwenwork_projects = ABSENT;
+  config.collect.doubao_projects = ABSENT;
   saveConfig(home, config);
   return config;
 }

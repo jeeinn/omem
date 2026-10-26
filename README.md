@@ -5,7 +5,7 @@
 omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLite 只是可以删掉重建的索引。MCP 让多个客户端共用同一份记忆。
 
 - 默认零配置：`omem sync` 把对话原文放进 `sessions/`，结论由 Agent 写回 `knowledge/`
-- 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）的会话目录，不改对方的文件
+- 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）、豆包办公（Doubao）的会话目录，不改对方的文件
 - Markdown 是事实源，Obsidian 里改完，下次访问会吸回索引
 - `omem backup` 用 git 做备份和跨机器同步；冲突只报告，不自动合并
 - 不自动删除。硬删只有 `omem redact`
@@ -56,7 +56,7 @@ omem backup remote git@github.com:you/omem-memory.git
 omem backup
 ```
 
-`omem install` 默认只预选路径已核实的客户端。非交互环境要写 `omem install --target claude-code,cursor`。不在列表里的客户端用 `omem install --print-config generic`。千问办公（QwenWork）的 MCP 配置在应用内部管理，没有可写文件：`omem install --target qwenwork` 会打印应用内添加指引（设置 → 连接器 → 自定义 MCP，或在会话里让 agent 添加 `omem serve`）。
+`omem install` 默认只预选路径已核实的客户端。非交互环境要写 `omem install --target claude-code,cursor`。不在列表里的客户端用 `omem install --print-config generic`。千问办公（QwenWork）与豆包办公（Doubao）的 MCP 配置在应用内部管理，没有可写文件：`omem install --target qwenwork,doubao` 会打印应用内添加指引（设置 → 连接器 / MCP，或在会话里让 agent 添加 `omem serve`）。
 
 接入后，会话里可以直接用 `search_memory` / `save_memory`。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
 

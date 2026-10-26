@@ -8,10 +8,11 @@ import { listSessionFiles, parseSessionFile, defaultProjectsRoot } from './claud
 import { listCursorTranscripts, parseCursorTranscript } from './cursor.js';
 import { parseWorkbuddyFile } from './workbuddy.js';
 import { parseQwenworkFile } from './qwenwork.js';
+import { listDoubaoSessions, parseDoubaoFile, defaultDoubaoRoot } from './doubao.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 
-export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork'] as const;
+export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao'] as const;
 export type CollectorId = (typeof COLLECTOR_IDS)[number];
 
 export interface Collector {
@@ -45,6 +46,14 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
   if (id === 'qwenwork') {
     const root = rootFrom(config.collect.qwenwork_projects, 'OMEM_QWENWORK_PROJECTS', env);
     return { id, root: () => root, list: () => listSessionFiles(root), parse: (path) => parseQwenworkFile(path) };
+  }
+  if (id === 'doubao') {
+    // 豆包默认根在 %LOCALAPPDATA%（不在 home）：配置以 ~ 开头时走平台探测的默认路径，
+    // env OMEM_DOUBAO_PROJECTS 优先；绝对路径（测试隔离）直接采用。
+    const root = config.collect.doubao_projects.startsWith('~')
+      ? defaultDoubaoRoot(env)
+      : config.collect.doubao_projects;
+    return { id, root: () => root, list: () => listDoubaoSessions(root), parse: (path) => parseDoubaoFile(path) };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }

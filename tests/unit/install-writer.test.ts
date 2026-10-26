@@ -432,3 +432,93 @@ describe('install: manual-connector client (qwenwork)', () => {
     expect(spec.detect(dir)).toBe(false); // 无 .qwenworkcn 的目录不命中
   });
 });
+
+describe('install: manual-connector client (doubao)', () => {
+  function doubaoSpec(): ClientSpec {
+    return {
+      id: 'doubao',
+      name: 'Doubao',
+      kind: 'manual-connector',
+      configPath: () => dir, // 目录，存在但不是文件
+      detect: () => true,
+      verified: true,
+    };
+  }
+
+  it('renderClientConfig always degrades to the in-app snippet (no file write shape)', () => {
+    const out = renderClientConfig(doubaoSpec(), 'omem', null);
+    expect(out.text).toBeUndefined();
+    expect(out.reason).toBeTruthy();
+    expect(out.manual).toContain('Doubao');
+    expect(out.manual).toContain('"command": "omem"');
+    expect(out.manual).toContain('"serve"');
+  });
+
+  it('previewClientConfig prints the doubao snippet, not the qwenwork wording', () => {
+    const text = previewClientConfig(doubaoSpec(), 'omem', null);
+    expect(text).toContain('Doubao');
+    expect(text).toContain('"args"');
+    expect(text).not.toContain('QwenWork');
+    expect(text).not.toContain('Custom MCP');
+  });
+
+  it('writeClientConfig does not throw when configPath is an existing directory', () => {
+    const out = writeClientConfig(doubaoSpec(), 'omem');
+    expect(out.ok).toBe(false);
+    expect(out.manual).toBeTruthy();
+    expect(out.backup).toBeUndefined(); // 不读不写不备份
+    expect(readdirSync(dir).some((f) => f.includes('omem-backup') || f.includes('.tmp-'))).toBe(false);
+  });
+
+  it('registry: doubao is registered as manual-connector', () => {
+    const spec = getClient('doubao');
+    expect(spec.kind).toBe('manual-connector');
+    expect(spec.verified).toBe(true);
+    expect(CLIENTS.some((c) => c.id === 'doubao')).toBe(true);
+  });
+});
+
+describe('install: manual-connector client (doubao)', () => {
+  function doubaoSpec(): ClientSpec {
+    return {
+      id: 'doubao',
+      name: 'Doubao',
+      kind: 'manual-connector',
+      configPath: () => dir, // 目录，存在但不是文件
+      detect: () => true,
+      verified: true,
+    };
+  }
+
+  it('renderClientConfig always degrades to the in-app snippet (no file write shape)', () => {
+    const out = renderClientConfig(doubaoSpec(), 'omem', null);
+    expect(out.text).toBeUndefined();
+    expect(out.reason).toBeTruthy();
+    expect(out.manual).toContain('Doubao');
+    expect(out.manual).toContain('"command": "omem"');
+    expect(out.manual).toContain('"serve"');
+  });
+
+  it('previewClientConfig prints the doubao snippet, not the qwenwork wording', () => {
+    const text = previewClientConfig(doubaoSpec(), 'omem', null);
+    expect(text).toContain('Doubao');
+    expect(text).toContain('"args"');
+    expect(text).not.toContain('QwenWork');
+    expect(text).not.toContain('Custom MCP');
+  });
+
+  it('writeClientConfig does not throw when configPath is an existing directory', () => {
+    const out = writeClientConfig(doubaoSpec(), 'omem');
+    expect(out.ok).toBe(false);
+    expect(out.manual).toBeTruthy();
+    expect(out.backup).toBeUndefined(); // 不读不写不备份
+    expect(readdirSync(dir).some((f) => f.includes('omem-backup') || f.includes('.tmp-'))).toBe(false);
+  });
+
+  it('registry: doubao is registered as manual-connector', () => {
+    const spec = getClient('doubao');
+    expect(spec.kind).toBe('manual-connector');
+    expect(spec.verified).toBe(true);
+    expect(CLIENTS.some((c) => c.id === 'doubao')).toBe(true);
+  });
+});

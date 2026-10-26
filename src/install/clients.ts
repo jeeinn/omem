@@ -28,6 +28,7 @@ function win(paths: { win: string; mac: string; linux?: string }): string {
 }
 
 const APPDATA = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming');
+const LOCALAPPDATA = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
 
 export const CLIENTS: ClientSpec[] = [
   {
@@ -79,6 +80,23 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.qwenworkcn'),
     detect: (h) => existsSync(join(h, '.qwenworkcn')),
     verified: true, // 本机已核实：无文件形态配置，install 打印应用内添加指引
+  },
+  {
+    id: 'doubao',
+    name: 'Doubao',
+    kind: 'manual-connector',
+    // 豆包办公桌面端与千问办公同形态：自定义 MCP 存在应用内部（mcp_helper / MCP 管理页），
+    // 没有用户可编辑的配置文件。configPath 仅用于 --list 展示 detect 依据（数据目录存在 = 已安装）。
+    configPath: () =>
+      win({
+        win: join(LOCALAPPDATA, 'Doubao'),
+        mac: join(homedir(), 'Library', 'Application Support', 'Doubao'),
+        linux: join(homedir(), '.doubao'),
+      }),
+    detect: () =>
+      existsSync(win({ win: join(LOCALAPPDATA, 'Doubao'), mac: join(homedir(), 'Library', 'Application Support', 'Doubao'), linux: join(homedir(), '.doubao') })),
+    verified: true, // 本机（Windows）已核实：%LOCALAPPDATA%/Doubao 存在，无用户可编辑 MCP 文件
+    note: 'MCP servers are managed inside the app; install prints an in-app add snippet',
   },
   {
     id: 'codex',
