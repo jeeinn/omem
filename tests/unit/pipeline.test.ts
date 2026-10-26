@@ -33,6 +33,7 @@ function isolateOthers(config: ReturnType<typeof defaultConfig>) {
   config.collect.deepseek_projects = ABSENT;
   config.collect.qoder_projects = ABSENT;
   config.collect.qoder_cn_projects = ABSENT;
+  config.collect.catpaw_projects = ABSENT;
 }
 
 function cfgWithFixture() {

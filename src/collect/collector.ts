@@ -12,10 +12,11 @@ import { parseQwenworkFile } from './qwenwork.js';
 import { listDoubaoSessions, parseDoubaoFile, defaultDoubaoRoot } from './doubao.js';
 import { listDeepSeekSessions, parseDeepSeekFile, defaultDeepSeekRoot } from './deepseek.js';
 import { listQoderSessions, parseQoderFile, defaultQoderRoot, defaultQoderCnRoot } from './qoder.js';
+import { listCatpawTranscripts, parseCatpawFile, defaultCatpawRoot } from './catpaw.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 
-export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek', 'qoder'] as const;
+export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek', 'qoder', 'catpaw'] as const;
 export type CollectorId = (typeof COLLECTOR_IDS)[number];
 
 export interface Collector {
@@ -89,6 +90,10 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
       },
       parse: (path) => parseQoderFile(path),
     };
+  }
+  if (id === 'catpaw') {
+    const root = rootFrom(config.collect.catpaw_projects, 'OMEM_CATPAW_PROJECTS', env);
+    return { id, root: () => root, list: () => listCatpawTranscripts(root), parse: (path) => parseCatpawFile(path) };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }

@@ -62,6 +62,21 @@ omem backup
 
 `add` 和 `sync` 不自动 commit。`omem backup` 在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
 
+## 采集器支持列表
+
+| ID | 采集源 | 说明 |
+| --- | --- | --- |
+| `claude-code` | Claude Code | 会话 JSONL，`~/.claude/projects/` |
+| `workbuddy` | WorkBuddy | 会话目录 |
+| `cursor` | Cursor | 对话记录 |
+| `qwenwork` | 千问办公（QwenWork） | 会话目录 |
+| `doubao` | 豆包办公（Doubao） | 会话目录，`%LOCALAPPDATA%` |
+| `deepseek` | DeepSeek Harness | 会话目录 |
+| `qoder` | Qoder IDE | 国际版 + 中文版双根 |
+| `catpaw` | CatPaw | 会话纯文本，`~/.catpaw/projects/` |
+
+每新增一个采集器，在此表追加一行。`omem sync --collectors id,id` 可指定子集；不指定时扫全部。
+
 ## 命令
 
 | 命令 | 作用 |

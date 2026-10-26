@@ -20,6 +20,7 @@ export interface OmemConfig {
     deepseek_projects: string;
     qoder_projects: string;
     qoder_cn_projects: string;
+    catpaw_projects: string;
     exclude_paths: string[];
   };
   process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
@@ -50,6 +51,7 @@ export function defaultConfig(): OmemConfig {
       deepseek_projects: '~/.dsh/sessions',
       qoder_projects: '~/.qoder',
       qoder_cn_projects: '~/.qoder-cn',
+      catpaw_projects: '~/.catpaw/projects',
       exclude_paths: [],
     },
     process: {
@@ -251,6 +253,7 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       deepseek_projects: typeof p?.collect?.deepseek_projects === 'string' ? p.collect.deepseek_projects : d.collect.deepseek_projects,
       qoder_projects: typeof p?.collect?.qoder_projects === 'string' ? p.collect.qoder_projects : d.collect.qoder_projects,
       qoder_cn_projects: typeof p?.collect?.qoder_cn_projects === 'string' ? p.collect.qoder_cn_projects : d.collect.qoder_cn_projects,
+      catpaw_projects: typeof p?.collect?.catpaw_projects === 'string' ? p.collect.catpaw_projects : d.collect.catpaw_projects,
       exclude_paths: strArr(p?.collect?.exclude_paths),
     },
     process: {
@@ -303,6 +306,7 @@ export function serializeConfig(c: OmemConfig): string {
     `deepseek_projects = ${tomlStr(c.collect.deepseek_projects)}`,
     `qoder_projects = ${tomlStr(c.collect.qoder_projects)}`,
     `qoder_cn_projects = ${tomlStr(c.collect.qoder_cn_projects)}`,
+    `catpaw_projects = ${tomlStr(c.collect.catpaw_projects)}`,
     `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
     '',
     '[process]',

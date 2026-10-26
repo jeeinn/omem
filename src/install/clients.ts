@@ -182,6 +182,26 @@ export const CLIENTS: ClientSpec[] = [
     verified: false,
     note: 'VS Code extension storage path; drifts across versions, unverified',
   },
+  {
+    id: 'catpaw',
+    name: 'CatPaw',
+    kind: 'json-mcp',
+    // CatPaw MCP 配置在全局 settings：%APPDATA%\CatPawAI\User\globalStorage\mt-idekit.mt-idekit-code\settings\mcopilot_mcp_settings.json
+    // 格式同 {"mcpServers": {"omem": {command, args}}}，与 Cursor / Claude Desktop 同构。
+    configPath: () =>
+      win({
+        win: join(APPDATA, 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings', 'mcopilot_mcp_settings.json'),
+        mac: join(homedir(), 'Library', 'Application Support', 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings', 'mcopilot_mcp_settings.json'),
+        linux: join(homedir(), '.config', 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings', 'mcopilot_mcp_settings.json'),
+      }),
+    detect: () =>
+      existsSync(win({
+        win: join(APPDATA, 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings'),
+        mac: join(homedir(), 'Library', 'Application Support', 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings'),
+        linux: join(homedir(), '.config', 'CatPawAI', 'User', 'globalStorage', 'mt-idekit.mt-idekit-code', 'settings'),
+      })),
+    verified: true, // 本机（Windows）已核实：mcopilot_mcp_settings.json 存在且格式为 mcpServers
+  },
 ];
 
 export function getClient(id: string): ClientSpec {

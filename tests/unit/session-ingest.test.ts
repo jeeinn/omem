@@ -53,6 +53,7 @@ function fixtureConfig() {
   config.collect.deepseek_projects = ABSENT;
   config.collect.qoder_projects = ABSENT;
   config.collect.qoder_cn_projects = ABSENT;
+  config.collect.catpaw_projects = ABSENT;
   saveConfig(home, config);
   return config;
 }
