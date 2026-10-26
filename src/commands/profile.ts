@@ -41,7 +41,7 @@ export async function cmdProfile(args: ParsedArgs): Promise<number> {
   console.log(`Current profile: ${current}${locked ? ' (locked)' : ''}`);
   console.log(`Entry distribution: work ${work} · home ${homeCount}`);
   if (current === 'work') {
-    console.log('work profile: omem sync / omem context are blocked by default (OMEM_ALLOW_WORK_EXPORT=1 temporarily allows)');
+    console.log('work profile: omem backup / omem context are blocked by default (OMEM_ALLOW_WORK_EXPORT=1 temporarily allows)');
   }
   void index;
   return 0;

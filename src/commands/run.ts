@@ -1,4 +1,4 @@
-// omem run：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor，都只读。
+// omem sync：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor，都只读。
 // 终端只打进度、总结和下一步。待办明细留在 PROCESS.md，不列到屏幕上。
 // --since 7d|YYYY-MM-DD · --session <id> · --tier agent|api · --dry-run · --base/--model/--limit（API 档）
 import { openCtx } from '../core/ctx.js';
@@ -28,7 +28,7 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
     lines.push('Next');
     if (dryRun) lines.push('  Drop --dry-run to call the endpoint.');
     else if ((report.queuePending ?? 0) > 0 || (report.failed ?? 0) > 0 || (report.parseFailed ?? 0) > 0) {
-      lines.push('  omem run --tier api     continue what is still pending');
+      lines.push('  omem sync --tier api     continue what is still pending');
       lines.push('  omem api status         see the endpoint and the queue');
     } else lines.push('  omem search "<query>"');
     if ((report.duplicateTopics ?? 0) > 0) {
@@ -48,7 +48,7 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
     lines.push('  Read PROCESS.md, then save conclusions with save_memory or omem add.');
     lines.push('  omem search "<query>"');
   } else {
-    lines.push('  Nothing is waiting. Run omem run again after the next session.');
+    lines.push('  Nothing is waiting. Run omem sync again after the next session.');
     lines.push('  omem search "<query>"');
   }
   return lines;
@@ -63,7 +63,7 @@ function formatElapsed(ms: number): string {
 export async function cmdRun(args: ParsedArgs): Promise<number> {
   const tierArg = flagStr(args.flags, 'tier');
   if (tierArg === 'rules') {
-    throw new UsageError('Rule extraction (--tier rules) has been removed. omem run only ingests transcripts. Write conclusions with save_memory or omem add.');
+    throw new UsageError('Rule extraction (--tier rules) has been removed. omem sync only ingests transcripts. Write conclusions with save_memory or omem add.');
   }
   if (tierArg && !['agent', 'api'].includes(tierArg)) {
     throw new UsageError(`Unknown --tier: ${tierArg} (supported: agent / api)`);

@@ -53,7 +53,7 @@ export class GitBackend {
     if (!GitBackend.available()) {
       throw new BackendUnavailableError(
         'git command not found.',
-        'Please install git first; the non-developer path (WebDAV) ships in V0.2: omem sync use webdav',
+        'Please install git first; the non-developer path (WebDAV) ships in V0.2: omem backup use webdav',
       );
     }
   }
@@ -112,7 +112,7 @@ export class GitBackend {
       git(['config', 'user.email', 'omem@localhost'], this.home);
       writeFileSync(join(this.home, '.gitignore'), DATA_GITIGNORE, 'utf8');
     }
-    // 只有刚建仓时才落第一笔：omem sync 每次都会先 init()，若这里照旧 add+commit，
+    // 只有刚建仓时才落第一笔：omem backup 每次都会先 init()，若这里照旧 add+commit，
     // 会用 init 的提交信息抢在 push() 前面把改动提交掉，历史全是同名提交、版本差异也无从回溯。
     if (!fresh) return;
     git(['add', '-A'], this.home);
@@ -135,7 +135,7 @@ export class GitBackend {
     }
     const remote = this.remoteUrl();
     if (!remote) {
-      report.notes.push('No remote configured (omem sync remote <url>); committed locally');
+      report.notes.push('No remote configured (omem backup remote <url>); committed locally');
       return;
     }
     // 对齐远端默认分支，保证 clone 侧能检出（详见 remoteDefaultBranch 注释）
@@ -146,7 +146,7 @@ export class GitBackend {
     if (p.ok) {
       report.pushed = true;
     } else {
-      report.notes.push(`Push failed (${p.err.trim().split('\n')[0]}); committed locally, retry omem sync when online`);
+      report.notes.push(`Push failed (${p.err.trim().split('\n')[0]}); committed locally, retry omem backup when online`);
     }
   }
 
@@ -154,7 +154,7 @@ export class GitBackend {
     this.ensureGit();
     const remote = this.remoteUrl();
     if (!remote) {
-      report.notes.push('No remote configured; skipping pull (omem sync remote <url>)');
+      report.notes.push('No remote configured; skipping pull (omem backup remote <url>)');
       return;
     }
     // 显式指定远端分支：不依赖 upstream 是否已建立（手动 init + add remote 的场景）
@@ -207,7 +207,7 @@ export class GitBackend {
       dirty: 0,
     };
     if (!base.available) {
-      base.note = 'Data repo not initialized (omem sync will init automatically)';
+      base.note = 'Data repo not initialized (omem backup will init automatically)';
       return base;
     }
     const r = gitTry(['config', '--get', 'remote.origin.url'], this.home);

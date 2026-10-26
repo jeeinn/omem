@@ -105,7 +105,7 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 
 | 写入路径 | `confidence` | `verified` | `confirmations` | `source` |
 | --- | --- | --- | --- | --- |
-| 规则抽取 `omem run` | 0.35 ~ 0.45（指令式语气减半并打 `low-weight`） | `false` | 0 | `rules` |
+| 规则抽取 `omem sync` | 0.35 ~ 0.45（指令式语气减半并打 `low-weight`） | `false` | 0 | `rules` |
 | MCP `save_memory` | **0.6** | **`false`** | 0 | `agent` |
 | CLI `omem add` | **0.9** | **`true`** | 0 | `manual` |
 

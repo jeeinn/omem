@@ -302,7 +302,7 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     vi.stubEnv('OMEM_HOME', home);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      const code = await main(['run']);
+      const code = await main(['sync']);
       expect(code).toBe(0);
     } finally {
       vi.unstubAllEnvs();
@@ -323,7 +323,7 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     vi.stubEnv('OMEM_HOME', home);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      await main(['run', '--tier', 'api', '--limit', '1']);
+      await main(['sync', '--tier', 'api', '--limit', '1']);
     } finally {
       vi.unstubAllEnvs();
       vi.restoreAllMocks();

@@ -2,7 +2,7 @@
 name: add-session-collector
 description: >-
   Add a read-only session collector to omem, converting a new Agent's sessions into the Unified Session Schema and registering it into scanSessions.
-  Use when integrating sessions from Qoder, Kimi, WorkBuddy, Cursor, Claude Code, or other platforms, adding a collector, or changing the omem run scan scope.
+  Use when integrating sessions from Qoder, Kimi, WorkBuddy, Cursor, Claude Code, or other platforms, adding a collector, or changing the omem sync scan scope.
   Not for MCP install wiring.
 ---
 
@@ -14,7 +14,7 @@ Registered: `claude-code`, `workbuddy`, `cursor`. Compare against the similarly 
 
 ## First, separate two things
 
-- **Session collection** (this skill): `omem run` reads session files and produces memories. Entry point: `src/collect/collector.ts`.
+- **Session collection** (this skill): `omem sync` reads session files and produces memories. Entry point: `src/collect/collector.ts`.
 - **MCP wiring**: `omem install` writes client config. Entry point: `src/install/clients.ts`. Do not touch it unless the user asks for wiring.
 
 ## Hard constraints
@@ -68,13 +68,13 @@ Field conventions:
 - `session_id` defaults to the filename (minus `.jsonl`). If lines carry their own id, keep the message's `session_id` consistent with the digest.
 - `msg_uuid` prefers the other party's message id, otherwise `` `${sessionId}#${lineNumber}` ``.
 - `content` concatenates text blocks only, then goes through `stripHarness` (`src/collect/dialogue.ts`): keep `<user_query>` text when present, otherwise drop `<system-reminder>` blocks. Do not leave tool arguments inside the string.
-- `omem run` writes the dialogue to `sessions/<agent>/<session_id>.md`. Do not write transcripts into `knowledge/`. `--tier rules` is removed; do not add a regex extractor that slices on 别/不要/禁止.
+- `omem sync` writes the dialogue to `sessions/<agent>/<session_id>.md`. Do not write transcripts into `knowledge/`. `--tier rules` is removed; do not add a regex extractor that slices on 别/不要/禁止.
 - Call `resolveProjectFp(cwd)` only when `cwd` exists (it only reads `git config`). Without cwd, `project_fp` is `unknown`; never write to git just for a fingerprint.
 - When timestamps are missing, use a stable placeholder ISO value, not `new Date()`, so the same file yields the same digest on every parse.
 
 ### 3. Registration
 
-Apply changes in this order; missing any one means `omem run` will not scan it, or tests will scan into the user's home directory.
+Apply changes in this order; missing any one means `omem sync` will not scan it, or tests will scan into the user's home directory.
 
 1. `src/collect/collector.ts`: append the id to `COLLECTOR_IDS`; add a branch in `getCollector`. For paths starting with `~`, use `rootFrom(configured, 'OMEM_<ID>_PROJECTS')`. Do not misapply another collector's filter as the listing function.
 2. `src/core/config.ts`: add `xxx_projects` to `OmemConfig.collect`, `defaultConfig`, `fromParsed`, and `serializeConfig`, defaulting to `'~/.xxx/projects'` (per the real directory you verified). Old configs missing this key fall back to the default.
@@ -103,7 +103,7 @@ Do not add the new collector to `omem install`'s client table unless the user al
 Local verification only when the user explicitly asks, following `tests/live/verify-local.mjs`:
 
 - Copy to a temp directory before parsing.
-- Point all `omem run` environment variables at the copy or empty directories.
+- Point all `omem sync` environment variables at the copy or empty directories.
 - At the end, compare source file SHA-256, plus the other party's config file size and mtime.
 - Delete the temp directory in `finally`.
 

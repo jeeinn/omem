@@ -65,7 +65,7 @@ describe('cli: top-level dispatch', () => {
 
   it('sync --help shows subcommand usage', async () => {
     const { out } = capture();
-    expect(await main(['sync', '--help'])).toBe(0);
+    expect(await main(['backup', '--help'])).toBe(0);
     expect(out.join('\n')).toContain('remote <url>');
   });
 });

@@ -291,7 +291,7 @@ export function serializeConfig(c: OmemConfig): string {
     `stale_weight = ${c.process.stale_weight}`,
     `max_content_chars = ${c.process.max_content_chars}`,
     '',
-    '# [api].key will be committed to the git data repo by omem sync (doc §4 D5); leave empty for loopback endpoints',
+    '# [api].key will be committed to the git data repo by omem backup (doc §4 D5); leave empty for loopback endpoints',
     '[api]',
     `base = ${tomlStr(c.api.base)}`,
     `key = ${tomlStr(c.api.key)}`,

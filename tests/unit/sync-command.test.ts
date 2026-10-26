@@ -51,13 +51,13 @@ describe.runIf(hasGit)('cli: omem sync', () => {
 
   it('first sync initializes the repo once; the later sync records changes under "omem: sync"', async () => {
     capture();
-    await main(['sync']);
+    await main(['backup']);
     const afterFirst = git(['rev-list', '--count', 'HEAD'], home);
     expect(git(['log', '-1', '--format=%s'], home)).toBe('chore: omem init');
 
     addEntry(home, '2026-10-15-a1b2c3', 'sync 之后才落盘的记忆');
     const out = capture();
-    await main(['sync']);
+    await main(['backup']);
 
     // 用户可见谎话：init 抢先提交会让 push() 永远看到干净树，从而打印这一句。
     expect(out.join('\n')).not.toContain('nothing to commit');
@@ -69,10 +69,10 @@ describe.runIf(hasGit)('cli: omem sync', () => {
 
   it('omem sync status does not rewrite history', async () => {
     capture();
-    await main(['sync']);
+    await main(['backup']);
     const before = git(['rev-list', '--count', 'HEAD'], home);
     capture();
-    expect(await main(['sync', 'status'])).toBe(0);
+    expect(await main(['backup', 'status'])).toBe(0);
     expect(git(['rev-list', '--count', 'HEAD'], home)).toBe(before);
   });
 });
@@ -93,21 +93,21 @@ describe.runIf(hasGit)('cli: omem sync key guard (doc §6.3 D9 / V12)', () => {
 
   it('V12: warns about a non-empty [api].key before any git action; exit 0; file untouched', async () => {
     capture();
-    await main(['sync']); // 首次建仓
+    await main(['backup']); // 首次建仓
 
     // 手写 key 进 config.toml（模拟 D5 场景）
     const p = join(home, 'config.toml');
     writeFileSync(p, readFileSync(p, 'utf8').replace('[search]', '[api]\nkey = "sk-will-be-committed"\n\n[search]'));
 
     const out2 = capture();
-    const code = await main(['sync']);
+    const code = await main(['backup']);
     const text = out2.join('\n');
     expect(code).toBe(0);
     expect(text).toContain('config.toml contains a non-empty [api].key');
     expect(text).toContain('OMEM_API_KEY');
     // 警告先于任何 git 提交输出（capture 顺序即输出顺序；提交的文件里已含 key 是既定行为）
     const keyLine = text.indexOf('non-empty [api].key');
-    const syncDone = text.indexOf('sync complete');
+    const syncDone = text.indexOf('backup complete');
     expect(keyLine).toBeGreaterThan(-1);
     expect(keyLine).toBeLessThan(syncDone);
     // 只读不写：config.toml 未被命令改动
@@ -115,7 +115,7 @@ describe.runIf(hasGit)('cli: omem sync key guard (doc §6.3 D9 / V12)', () => {
     // 无 key 时不警告
     writeFileSync(p, readFileSync(p, 'utf8').replace('key = "sk-will-be-committed"', 'key = ""'));
     const out3 = capture();
-    await main(['sync']);
+    await main(['backup']);
     expect(out3.join('\n')).not.toContain('non-empty [api].key');
   });
 });

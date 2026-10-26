@@ -50,17 +50,17 @@ echo "$OUT" | grep -q "Index fully rebuilt" && ok "rebuild reports output" || ba
 OUT=$(run search "Postgres 而非")
 echo "$OUT" | grep -q "Postgres" && ok "search recovered after rebuild" || bad "search not recovered after rebuild"
 
-echo "== S6 omem run (ingest transcripts; rules tier removed) =="
-OUT=$(run run); CODE=$?
-[ $CODE -eq 0 ] && ok "run exit code 0" || bad "run exit code $CODE: $OUT"
-echo "$OUT" | grep -q "tier agent" && ok "default tier is agent" || bad "not agent: $OUT"
+echo "== S6 omem sync (ingest transcripts; rules tier removed) =="
+OUT=$(run sync); CODE=$?
+[ $CODE -eq 0 ] && ok "sync collect exit code 0" || bad "sync exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Summary" && ok "sync prints a summary" || bad "summary missing: $OUT"
 find "$OMEM_HOME/sessions" -name '*.md' | grep -q . && ok "session file written" || bad "no session file"
 if grep -rq "source: rules" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "rule fragments written"; else ok "no rule fragments"; fi
 if grep -rq "sk-ant-abc123" "$OMEM_HOME/sessions" 2>/dev/null; then bad "secrets not redacted"; else ok "secrets redacted"; fi
 grep -rq "REDACTED" "$OMEM_HOME/sessions" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
 if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/sessions" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
 if grep -rq "会话摘要" "$OMEM_HOME/sessions" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
-BAD=$(run run --tier rules); CODE=$?
+BAD=$(run sync --tier rules); CODE=$?
 [ $CODE -eq 1 ] && ok "tier rules rejected" || bad "tier rules exit $CODE: $BAD"
 
 echo "== S7 omem review --confirm =="
@@ -89,19 +89,19 @@ echo "$OUT" | grep -q "OMEM:INSTRUCTIONS:START" && ok "cursor export carries ins
 OUT=$(run context --for codex)
 echo "$OUT" | grep -q "OMEM:START" && ok "codex AGENTS.md section export" || bad "codex export abnormal"
 
-echo "== S10 omem sync (no remote → local commit) =="
-OUT=$(run sync status); CODE=$?
-[ $CODE -eq 0 ] && ok "sync status exit code 0" || bad "exit code $CODE: $OUT"
+echo "== S10 omem backup (no remote → local commit) =="
+OUT=$(run backup status); CODE=$?
+[ $CODE -eq 0 ] && ok "backup status exit code 0" || bad "exit code $CODE: $OUT"
 echo "$OUT" | grep -q "Backend: git" && ok "git backend status" || bad "backend status abnormal: $OUT"
-OUT=$(run sync); CODE=$?
-[ $CODE -eq 0 ] && ok "sync exit code 0" || bad "sync exit code $CODE: $OUT"
+OUT=$(run backup); CODE=$?
+[ $CODE -eq 0 ] && ok "backup exit code 0" || bad "backup exit code $CODE: $OUT"
 echo "$OUT" | grep -q "No remote configured" && ok "local commit and note when no remote" || bad "no-remote note missing: $OUT"
-OUT=$(run sync status)
+OUT=$(run backup status)
 echo "$OUT" | grep -q "Ahead: 0" && ok "nothing to push after commit" || bad "still ahead: $OUT"
 
-echo "== S11 work profile rejects sync (exit code 2) =="
+echo "== S11 work profile rejects backup (exit code 2) =="
 run profile use work >/dev/null
-OUT=$(run sync); CODE=$?
+OUT=$(run backup); CODE=$?
 [ $CODE -eq 2 ] && ok "work profile rejects sync" || bad "exit code $CODE (expected 2)"
 echo "$OUT" | grep -q "work profile" && ok "actionable hint given" || bad "hint missing"
 run profile use home >/dev/null

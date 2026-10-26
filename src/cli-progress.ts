@@ -1,4 +1,4 @@
-// omem run 的单行进度（TTY 上覆盖同一行；非 TTY 不刷屏）。
+// omem sync 的单行进度（TTY 上覆盖同一行；非 TTY 不刷屏）。
 // 形态对齐 codegraph sync：轨道 + 条 + 百分比。不做动画线程。
 
 const WIDTH = 24;

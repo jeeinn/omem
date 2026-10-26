@@ -166,7 +166,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     const b = new GitBackend(home1, { sync: { git: { remote: '' }, auto_snapshot: false } });
     b.init();
     const afterFirst = git(['rev-list', '--count', 'HEAD'], home1);
-    // omem sync 每次都会先 init()；重复调用不得再生出同名提交，否则历史全是 chore: omem init。
+    // omem backup 每次都会先 init()；重复调用不得再生出同名提交，否则历史全是 chore: omem init。
     b.init();
     b.init();
     expect(git(['rev-list', '--count', 'HEAD'], home1)).toBe(afterFirst);

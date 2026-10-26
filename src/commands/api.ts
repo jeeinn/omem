@@ -24,8 +24,8 @@ export async function cmdApi(args: ParsedArgs): Promise<number> {
     for (const w of cfg.warnings) console.log(`  warning: ${w}`);
     for (const n of cfg.notes) console.log(`  note: ${n}`);
     if (config.api.key) {
-      // D5 警告：key 在 config.toml 里，会被 omem sync 提交进 git 数据仓
-      console.log('  warning: [api].key is stored in config.toml; omem sync will commit it to the git data repo.');
+      // D5 警告：key 在 config.toml 里，会被 omem backup 提交进 git 数据仓
+      console.log('  warning: [api].key is stored in config.toml; omem backup will commit it to the git data repo.');
       console.log('    → prefer OMEM_API_KEY in the environment, or add config.toml to .gitignore.');
     }
 

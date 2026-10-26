@@ -41,6 +41,6 @@ export function getBackend(id: SyncBackendId, home: string, config: BackendConfi
   if (id === 'git') return new GitBackend(home, config);
   throw new BackendUnavailableError(
     `Sync backend ${id} is not yet delivered (V0.2: webdav first, dir alongside).`,
-    'For V0.1, use the git backend: omem sync use git',
+    'For V0.1, use the git backend: omem backup use git',
   );
 }

@@ -57,6 +57,6 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
   console.log('Next steps:');
   console.log('  omem install            Auto-detect and wire up local Agents (MCP)');
   console.log('  omem search "<query>"   Search memories');
-  console.log('  omem sync               Sync across machines (git)');
+  console.log('  omem backup               Sync across machines (git)');
   return 0;
 }

@@ -40,7 +40,7 @@ export function renderGuide(topics: GuideTopic[], remaining: number, unassigned:
     return lines.join('\n');
   }
   if (topics.length > 0) {
-    lines.push(`This batch: ${topics.length} topic(s). ${remaining} left for the next \`omem run\`.`);
+    lines.push(`This batch: ${topics.length} topic(s). ${remaining} left for the next \`omem sync\`.`);
     lines.push('');
   }
   for (const topic of topics) {

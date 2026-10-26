@@ -61,10 +61,10 @@
 
 | ID | 命令 | 预期 |
 | --- | --- | --- |
-| E1 | `$env:OMEM_CLAUDE_PROJECTS="X:\omem\tests\fixtures\claude-projects"; omem run --dry-run` | dry-run 摘要；不落盘 |
-| E2 | `omem run` | sessions/ 出现会话 md；正文密钥打码；knowledge 无 rules 来源新增；PROCESS.md 生成 |
-| E3 | `omem run`（再跑一次） | 幂等：内容没变的会话跳过 |
-| E4 | `omem run --tier rules` | 退出码 1（已移除） |
+| E1 | `$env:OMEM_CLAUDE_PROJECTS="X:\omem\tests\fixtures\claude-projects"; omem sync --dry-run` | dry-run 摘要；不落盘 |
+| E2 | `omem sync` | sessions/ 出现会话 md；正文密钥打码；knowledge 无 rules 来源新增；PROCESS.md 生成 |
+| E3 | `omem sync`（再跑一次） | 幂等：内容没变的会话跳过 |
+| E4 | `omem sync --tier rules` | 退出码 1（已移除） |
 | E5 | `omem search --sessions "fixture 里的关键词"` | 只查原文层，有命中 |
 
 ## F. 上下文导出与可观测
@@ -79,11 +79,11 @@
 
 | ID | 命令 | 预期 |
 | --- | --- | --- |
-| G1 | `git init --bare -b main $env:TEMP\omem-remote.git` + `omem sync remote <该路径>` | remote 配置成功 |
-| G2 | `omem sync` | pull→push；退出码 0；本地提交「omem: sync …」 |
+| G1 | `git init --bare -b main $env:TEMP\omem-remote.git` + `omem backup remote <该路径>` | remote 配置成功 |
+| G2 | `omem backup` | pull→push；退出码 0；本地提交「omem: sync …」 |
 | G3 | 第二 OMEM_HOME clone 后各自 add 不同条目再互 sync | 两边都收编，无冲突，退出码 0 |
 | G4 | 同一条文件两边都改 → sync | 退出码 0（冲突已处理）；远端版另存 `.conflict.md`，本地版保留；不自动合并 |
-| G5 | `omem sync use webdav` 然后 `omem sync` | 前者退出码 0 只提示 V0.2 交付；后者退出码 2。测完 `omem sync use git` 还原 |
+| G5 | `omem backup use webdav` 然后 `omem backup` | 前者退出码 0 只提示 V0.2 交付；后者退出码 2。测完 `omem backup use git` 还原 |
 
 ## H. 档案、审计
 
@@ -108,7 +108,7 @@
 | ID | 命令 | 预期 |
 | --- | --- | --- |
 | J1 | `omem api status` | 打印生效配置、队列深度；不因未配置端点崩溃；退出码 0 |
-| J2 | `omem run --tier api --dry-run` | 零网络调用；打印批次规模与 token 估算 |
+| J2 | `omem sync --tier api --dry-run` | 零网络调用；打印批次规模与 token 估算 |
 
 ## K. 退出码契约与红队输入
 
@@ -116,7 +116,7 @@
 | --- | --- | --- |
 | K1 | `omem redact`（缺 --id/--source） | 退出码 1 |
 | K2 | `omem search`（缺 query） | 退出码 1 |
-| K3 | `omem sync use webdav` 后 `omem sync` | 退出码 2 |
+| K3 | `omem backup use webdav` 后 `omem backup` | 退出码 2 |
 | K4 | `omem add ""`（空内容） | 明确报错，退出码 1，不写文件 |
 | K5 | `omem frobnicate`（未知命令） | 明确报错，退出码 1 |
 
@@ -152,7 +152,7 @@
 | L 硬删 | 3 | 3 | 预览不删、--yes 双删、git 可追溯 |
 | 补充 supersede/eval | 2 | 2 | 检索排除语义正确（但暴露缺陷 2） |
 
-**测试设计修正（E 组）**：`omem run` 扫全部三个采集器。只设 `OMEM_CLAUDE_PROJECTS` 时，workbuddy/cursor 仍指向真实目录，dry-run 报 947 sessions。手册 §3 S5 同样只设了一个变量——**建议手册补充三根全隔离的写法**。修正后三根全指 fixture/空目录，sessions 1 符合预期。
+**测试设计修正（E 组）**：`omem sync` 扫全部三个采集器。只设 `OMEM_CLAUDE_PROJECTS` 时，workbuddy/cursor 仍指向真实目录，dry-run 报 947 sessions。手册 §3 S5 同样只设了一个变量——**建议手册补充三根全隔离的写法**。修正后三根全指 fixture/空目录，sessions 1 符合预期。
 
 **探针复跑说明（I 组）**：首跑 10/12 系漏了手册 §4.4 前置步骤（先 add 一条含「手写 SQL」的记忆）；「first save」失败系探针内容已被上一次运行写入（幂等 dedup）。干净库重跑 12/12。
 

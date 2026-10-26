@@ -409,7 +409,7 @@ function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: R
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);
   }
-  // 待办清单只写文件。终端由 omem run 打总结，不把会话路径列出来。
+  // 待办清单只写文件。终端由 omem sync 打总结，不把会话路径列出来。
   if (silent) return;
   report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
 }

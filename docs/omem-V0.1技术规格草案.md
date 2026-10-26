@@ -192,7 +192,7 @@ interface SyncBackend {
 三条不可违背的约束：
 
 1. **只报告冲突，绝不自动合并。** 冲突文件另存 `<name>.conflict.md`，本地版本保留。
-2. **后端不得假设 git 存在。** 检测不到 git 时必须给出 `omem sync use webdav` 的可操作提示，而不是抛栈。
+2. **后端不得假设 git 存在。** 检测不到 git 时必须给出 `omem backup use webdav` 的可操作提示，而不是抛栈。
 3. **三个后端对上层暴露完全相同的语义。** 新增后端只允许加实现类 + 注册表一行。
 
 ### 5.3 三个后端
@@ -223,7 +223,7 @@ path = "D:/Syncthing/omem"
 ### 5.5 冲突策略（与后端无关）
 
 ```
-omem sync  →  pull（报告冲突，写 .conflict.md） →  push（提交本地改动）
+omem backup  →  pull（报告冲突，写 .conflict.md） →  push（提交本地改动）
 ```
 
 冲突是**事件不是错误**：退出码 0，stdout 明确列出冲突文件与另存位置。
@@ -305,7 +305,7 @@ marker 之间为 omem 托管区，**重跑 install 时按 marker 幂等替换**�
 ```
 omem init                        建库 + 默认采集会话原文到 sessions/
 omem install                     自动接线 agent（§6）
-omem run [--since D] [--tier agent|api]
+omem sync [--since D] [--tier agent|api]
                                  采集原文；默认 agent 只写 PROCESS.md
                                  --tier rules 已移除
 omem redact --source <s> [--yes] 按来源批量硬删（默认只预览，--yes 才删）
@@ -315,10 +315,10 @@ omem gc                          ★ 标记 stale，只报告不删除
 omem rebuild                     从 md 全量重建索引
 omem context --for <agent>       导出上下文
 
-omem sync                        ★ 拉取 + 推送（一条命令）
-omem sync status
-omem sync use <git|webdav|dir>
-omem sync remote <url>           仅 git
+omem backup                        ★ 拉取 + 推送（一条命令）
+omem backup status
+omem backup use <git|webdav|dir>
+omem backup remote <url>           仅 git
 
 omem profile use work|home       work 默认禁导出
 omem redact --id <id>            唯一硬删除途径
@@ -330,8 +330,8 @@ omem redact --id <id>            唯一硬删除途径
 
 | 场景 | 命令数 | 时间 | 判定 |
 |---|---|---|---|
-| 新机器从零到记忆可用 | 3（`npm i -g omem` → `omem install` → `omem sync`） | ≤5 分钟 | 全程**无 key 提示** |
-| 日常跨机器同步 | **1**（`omem sync`） | ≤30 秒 | "不做 GUI"能否成立的唯一检验点 |
+| 新机器从零到记忆可用 | 3（`npm i -g omem` → `omem install` → `omem backup`） | ≤5 分钟 | 全程**无 key 提示** |
+| 日常跨机器同步 | **1**（`omem backup`） | ≤30 秒 | "不做 GUI"能否成立的唯一检验点 |
 | 断网时 | 1 | — | 本地提交 + 明确提示，联网后同一命令补推 |
 
 ---
@@ -398,7 +398,7 @@ MCP 规范里有个正好为此设计的原语：**sampling**（`sampling/create
 | **3. 自带 API key**（可选，默认关） | 配置 OpenAI 兼容 key + 轻模型批量加工 | 需 key，¥5–20/月 | 高 | ⭕ 可选开关 |
 | **4. MCP sampling**（未来） | 借宿主模型 | 零 | 高 | ❌ V0.1 不可用；**持续跟踪 claude-code Issue #1785** |
 
-**关键承诺**：首次运行不出现任何 key 提示。`sessions/` 是原文层。`knowledge/` 按主题维持活文档，更新时必须 `supersedes`，否则拒绝。`search_memory` 默认只查活文档，`scope=sessions` 才查原文。`PROFILE.md` 还没做。采集新鲜度靠 `omem run`（可交给系统定时任务）；`omem watch` 不在 0.1，相关规划已移除，0.1 正式发布后再议。`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。已落盘的规则碎片用 `omem redact --source rules --yes` 硬删（不加 `--yes` 只预览）。`exclude_keywords` 已从配置删除，不再拦截条目或会话写入。
+**关键承诺**：首次运行不出现任何 key 提示。`sessions/` 是原文层。`knowledge/` 按主题维持活文档，更新时必须 `supersedes`，否则拒绝。`search_memory` 默认只查活文档，`scope=sessions` 才查原文。`PROFILE.md` 还没做。采集新鲜度靠 `omem sync`（可交给系统定时任务）；`omem watch` 不在 0.1，相关规划已移除，0.1 正式发布后再议。`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。已落盘的规则碎片用 `omem redact --source rules --yes` 硬删（不加 `--yes` 只预览）。`exclude_keywords` 已从配置删除，不再拦截条目或会话写入。
 
 ### 9.5 开放问题
 

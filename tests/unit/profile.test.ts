@@ -25,7 +25,7 @@ describe('profile: work/home guards', () => {
   it('work profile rejects export with an actionable hint', () => {
     const c = cfg((x) => (x.general.profile = 'work'));
     try {
-      assertExportAllowed('omem sync', c, {});
+      assertExportAllowed('omem backup', c, {});
       throw new Error('应当拒绝');
     } catch (e) {
       expect(e).toBeInstanceOf(ProfileBlockedError);
@@ -36,7 +36,7 @@ describe('profile: work/home guards', () => {
 
   it('OMEM_ALLOW_WORK_EXPORT=1 temporarily allows', () => {
     const c = cfg((x) => (x.general.profile = 'work'));
-    expect(() => assertExportAllowed('omem sync', c, { OMEM_ALLOW_WORK_EXPORT: '1' })).not.toThrow();
+    expect(() => assertExportAllowed('omem backup', c, { OMEM_ALLOW_WORK_EXPORT: '1' })).not.toThrow();
   });
 
   it('locking: env and config paths', () => {

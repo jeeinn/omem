@@ -1,4 +1,4 @@
-// omem run 结束时的总结和下一步，不包含会话清单。
+// omem sync 结束时的总结和下一步，不包含会话清单。
 import { describe, it, expect } from 'vitest';
 import { runSummaryLines } from '../../src/commands/run.js';
 import type { RunReport } from '../../src/process/pipeline.js';
@@ -21,7 +21,7 @@ function report(over: Partial<RunReport> = {}): RunReport {
   };
 }
 
-describe('omem run summary', () => {
+describe('omem sync summary', () => {
   it('agent run points at PROCESS.md and does not list sessions', () => {
     const text = runSummaryLines(report(), false).join('\n');
     expect(text).toContain('Summary');
@@ -42,7 +42,7 @@ describe('omem run summary', () => {
   it('api run with pending suggests continuing the queue', () => {
     const text = runSummaryLines(report({ tier: 'api', queuePending: 2, failed: 1, written: ['a'] }), false).join('\n');
     expect(text).toContain('pending 2');
-    expect(text).toContain('omem run --tier api');
+    expect(text).toContain('omem sync --tier api');
     expect(text).not.toContain('## user');
   });
 });

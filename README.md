@@ -16,18 +16,18 @@ V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**
 
 公开测试版本：`0.1.0-beta.4`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
 
-**beta.4** 在 beta.2 的默认路径上加了可选的 API 档（`omem run --tier api`）。不配端点、不传 `--tier api` 时行为与 beta.2 相同：只采集原文，结论仍由 Agent 写回。beta.3 是活文档模型的中间标签，未作为公开测试版发布。
+**beta.4** 在 beta.2 的默认路径上加了可选的 API 档（`omem sync --tier api`）。不配端点、不传 `--tier api` 时行为与 beta.2 相同：只采集原文，结论仍由 Agent 写回。beta.3 是活文档模型的中间标签，未作为公开测试版发布。
 
 **beta.1 → beta.2 的破坏性变更**（升级前请先看，行为变化不小）：
 
 | 变更 | beta.1 | beta.2 |
 | --- | --- | --- |
 | 默认产物 | 规则抽取的片段写进 `knowledge/` | 会话对话原文写进 `sessions/`，`knowledge/` 只放结论 |
-| `omem run --tier rules` | 可用 | **报错退出码 1**（规则抽取已移除） |
-| 配置 `default_tier = "rules"` | 触发规则抽取 | 按 `agent` 处理（`omem init` / `omem run` 会提示你改成 `"agent"`） |
+| `omem sync --tier rules` | 可用 | **报错退出码 1**（规则抽取已移除） |
+| 配置 `default_tier = "rules"` | 触发规则抽取 | 按 `agent` 处理（`omem init` / `omem sync` 会提示你改成 `"agent"`） |
 | `omem install` 非交互（CI/管道） | 自动全装 | **报错，必须显式 `--target`** |
 | `omem redact --source <s>` | 直接删 | **默认只预览，必须 `--yes` 才删** |
-| 配置 `exclude_keywords` | 存在（但已不生效） | **已移除**；`omem init` / `omem run` 会提示删掉残留行 |
+| 配置 `exclude_keywords` | 存在（但已不生效） | **已移除**；`omem init` / `omem sync` 会提示删掉残留行 |
 
 升级后已落盘的旧规则碎片不会被自动清理，用 `omem redact --source rules --yes` 一次性删除（先不加 `--yes` 看预览）。
 
@@ -38,7 +38,7 @@ CLI 全部输出（帮助、错误、命令结果、MCP 工具描述）为英文
 ## 环境要求
 
 - Node.js ≥ 22.5（使用内建 `node:sqlite`，自动带 `--experimental-sqlite` 重 exec，无需原生编译）
-- git（仅同步功能需要；`omem sync` 未检测到 git 时给出可操作提示而非栈追踪）
+- git（仅同步功能需要；`omem backup` 未检测到 git 时给出可操作提示而非栈追踪）
 
 ## 安装
 
@@ -62,7 +62,7 @@ omem install
 #    客户端不在支持列表里：omem install --print-config generic 打印通用 mcpServers 片段
 
 # 2. 采集历史会话原文（默认档 agent：写入 sessions/，并生成 PROCESS.md）
-omem run --since 30d
+omem sync --since 30d
 
 # 3. 让当前 Agent 按 PROCESS.md 写结论；要盖已确认章再用 review
 omem review --confirm <id>
@@ -74,13 +74,13 @@ omem add "部署时 docker 镜像构建失败，改用国内源后恢复" --type
 omem search "镜像拉取"
 
 # 6. 备份 / 跨机器
-omem sync remote git@github.com:you/omem-memory.git
-omem sync            # pull → push；冲突只报告，远端版另存 .conflict.md，本地版保留
+omem backup remote git@github.com:you/omem-memory.git
+omem backup            # pull → push；冲突只报告，远端版另存 .conflict.md，本地版保留
 ```
 
 客户端接入后即可在会话中直接使用 MCP 工具 `search_memory` / `save_memory`（`memory_feedback` 用 `OMEM_MCP_TOOLS=feedback` 开启）。
 
-Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此后每次 `omem sync` 会把本次改动固化为提交并推送——由于 omem 的写入（`add` / `run`）不自动 commit，同步时若有未提交改动会先记为 `omem: autosave before pull`（拉取前固化，它将成为冲突时的本地保留版），所以 `git log` 里每一笔都能回溯到具体哪次同步动了哪些记忆。
+Git 数据仓只在首次（`omem init` 或第一次 `omem backup`）建立；此后每次 `omem backup` 会把本次改动固化为提交并推送——由于 omem 的写入（`add` / `sync`）不自动 commit，同步时若有未提交改动会先记为 `omem: autosave before pull`（拉取前固化，它将成为冲突时的本地保留版），所以 `git log` 里每一笔都能回溯到具体哪次同步动了哪些记忆。
 
 ## 命令面
 
@@ -88,7 +88,7 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 | --- | --- |
 | `omem init` | 建数据仓并默认采集会话原文到 `sessions/`（`--no-scan` 只建库） |
 | `omem install` | 交互勾选客户端并写入 MCP 配置（六条写入纪律）；`--target a,b` 跳过交互、`--print-config <id\|generic>` 只预览、`--list` 列全部 |
-| `omem run [--since 7d] [--tier agent\|api] [--base URL] [--model X] [--limit N]` | 采集对话到 `sessions/` 并写 `PROCESS.md`。`--tier rules` 已移除；`--tier api` 见「API 档用法」 |
+| `omem sync [--since 7d] [--tier agent\|api] [--base URL] [--model X] [--limit N]` | 采集对话到 `sessions/` 并写 `PROCESS.md`。`--tier rules` 已移除；`--tier api` 见「API 档用法」 |
 | `omem api status` | API 档诊断：生效配置、队列深度、端点模型探测 |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <query> [--detail] [--sessions] [--domain X]` | 默认只查结论；`--sessions` 只查对话原文 |
@@ -96,7 +96,7 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 | `omem gc [--days N]` | 标记 stale（直接标记，只标记不删除） |
 | `omem rebuild` | 从 Markdown 全量重建索引（删 db 也能恢复） |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 导出记忆为客户端上下文 |
-| `omem sync [status\|remote <url>\|pull\|push\|use <backend>]` | git 同步（V0.1 唯一后端） |
+| `omem backup [status\|remote <url>\|pull\|push\|use <backend>]` | git 同步（V0.1 唯一后端） |
 | `omem profile [home\|work]` | 档案切换；work 档默认禁同步/导出 |
 | `omem redact --id <id>` / `omem redact --source <s> [--yes]` | 硬删一条 / 按来源批量硬删（**默认只预览，必须 `--yes` 才删**） |
 | `omem snapshot` | 手动快照（push 前自动快照，滚动保留 7 份） |
@@ -130,36 +130,36 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 
 1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
 2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
-3. 结论按主题写入 `knowledge/`：`save_memory` 或 `omem add --topic`。该主题已有 active 文档时必须带 `supersedes`，否则拒绝并返回旧 id。`omem run --tier api` 仍默认关闭。检索默认只看 active 活文档；`omem search --sessions` 才查原文。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览）。
-4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题，并尽量给出该组当前活文档 id 供 `--supersedes` 使用）。`omem run` 只显示进度、一句总结和下一步，不把待办清单打到终端。omem 不调用模型。整理这份队列的对话本身不要存成新主题。新会话靠再跑一次 `omem run` 看见，可以用系统定时任务，没有常驻后台进程。
+3. 结论按主题写入 `knowledge/`：`save_memory` 或 `omem add --topic`。该主题已有 active 文档时必须带 `supersedes`，否则拒绝并返回旧 id。`omem sync --tier api` 仍默认关闭。检索默认只看 active 活文档；`omem search --sessions` 才查原文。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览）。
+4. `omem init` / `omem sync` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题，并尽量给出该组当前活文档 id 供 `--supersedes` 使用）。`omem sync` 只显示进度、一句总结和下一步，不把待办清单打到终端。omem 不调用模型。整理这份队列的对话本身不要存成新主题。新会话靠再跑一次 `omem sync` 看见，可以用系统定时任务，没有常驻后台进程。
 5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
 
 ## 加工四档（默认零配置）
 
-1. **规则抽取已移除。** `omem run --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 已从配置中删除：既不过滤条目，也不过滤会话原文（残留的旧配置行会被忽略，`omem init` 与 `omem run` 会点名提示删掉）。
+1. **规则抽取已移除。** `omem sync --tier rules` 直接报错。配置里残留的 `default_tier = "rules"` 按 agent 处理。`exclude_keywords` 已从配置中删除：既不过滤条目，也不过滤会话原文（残留的旧配置行会被忽略，`omem init` 与 `omem sync` 会点名提示删掉）。
 2. **Agent 主动保存**（默认开）：MCP `save_memory`。有依据时自动打分，仍是未确认。
 3. **Agent 协作引导**（默认档）：采集原文并写 `PROCESS.md`，由本地 Agent 读文件后写回结论。
-4. **API 加工**（可选，默认关）：`omem run --tier api`，OpenAI 兼容接口，本机模型免 key、云端带 key。
+4. **API 加工**（可选，默认关）：`omem sync --tier api`，OpenAI 兼容接口，本机模型免 key、云端带 key。
 
 MCP sampling 在 V0.1 不可用。
 
 ## API 档用法（可选）
 
-`omem run --tier api` 把 `sessions/` 里的脱敏会话原文发给 OpenAI 兼容端点，产出与 Agent 路径同构的活文档（一主题一份、证据锚定置信度、自动 supersede）。端点与模型可配在 `config.toml` 的 `[api]` 段或环境变量（env 优先）：
+`omem sync --tier api` 把 `sessions/` 里的脱敏会话原文发给 OpenAI 兼容端点，产出与 Agent 路径同构的活文档（一主题一份、证据锚定置信度、自动 supersede）。端点与模型可配在 `config.toml` 的 `[api]` 段或环境变量（env 优先）：
 
 ```bash
 # 本机模型（ollama / llama-server 等，回环地址免 key）
-omem run --tier api
-omem run --tier api --model minicpm5-2b --limit 5
+omem sync --tier api
+omem sync --tier api --model minicpm5-2b --limit 5
 
-# 云端（key 建议走环境变量；写进 config.toml 会被 omem sync 提交进 git 数据仓）
-OMEM_API_KEY=sk-xxx omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
+# 云端（key 建议走环境变量；写进 config.toml 会被 omem backup 提交进 git 数据仓）
+OMEM_API_KEY=sk-xxx omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 ```
 
 ```powershell
 # Windows PowerShell（Windows 是本项目的一等公民平台）
 $env:OMEM_API_KEY = 'sk-xxx'
-omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
+omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 ```
 
 - **本机端点**（`localhost` / `127.0.0.0/8` / `::1`）免 key，不发 `Authorization`；回环之外一律要求 key 且强制 https——这条路径会把完整会话原文发给远端。
@@ -167,11 +167,11 @@ omem run --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 - 同一次运行会重写 `PROCESS.md`：已经写进活文档的会话从待办里消失。引导全文不会再打到终端。
 - `--dry-run` 零网络调用，只打印批次规模与 token 量级估算。
 - `omem api status` 一条命令看生效配置、队列深度与端点上的模型列表。
-- 会把 key 写进 `config.toml` 的话：`omem sync` 会把它提交进 git 数据仓并推送远端。`omem sync` 开始时会警告；要根治就改用 `OMEM_API_KEY` 环境变量，或把 `config.toml` 加进数据仓的 `.gitignore`。
+- 会把 key 写进 `config.toml` 的话：`omem backup` 会把它提交进 git 数据仓并推送远端。`omem backup` 开始时会警告；要根治就改用 `OMEM_API_KEY` 环境变量，或把 `config.toml` 加进数据仓的 `.gitignore`。
 
 ## 定时采集（可选）
 
-omem 没有常驻后台进程：新会话要被看见，得跑一次 `omem run`（幂等——内容没变的会话会被跳过，不会重复落盘）。真实仓（约 950 个会话）一次全量跑约 8 秒，所以交给系统调度即可，不必自己写守护进程：
+omem 没有常驻后台进程：新会话要被看见，得跑一次 `omem sync`（幂等——内容没变的会话会被跳过，不会重复落盘）。真实仓（约 950 个会话）一次全量跑约 8 秒，所以交给系统调度即可，不必自己写守护进程：
 
 ```bash
 # Linux / macOS（每 30 分钟）
@@ -184,7 +184,7 @@ schtasks /Create /TN "omem-collect" /SC MINUTE /MO 30 /F ^
   /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\path\to\omem\scripts\collect.ps1\""
 ```
 
-`scripts/collect.ps1` 与 `scripts/collect.sh` 只是 `omem run` 的薄封装（支持 `--since 7d` 与 `--dry-run`，退出码透传），幂等性由 omem 自己的 content-hash 对账保证。这两个脚本随仓库分发，**不在 npm 包里**。
+`scripts/collect.ps1` 与 `scripts/collect.sh` 只是 `omem sync` 的薄封装（支持 `--since 7d` 与 `--dry-run`，退出码透传），幂等性由 omem 自己的 content-hash 对账保证。这两个脚本随仓库分发，**不在 npm 包里**。
 
 两点提醒：
 

@@ -1,6 +1,6 @@
-# omem 定时采集：跑一次 omem run（幂等，未变化的会话会被跳过）。
+# omem 定时采集：跑一次 omem sync（幂等，未变化的会话会被跳过）。
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File collect.ps1 [-Since 7d] [-DryRun]
-# 它只是 omem run 的薄封装——真正的幂等性由 omem 的 content-hash 对账保证，脚本不做任何判断。
+# 它只是 omem sync 的薄封装——真正的幂等性由 omem 的 content-hash 对账保证，脚本不做任何判断。
 param(
     [string]$Since = '',
     [switch]$DryRun
@@ -14,7 +14,7 @@ if (-not $omem) {
     exit 2
 }
 
-$runArgs = @('run')
+$runArgs = @('sync')
 if ($Since) { $runArgs += @('--since', $Since) }
 if ($DryRun) { $runArgs += '--dry-run' }
 
@@ -24,6 +24,6 @@ Write-Output "[$stamp] omem $($runArgs -join ' ')"
 & $omem.Source @runArgs
 $code = $LASTEXITCODE
 if ($code -ne 0) {
-    Write-Error "omem run failed with exit code $code"
+    Write-Error "omem sync failed with exit code $code"
     exit $code
 }

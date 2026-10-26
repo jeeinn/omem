@@ -43,9 +43,9 @@ const COMMANDS: Record<string, Command> = {
     usage: 'omem install [--target a,b|other] [--list] [--print-config <id|generic>] [--command <cmd>]',
     run: cmdInstall,
   },
-  run: {
+  sync: {
     desc: 'Ingest session transcripts (conclusions are not extracted)',
-    usage: 'omem run [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
     run: cmdRun,
   },
   add: {
@@ -78,9 +78,9 @@ const COMMANDS: Record<string, Command> = {
     usage: 'omem context --for claude-code|cursor|codex|plain [--out <file>]',
     run: cmdContext,
   },
-  sync: {
-    desc: 'Pull + push (one command; conflicts are reported only)',
-    usage: 'omem sync [status|use <git|webdav|dir>|remote <url>|pull|push]',
+  backup: {
+    desc: 'Back up the data repo (git pull + push; conflicts are reported only)',
+    usage: 'omem backup [status|use <git|webdav|dir>|remote <url>|pull|push]',
     run: cmdSync,
   },
   profile: {
@@ -158,6 +158,9 @@ export async function main(argv: string[]): Promise<number> {
   }
   const entry = COMMANDS[cmd];
   if (!entry) {
+    if (cmd === 'run') {
+      console.error('Removed. Collect sessions with: omem sync\n');
+    }
     console.error(`Unknown command: ${cmd}\n`);
     printHelp();
     return 1;
