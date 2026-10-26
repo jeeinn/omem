@@ -2,7 +2,7 @@
 // --no-scan 仍接受，无操作（旧脚本兼容）。--no-git 跳过数据仓初始化。
 import { existsSync } from 'node:fs';
 import { ensureHome, files } from '../core/paths.js';
-import { loadConfig, saveConfig, findRemovedConfigKeys } from '../core/config.js';
+import { loadConfig, saveConfig, findRemovedConfigKeys, appendMissingConfigKeys } from '../core/config.js';
 import { OmemIndex } from '../core/index.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { getBackend } from '../sync/backend.js';
@@ -24,6 +24,14 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
     for (const r of findRemovedConfigKeys(home)) {
       console.log(`config.toml: ignoring removed key ${r}`);
       console.log(`  → delete that line from ${files.config(home)} to avoid confusion.`);
+    }
+
+    // 缺失的新键（新采集器等）：补写进去，让用户看得见、改得动。
+    // 文本级插入，只加缺的那几行，其余内容原样保留。
+    const added = appendMissingConfigKeys(home);
+    if (added.length > 0) {
+      console.log(`config.toml: added ${added.length} missing key(s): ${added.join(', ')}`);
+      console.log(`  → these are new options with default values; edit ${files.config(home)} to change them.`);
     }
 
     // git 数据仓（SyncBackend 抽象的第一实现；规格 §5.3）

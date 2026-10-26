@@ -152,6 +152,15 @@ npm run smoke
 - `exclude_paths` 跳过路径。`exclude_keywords` 已删除
 - work 档默认禁止 `omem backup` 和 `context` 导出，退出码 2。`OMEM_ALLOW_WORK_EXPORT=1` 临时放行，`OMEM_PROFILE_LOCKED=1` 锁定档案
 
+## 配置文件
+
+`config.toml` 是唯一配置入口，手写内容会被保留。
+
+- **已失效的键**（比如 `exclude_keywords`、`default_tier = "rules"`）：`omem init` 会点名提示，让你手动删掉那行。它不自动改——自动改会丢掉你手写的未知键。
+- **新版本新增的键**（比如新采集器的 `*_projects`）：`omem init` 会把它们补写进去并给出行名，让你看得见、改得动。补写是文本级插入，不会重排你的其他内容。
+
+两个方向都是同一件事：不让「你以为的配置」和「实际生效的配置」长期不一致。
+
 ## 许可
 
 MIT，见 [LICENSE](./LICENSE)。第三方归属见 [NOTICE](./NOTICE)。

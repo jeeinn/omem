@@ -89,6 +89,114 @@ export function saveConfig(home: string, c: OmemConfig): void {
   atomicWrite(configPath(home), serializeConfig(c));
 }
 
+/**
+ * 找出 config.toml 里缺失的、可由 omem 自己写出的键。
+ *
+ * 场景：omem 新增了一个配置项（例如新采集器的 `*_projects`），而用户的
+ * config.toml 是旧版本写的，没有这一行。运行时靠默认值兜底，功能正常，
+ * 但用户看不见这个选项——他不知道可以改，也不知道改的是什么。
+ *
+ * 与 findRemovedConfigKeys 的方向相反：那边是「留着已经失效的键」，
+ * 这边是「缺着新加的键」。两者都是「用户以为的和实际的不一样」。
+ *
+ * 只报告 omem 自己会写出的键（serializeConfig 覆盖的那些）。用户手写的
+ * 未知键不在此列——那不是我们该管的。
+ */
+export function findMissingConfigKeys(home: string): string[] {
+  const p = configPath(home);
+  if (!existsSync(p)) return [];
+  let parsed: Record<string, any>;
+  let text: string;
+  try {
+    text = readFileSync(p, 'utf8');
+    parsed = parseTomlSubset(text);
+  } catch {
+    return []; // 配置本身解析不了时由别的路径报错
+  }
+  const d = defaultConfig();
+  const candidates: { section: string; key: string; value: string }[] = [
+    { section: 'collect', key: 'claude_projects', value: d.collect.claude_projects },
+    { section: 'collect', key: 'workbuddy_projects', value: d.collect.workbuddy_projects },
+    { section: 'collect', key: 'cursor_projects', value: d.collect.cursor_projects },
+    { section: 'collect', key: 'qwenwork_projects', value: d.collect.qwenwork_projects },
+    { section: 'collect', key: 'doubao_projects', value: d.collect.doubao_projects },
+    { section: 'collect', key: 'deepseek_projects', value: d.collect.deepseek_projects },
+    { section: 'collect', key: 'qoder_projects', value: d.collect.qoder_projects },
+    { section: 'collect', key: 'qoder_cn_projects', value: d.collect.qoder_cn_projects },
+    { section: 'collect', key: 'catpaw_projects', value: d.collect.catpaw_projects },
+  ];
+  return candidates
+    .filter((k) => parsed?.[k.section]?.[k.key] === undefined)
+    .map((k) => `${k.section}.${k.key} (default ${tomlStr(k.value)})`);
+}
+
+/**
+ * 把缺失的键补进 config.toml——文本级插入，不重写整个文件。
+ *
+ * 为什么不用 parse→serialize 全量往返（项目纪律明令禁止）：那会改掉键名语义、
+ * 丢掉用户手写的未知键、以及任何空表段。这里只在目标段里追加缺的那几行，
+ * 其余字节原样保留。
+ *
+ * 找不到目标段时不新建段——那说明用户的 config 结构异常，宁可不动，
+ * 由 init 的提示告诉他缺什么。
+ */
+export function appendMissingConfigKeys(home: string): string[] {
+  const p = configPath(home);
+  if (!existsSync(p)) return [];
+  let text: string;
+  let parsed: Record<string, any>;
+  try {
+    text = readFileSync(p, 'utf8');
+    parsed = parseTomlSubset(text);
+  } catch {
+    return [];
+  }
+  const d = defaultConfig();
+  const bySection = new Map<string, { key: string; value: string }[]>();
+  const candidates: { section: string; key: string; value: string }[] = [
+    { section: 'collect', key: 'claude_projects', value: d.collect.claude_projects },
+    { section: 'collect', key: 'workbuddy_projects', value: d.collect.workbuddy_projects },
+    { section: 'collect', key: 'cursor_projects', value: d.collect.cursor_projects },
+    { section: 'collect', key: 'qwenwork_projects', value: d.collect.qwenwork_projects },
+    { section: 'collect', key: 'doubao_projects', value: d.collect.doubao_projects },
+    { section: 'collect', key: 'deepseek_projects', value: d.collect.deepseek_projects },
+    { section: 'collect', key: 'qoder_projects', value: d.collect.qoder_projects },
+    { section: 'collect', key: 'qoder_cn_projects', value: d.collect.qoder_cn_projects },
+    { section: 'collect', key: 'catpaw_projects', value: d.collect.catpaw_projects },
+  ];
+  for (const k of candidates) {
+    if (parsed?.[k.section]?.[k.key] !== undefined) continue;
+    const list = bySection.get(k.section) ?? [];
+    list.push({ key: k.key, value: k.value });
+    bySection.set(k.section, list);
+  }
+  if (bySection.size === 0) return [];
+
+  const lines = text.split(/\r?\n/);
+  const added: string[] = [];
+  for (const [section, items] of bySection) {
+    const headerIdx = lines.findIndex((l) => l.trim() === `[${section}]`);
+    if (headerIdx < 0) continue; // 段不存在就不动，交给 init 的提示
+    // 找到该段的末尾（下一个 [section] 或文件尾）
+    let end = lines.length;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+        end = i;
+        break;
+      }
+    }
+    // 插到段末（跳过尾部空行，让新行紧跟已有内容）
+    let insertAt = end;
+    while (insertAt > headerIdx + 1 && lines[insertAt - 1].trim() === '') insertAt--;
+    const newLines = items.map((it) => `${it.key} = ${tomlStr(it.value)}`);
+    lines.splice(insertAt, 0, ...newLines);
+    for (const it of items) added.push(`${section}.${it.key}`);
+  }
+  if (added.length === 0) return [];
+  atomicWrite(p, lines.join('\n'));
+  return added;
+}
+
 // 已从配置中移除的键。仍写在 config.toml 里会被静默忽略（unknown keys are ignored），
 // 用户却会以为它生效——所以在 init 时点名提示，让他自己删掉那一行。
 const REMOVED_KEYS: { section: string; key: string; note: string }[] = [
