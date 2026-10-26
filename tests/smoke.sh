@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omem V0.1 端到端冒烟（对应实施计划 §6.1 的 S1–S14，另加 S15 supersede）。
+# omem V0.1 端到端冒烟（对应已归档的实施计划 §6.1 的 S1–S14，另加 S15 supersede）。
 # 全程使用隔离的 OMEM_HOME 与合成 fixture，不触碰真实 ~/.omem。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

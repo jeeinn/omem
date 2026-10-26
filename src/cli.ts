@@ -139,7 +139,7 @@ function printHelp(): void {
     console.log(`  ${name.padEnd(12)} ${c.desc}`);
   }
   console.log('\nQuick start: omem init → omem install → omem search "<keyword>"');
-  console.log('Docs: docs/omem-V0.1-实施计划.md (Chinese) · Per-command help: omem <command> --help');
+  console.log('Docs: docs/omem-V0.1技术规格草案.md (Chinese) · Per-command help: omem <command> --help');
 }
 
 export async function main(argv: string[]): Promise<number> {

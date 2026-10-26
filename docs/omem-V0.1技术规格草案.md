@@ -1,7 +1,7 @@
 # omem V0.1 技术规格（草案）
 
 > 版本：v0.3-draft · 日期：2026-10-15 · 状态：**已批准实施，V0.1 代码已落地**
-> 上位文档：`跨Agent记忆知识库-规划评估与MVP设计_v1.4.md`（评估报告定战略，本文定战术）
+> 上位文档：[`archive/跨Agent记忆知识库-规划评估与MVP设计_v1.4.md`](archive/跨Agent记忆知识库-规划评估与MVP设计_v1.4.md)（评估报告定战略，本文定战术；评估报告已归档）
 > v0.3：§5.3 拉取前改为自动提交（不用 stash）；§7 删除与 §5.5 矛盾的退出码 3。文件名未改。
 > v0.2 新增：**§4 记忆生命周期（过时记忆怎么处理）**、**§9 加工与模型（为什么需要 API key，以及零配置路径）**，并据 codegraph 实测修订 §6 接入方式与 §8 MCP 工具面。
 
@@ -399,7 +399,7 @@ MCP 规范里有个正好为此设计的原语：**sampling**（`sampling/create
 | **3. 自带 API key**（可选，默认关） | 配置 OpenAI 兼容 key + 轻模型批量加工 | 需 key，¥5–20/月 | 高 | ⭕ 可选开关 |
 | **4. MCP sampling**（未来） | 借宿主模型 | 零 | 高 | ❌ V0.1 不可用；**持续跟踪 claude-code Issue #1785** |
 
-**关键承诺**：首次运行不出现任何 key 提示。`sessions/` 是原文层。`knowledge/` 按主题维持活文档，更新时必须 `supersedes`，否则拒绝。`search_memory` 默认只查活文档，`scope=sessions` 才查原文。`PROFILE.md` 还没做；`omem watch` 已移入 `omem-V0.2技术规格草案.md`（V0.1 只做索引新鲜度，采集新鲜度仍靠 `omem run`）。`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。已落盘的规则碎片用 `omem redact --source rules --yes` 硬删（不加 `--yes` 只预览）。`exclude_keywords` 已从配置删除，不再拦截条目或会话写入。
+**关键承诺**：首次运行不出现任何 key 提示。`sessions/` 是原文层。`knowledge/` 按主题维持活文档，更新时必须 `supersedes`，否则拒绝。`search_memory` 默认只查活文档，`scope=sessions` 才查原文。`PROFILE.md` 还没做。采集新鲜度靠 `omem run`（可交给系统定时任务）；`omem watch` 不在 0.1，相关规划已移除，0.1 正式发布后再议。`verified: true` 与 confidence 0.9 只来自 `omem add` 或 `omem review --confirm`。已落盘的规则碎片用 `omem redact --source rules --yes` 硬删（不加 `--yes` 只预览）。`exclude_keywords` 已从配置删除，不再拦截条目或会话写入。
 
 ### 9.5 开放问题
 
@@ -437,7 +437,7 @@ MCP 规范里有个正好为此设计的原语：**sampling**（`sampling/create
 
 | 文档 | 职责 |
 |---|---|
-| `跨Agent记忆知识库-规划评估与MVP设计_v1.3.md` | 为什么做、做什么、不做什么、何时判定失败 |
+| [`archive/跨Agent记忆知识库-规划评估与MVP设计_v1.4.md`](archive/跨Agent记忆知识库-规划评估与MVP设计_v1.4.md) | 为什么做、做什么、不做什么、何时判定失败（已归档） |
 | **本文** | 接口长什么样、命令长什么样、验收标准是什么 |
 
 两文冲突时，**以评估报告的"不做清单"为准**（战略），以本文的"接口定义"为准（战术）。

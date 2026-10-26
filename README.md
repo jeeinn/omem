@@ -12,7 +12,7 @@ omem 是一个 git 原生的个人级 AI 记忆层：一条记忆 = 一个 Markd
 
 ## 状态
 
-V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend；WebDAV（非开发者主路径）与本地目录后端排在 V0.2。
+V0.1 MVP（TypeScript）。**尚未经过真实 Claude Code 会话数据验证**——抽取规则基于合成 fixture 调校，召回率待实测。同步后端只交付 GitBackend。WebDAV 与本地目录后端不在本版。
 
 公开测试版本：`0.1.0-beta.4`（`npm install -g @jeeinn/omem@beta`）。beta 期间的破坏性变更不保证兼容，正式版会先完成真实会话数据的质量验证。
 
@@ -131,7 +131,7 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 1. `omem init` 建库并打开空索引，然后默认扫描 Claude Code、WorkBuddy、Cursor。剥掉系统包装后，每个会话写成 `sessions/<agent>/<session_id>.md`。这一步不写 `knowledge/`。`--no-scan` 只建库。
 2. 会话索引在写入原文时更新。结论索引要等 `knowledge/` 里有条目。`omem search` 只查结论；`omem search --sessions` 查原文。
 3. 结论按主题写入 `knowledge/`：`save_memory` 或 `omem add --topic`。该主题已有 active 文档时必须带 `supersedes`，否则拒绝并返回旧 id。`omem run --tier api` 仍默认关闭。检索默认只看 active 活文档；`omem search --sessions` 才查原文。已经落盘的规则碎片用 `omem redact --source rules --yes` 一次性硬删（不加 `--yes` 只预览）。
-4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题，并尽量给出该组当前活文档 id 供 `--supersedes` 使用）。omem 不调用模型。整理这份队列的对话本身不要存成新主题。常驻后台的 `omem watch` 与 L2 画像排在 V0.2（见 `docs/omem-V0.2技术规格草案.md`）。
+4. `omem init` / `omem run` 把尚未吸收进活文档的会话按主题写入 `PROCESS.md`（每批最多 5 个主题，并尽量给出该组当前活文档 id 供 `--supersedes` 使用）。omem 不调用模型。整理这份队列的对话本身不要存成新主题。新会话靠再跑一次 `omem run` 看见，可以用系统定时任务，没有常驻后台进程。
 5. 置信度在写入时按依据打分，条目仍是未确认：user 段里对得上的原文从 0.55 起，两个会话都能对上则 0.75，对不上封顶 0.35。对话里的 `confirm_ids` 只到 0.8，不标 `verified`。`omem add` 或 `omem review --confirm` 才到 0.9 并标已确认。
 
 ## 加工四档（默认零配置）
