@@ -44,6 +44,8 @@ export interface RunOpts {
   apiBase?: string;
   apiModel?: string;
   apiLimit?: number;
+  /** 只扫这些采集器。缺省扫 COLLECTOR_IDS 全部。 */
+  collectors?: string[];
   /** TTY 进度。非 TTY 调用方传了也只是空操作（由 createRunProgress 决定）。 */
   onProgress?: (phase: string, done: number, total: number) => void;
 }
@@ -362,6 +364,7 @@ function scanHome(config: OmemConfig, index: OmemIndex, opts: RunOpts): ScanResu
   return scanSessions(index, config, {
     since,
     sessionId: opts.sessionId,
+    collectors: opts.collectors,
     onProgress: opts.onProgress
       ? (done, total) => opts.onProgress!('Scanning sessions', done, total)
       : undefined,

@@ -66,9 +66,9 @@ omem backup
 
 | 命令 | 作用 |
 | --- | --- |
-| `omem init` | 建库并采集已有会话（`--no-scan` 只建库） |
+| `omem init` | 只建库（数据目录、配置、git 数据仓）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
-| `omem sync [--since 7d] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。终端只打进度、总结和下一步 |
+| `omem sync [--since 7d] [--collectors id,id] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。不带 `--collectors` 时扫全部已有目录 |
 | `omem api status` | 查看 API 档的生效配置、队列和模型 |
 | `omem add <content>` | 手工添加，自动脱敏 |
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |

@@ -303,10 +303,10 @@ marker 之间为 omem 托管区，**重跑 install 时按 marker 幂等替换**�
 ## 7. CLI 规格
 
 ```
-omem init                        建库 + 默认采集会话原文到 sessions/
+omem init                        建库（数据目录 + git 数据仓），不采集会话
 omem install                     自动接线 agent（§6）
-omem sync [--since D] [--tier agent|api]
-                                 采集原文；默认 agent 只写 PROCESS.md
+omem sync [--since D] [--collectors id,id] [--tier agent|api]
+                                 采集原文；默认扫全部已有目录；默认 agent 只写 PROCESS.md
                                  --tier rules 已移除
 omem redact --source <s> [--yes] 按来源批量硬删（默认只预览，--yes 才删）
 omem search <q> [--detail] [--all] [--sessions]

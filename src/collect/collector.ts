@@ -64,13 +64,14 @@ export interface ScanResult {
 export function scanSessions(
   index: OmemIndex,
   config: OmemConfig,
-  opts: { since?: Date; sessionId?: string; onProgress?: (done: number, total: number) => void } = {},
+  opts: { since?: Date; sessionId?: string; collectors?: readonly string[]; onProgress?: (done: number, total: number) => void } = {},
 ): ScanResult {
   const digests: SessionDigest[] = [];
   const roots: ScanRoot[] = [];
   let skipped = 0;
   const work: { collector: Collector; path: string }[] = [];
-  for (const id of COLLECTOR_IDS) {
+  const ids = opts.collectors && opts.collectors.length > 0 ? opts.collectors : COLLECTOR_IDS;
+  for (const id of ids) {
     const collector = getCollector(id, config);
     const root = collector.root();
     const rootExists = existsSync(root);

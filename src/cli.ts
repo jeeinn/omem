@@ -34,7 +34,7 @@ interface Command {
 
 const COMMANDS: Record<string, Command> = {
   init: {
-    desc: 'Initialize store + git data repo + ingest session transcripts',
+    desc: 'Initialize store + git data repo (does not ingest sessions)',
     usage: 'omem init [--no-scan] [--no-git]',
     run: cmdInit,
   },
@@ -45,7 +45,7 @@ const COMMANDS: Record<string, Command> = {
   },
   sync: {
     desc: 'Ingest session transcripts (conclusions are not extracted)',
-    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
     run: cmdRun,
   },
   add: {
@@ -127,7 +127,7 @@ function printHelp(): void {
   for (const [name, c] of Object.entries(COMMANDS)) {
     console.log(`  ${name.padEnd(12)} ${c.desc}`);
   }
-  console.log('\nQuick start: omem init → omem install → omem search "<keyword>"');
+  console.log('\nQuick start: omem init → omem sync → omem install → omem search "<keyword>"');
   console.log('Docs: docs/omem-V0.1技术规格草案.md (Chinese) · Per-command help: omem <command> --help');
 }
 

@@ -1,15 +1,17 @@
 // omem sync：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor、qwenwork，都只读。
 // 终端只打进度、总结和下一步。待办明细留在 PROCESS.md，不列到屏幕上。
-// --since 7d|YYYY-MM-DD · --session <id> · --tier agent|api · --dry-run · --base/--model/--limit（API 档）
+// --since 7d|YYYY-MM-DD · --session <id> · --collectors id,id · --tier agent|api · --dry-run · --base/--model/--limit（API 档）
+import { existsSync } from 'node:fs';
 import { openCtx } from '../core/ctx.js';
 import { runPipeline, runPipelineAsync, resolveTier, type RunReport } from '../process/pipeline.js';
 import { UsageError } from '../core/util.js';
-import { findRemovedConfigKeys } from '../core/config.js';
+import { findRemovedConfigKeys, type OmemConfig } from '../core/config.js';
 import { files } from '../core/paths.js';
 import { createRunProgress } from '../cli-progress.js';
 import { flagBool, flagStr, flagNum } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { Tier } from '../core/config.js';
+import { COLLECTOR_IDS, getCollector, type CollectorId } from '../collect/collector.js';
 
 /** 跑完后的总结和下一步。不包含会话路径或逐条结果。 */
 export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
@@ -54,6 +56,29 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
   return lines;
 }
 
+/** 缺省表示全量。空值或未知 id 是用法错误。 */
+function parseCollectors(flags: ParsedArgs['flags']): CollectorId[] | undefined {
+  const raw = flagStr(flags, 'collectors');
+  if (raw === undefined) {
+    if (flagBool(flags, 'collectors')) {
+      throw new UsageError(`--collectors needs a list (${COLLECTOR_IDS.join(', ')})`);
+    }
+    return undefined;
+  }
+  const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+  if (ids.length === 0) throw new UsageError(`--collectors needs a list (${COLLECTOR_IDS.join(', ')})`);
+  const unknown = ids.filter((id) => !(COLLECTOR_IDS as readonly string[]).includes(id));
+  if (unknown.length > 0) {
+    throw new UsageError(`Unknown collector: ${unknown.join(', ')} (supported: ${COLLECTOR_IDS.join(' / ')})`);
+  }
+  return ids as CollectorId[];
+}
+
+/** 目录不存在的不列。缺目录提示仍由流水线记在总结里。 */
+function presentCollectors(config: OmemConfig, ids: readonly string[]): string[] {
+  return ids.filter((id) => existsSync(getCollector(id, config).root()));
+}
+
 function formatElapsed(ms: number): string {
   const s = Math.round(ms / 1000);
   const m = Math.floor(s / 60);
@@ -76,13 +101,18 @@ export async function cmdRun(args: ParsedArgs): Promise<number> {
   if (tierArg && !['agent', 'api'].includes(tierArg)) {
     throw new UsageError(`Unknown --tier: ${tierArg} (supported: agent / api)`);
   }
+  const collectors = parseCollectors(args.flags);
   const { home, config, index } = openCtx();
   try {
+    const present = presentCollectors(config, collectors ?? COLLECTOR_IDS);
+    if (present.length > 0) console.log(`Collectors: ${present.join(', ')}`);
+
     // 分发看 resolveTier 之后的档位（文档 §4）：default_tier=api 且不带 flag 也必须走 API 路径
     const { tier } = resolveTier(config, tierArg as Tier | undefined);
     const opts = {
       since: flagStr(args.flags, 'since'),
       sessionId: flagStr(args.flags, 'session'),
+      collectors,
       tier,
       dryRun: flagBool(args.flags, 'dry-run'),
       apiBase: flagStr(args.flags, 'base'),

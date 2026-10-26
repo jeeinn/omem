@@ -14,7 +14,7 @@ export const VALUE_FLAGS = new Set([
   // search
   // （domain/project 已在上）
   // run
-  'tier', 'since', 'session', 'base', 'model', 'limit',
+  'tier', 'since', 'session', 'collectors', 'base', 'model', 'limit',
   // review
   'confirm', 'dismiss', 'stale',
   // redact
