@@ -122,6 +122,7 @@ flowchart LR
     H --> J["knowledge/ 一份 topic 一份 active"]
     J --> K[entries 表 + FTS]
     J --> L["旧版 status=superseded<br/>留在磁盘、退出检索"]
+    J --> F
   end
 
   subgraph use [使用与备份]
@@ -132,6 +133,10 @@ flowchart LR
 ```
 
 采集不写 `knowledge/`。同一 `topic` 已有 active 文档时，再次写入必须带 `supersedes`，否则拒绝。冲突不自动合并：`omem backup` 遇到冲突时保留本地版，远端版另存 `.conflict.md`。
+
+`PROCESS.md` 有两条刷新路径：采集路径（`omem sync`）和写入路径（`save_memory` / `omem add` 落盘成功后立即重算）。写入路径这一条是必需的——MCP 的 `save_memory` 不经过 `omem sync`，若只在采集路径刷新，Agent 读到的待办清单会一直包含已吸收的会话。清单是派生物，刷失败不影响已经落盘的记忆（错误只记日志）。批量加工路径（API 档）传 `refreshGuide: false`，整轮结束时统一刷新一次。
+
+写入不自动 commit。记忆先留在工作区，`omem backup` 才把它提交进 git 历史。
 
 ## 一条记忆的状态
 

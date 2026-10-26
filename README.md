@@ -133,6 +133,8 @@ schtasks /Create /TN "omem-collect" /SC MINUTE /MO 30 /F ^
 
 `scripts/collect.sh` 和 `collect.ps1` 只是 `omem sync` 的封装，不进 npm 包。定时任务会重写 `PROCESS.md`；Agent 正在读的那一版可能过期，间隔别短于 30 分钟。采集不写结论。
 
+`PROCESS.md` 也会在每次写入结论后（`save_memory` / `omem add`）立即重算，所以 Agent 读到的一定是最新待办，不会重复处理已吸收的会话。这两类写入都不自动 commit——记忆先留在工作区，`omem backup` 才把它提交进 git 历史。
+
 ## 开发
 
 ```bash

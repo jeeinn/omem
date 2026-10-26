@@ -12,6 +12,7 @@ import { currentProfile, isCodeHeavy } from './profile.js';
 import { applySupersedes, generateMemoryIndex } from './lifecycle.js';
 import { appendLog } from './log.js';
 import { inferDomain } from '../process/rules.js';
+import { refreshProcessGuide } from '../process/guide.js';
 
 export interface CommitInput {
   content: string;
@@ -35,6 +36,11 @@ export interface CommitOpts {
   dryRun?: boolean;
   /** 默认 true。pipeline 传 false，整次 run 结束再刷一次热层。 */
   refreshIndex?: boolean;
+  /**
+   * 默认 true。写入成功后重算 PROCESS.md（待吸收会话清单）。
+   * pipeline 批量加工时传 false——它自己在一轮结束时统一刷新一次。
+   */
+  refreshGuide?: boolean;
   /** 只跳过禁区关键词与代码密度。 */
   force?: boolean;
 }
@@ -62,6 +68,18 @@ export function isRedactionShell(text: string): boolean {
 
 function logOutcome(home: string, status: CommitStatus, extra: Record<string, unknown>): void {
   appendLog(home, 'commit', { status, ...extra });
+}
+
+/**
+ * 重写 PROCESS.md。清单是派生物，刷不动不该让已经落盘的记忆变成失败——
+ * 记忆已经写好了，丢掉它才是真的损失。所以这里吞掉异常，只记日志。
+ */
+function refreshGuide(home: string, index: OmemIndex): void {
+  try {
+    refreshProcessGuide(home, index);
+  } catch (err) {
+    appendLog(home, 'commit', { status: 'written', guide_refresh_failed: (err as Error).message });
+  }
 }
 
 export function commitEntry(
@@ -140,6 +158,9 @@ export function commitEntry(
   index.upsert(entry, written.path, written.content);
   if (supersedes.length > 0) applySupersedes(home, index, located);
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
+  // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过
+  // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
+  if (opts.refreshGuide !== false) refreshGuide(home, index);
   logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes });
   return { status: 'written', id: entry.fm.id, path: written.path, redacted };
 }

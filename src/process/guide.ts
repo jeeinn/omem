@@ -1,7 +1,15 @@
 // 档 2：把待加工主题写成 PROCESS.md。omem 不调用模型，终端也不再打印这份清单。
+//
+// 本模块负责「算待办 + 渲染 + 落盘」三件事，放在一起是为了让 core/commit.ts
+// 能在写入成功后直接刷新 PROCESS.md——core 不能依赖 process/pipeline.ts
+// （pipeline 依赖 core，会成环），但依赖 process/guide.ts 不会。
 import { statSync } from 'node:fs';
 import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';
+import { deriveTitle } from '../core/entry.js';
+import { listEntries } from '../core/store.js';
+import { splitSessionKey } from '../collect/session-store.js';
+import type { OmemIndex } from '../core/index.js';
 
 export interface GuideSessionRef {
   path: string;
@@ -76,6 +84,118 @@ export function writeProcessGuide(home: string, text: string): string {
   const path = files.processGuide(home);
   atomicWrite(path, text);
   return path;
+}
+
+/**
+ * 重算并重写 PROCESS.md。
+ *
+ * 为什么需要单独的入口：PROCESS.md 是「还没被吸收的会话」的清单。Agent 通过
+ * save_memory 吸收一个会话后，清单必须立刻少一条——否则 Agent 下次读到的还是
+ * 旧清单，会重复处理已吸收的会话。而 save_memory 走的是 MCP，不经过
+ * omem sync，所以清单原本只在采集路径上重算（2026-10-26 审计发现的缺口）。
+ *
+ * 本函数放在 guide.ts 而不是 pipeline.ts：core/commit.ts 要在写入成功后调用它，
+ * 而 pipeline.ts 依赖 core，会成环。guide.ts 不依赖 core/commit.ts，安全。
+ */
+export function refreshProcessGuide(home: string, index: OmemIndex): string {
+  const [topics, remaining, unassigned] = pendingTopics(home, index);
+  return writeProcessGuide(home, renderGuide(topics, remaining, unassigned));
+}
+
+type EntryLoc = ReturnType<typeof listEntries>[number];
+
+function createdOf(loc: EntryLoc): string {
+  return loc.entry.fm.created ?? '';
+}
+
+/** 一组可能同时存在几份活文档（一个项目可以拆成多个 topic），最新那份作为默认 supersede 对象。 */
+function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
+  const sorted = [...docs].sort((a, b) => (createdOf(a) < createdOf(b) ? 1 : -1));
+  const newest = sorted[0];
+  if (!newest) return;
+  topic.docId = newest.entry.fm.id;
+  topic.docTitle = deriveTitle(newest.entry.body);
+  topic.otherDocs = sorted.length - 1;
+}
+
+export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[], { topics: number; unassigned: number }] {
+  const absorbed = absorbedSessionIds(home);
+  const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
+  // 反查表：会话 → 它产出的活文档。项目分组名是 project_fp，而活文档用 Agent 自己起的 topic，
+  // 两者不同命名空间，只能靠「同组里已被吸收的会话 → 当年写出的文档」把待办挂到现实存在的文档上。
+  const docBySession = new Map<string, EntryLoc>();
+  const remember = (key: string | undefined, loc: EntryLoc): void => {
+    if (!key) return;
+    const prev = docBySession.get(key);
+    if (!prev || createdOf(loc) > createdOf(prev)) docBySession.set(key, loc);
+  };
+  for (const loc of active) {
+    remember(loc.entry.fm.session_id, loc);
+    for (const sid of loc.entry.fm.source_sessions) remember(sid, loc);
+  }
+
+  const byTopic = new Map<string, GuideTopic>();
+  const groupDocs = new Map<string, Map<string, EntryLoc>>();
+  const unassigned: GuideSessionRef[] = [];
+  for (const rec of index.listSessions()) {
+    const { agent, sessionId } = splitSessionKey(rec.session_id);
+    const absorbedAlready = absorbed.has(sessionId) || absorbed.has(rec.session_id);
+    const project = rec.project_fp || 'unknown';
+    if (absorbedAlready) {
+      // 已吸收的会话不再是待办，但它是这一组与现实文档的连线：记下它产出的文档。
+      const doc = docBySession.get(sessionId) ?? docBySession.get(rec.session_id);
+      if (doc && project !== 'unknown') {
+        let docs = groupDocs.get(project);
+        if (!docs) groupDocs.set(project, (docs = new Map()));
+        docs.set(doc.entry.fm.id, doc);
+      }
+      continue;
+    }
+    const ref: GuideSessionRef = {
+      path: rec.path,
+      sessionId,
+      agent: rec.agent || agent,
+    };
+    if (!project || project === 'unknown') {
+      unassigned.push(ref);
+      continue;
+    }
+    let topic = byTopic.get(project);
+    if (!topic) {
+      topic = {
+        topic: project,
+        docId: undefined,
+        docTitle: undefined,
+        otherDocs: 0,
+        sessions: [],
+      };
+      byTopic.set(project, topic);
+    }
+    topic.sessions.push(ref);
+  }
+  // 分两趟：先收齐全组的连线，再回填文档，避免受 listSessions() 的会话顺序影响。
+  for (const [project, topic] of byTopic) {
+    const docs = groupDocs.get(project);
+    if (docs) fillDocSlot(topic, [...docs.values()]);
+  }
+  const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);
+  return [
+    all.slice(0, BATCH),
+    Math.max(0, all.length - BATCH),
+    unassigned.slice(0, BATCH),
+    { topics: all.length, unassigned: unassigned.length },
+  ];
+}
+
+/** 已写进任一结论的 session_id 或 source_sessions，不再进入待吸收列表。 */
+function absorbedSessionIds(home: string): Set<string> {
+  const ids = new Set<string>();
+  for (const loc of listEntries(home, { includeArchived: true })) {
+    const fm = loc.entry.fm;
+    if (fm.session_id) ids.add(fm.session_id);
+    for (const id of fm.source_sessions) ids.add(id);
+  }
+  return ids;
 }
 
 export { BATCH as GUIDE_BATCH };

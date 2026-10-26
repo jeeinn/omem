@@ -62,7 +62,9 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'organize memories, first read the PROCESS.md path from the omem instructions (it lists topics and sessions not yet absorbed) and ' +
         'update the living document for that topic via this tool. If the topic already has an active document, pass its id in supersedes. ' +
         'Do not save the distillation chat itself as a new topic. Organize content as short facts, one topic per document. ' +
-        'Idempotent dedup: duplicate content is not written twice.',
+        'Idempotent dedup: duplicate content is not written twice. ' +
+        'PROCESS.md is refreshed right after a successful write, so the pending list always reflects the latest state. ' +
+        'This tool does not create a git commit — the entry stays a working-tree change until `omem backup` runs.',
       inputSchema: {
         type: 'object',
         properties: {
