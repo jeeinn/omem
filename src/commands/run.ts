@@ -61,6 +61,14 @@ function formatElapsed(ms: number): string {
 }
 
 export async function cmdRun(args: ParsedArgs): Promise<number> {
+  // 子命令一律拒绝：git 操作改名后归 omem backup（sync.ts 有同等保护）。
+  // 曾经 `omem sync remote <url>` 会静默吞掉参数去跑采集并返回 0，用户以为远端配好了。
+  const extra = args._.filter((t) => t !== '');
+  if (extra.length > 0) {
+    throw new UsageError(
+      `omem sync takes no subcommand (got "${extra.join(' ')}"). Git operations live in omem backup: omem backup remote <url> | status | use <git|webdav|dir> | pull | push. omem sync only ingests session transcripts.`,
+    );
+  }
   const tierArg = flagStr(args.flags, 'tier');
   if (tierArg === 'rules') {
     throw new UsageError('Rule extraction (--tier rules) has been removed. omem sync only ingests transcripts. Write conclusions with save_memory or omem add.');

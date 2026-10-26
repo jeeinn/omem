@@ -1,5 +1,6 @@
-// omem sync 的 CLI 层回归：坏味道只存在于 commands/sync.ts 这一层（调两次 init 抢先提交），
-// 直接搓 GitBackend 的测试覆盖不到，所以这里必须走 dispatching（omen sync 无子命令 = pull→push）。
+// omem backup 的 CLI 层回归：坏味道只存在于 commands/sync.ts 这一层（调两次 init 抢先提交），
+// 直接搓 GitBackend 的测试覆盖不到，所以这里必须走 dispatching（omem backup 无子命令 = pull→push）。
+// 末尾另有一条 omem sync 的参数守卫回归：改名后 git 子命令不再属于 sync。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import { join } from 'node:path';
 import { main } from '../../src/cli.js';
 import { writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
-import { makeHome, cleanupHome } from './helpers.js';
+import { makeHome, cleanupHome, withConfig } from './helpers.js';
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -35,7 +36,7 @@ const hasGit = (() => {
   }
 })();
 
-describe.runIf(hasGit)('cli: omem sync', () => {
+describe.runIf(hasGit)('cli: omem backup', () => {
   let home: string;
 
   beforeEach(() => {
@@ -117,5 +118,52 @@ describe.runIf(hasGit)('cli: omem sync key guard (doc §6.3 D9 / V12)', () => {
     const out3 = capture();
     await main(['backup']);
     expect(out3.join('\n')).not.toContain('non-empty [api].key');
+  });
+});
+
+describe('cli: omem sync rejects git subcommands', () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = makeHome();
+    // 四个采集器全部指向不存在的路径：守卫若失效也不会有真实扫描
+    const absent = join(home, 'no-such-projects');
+    withConfig(home, (c) => {
+      c.collect.claude_projects = absent;
+      c.collect.workbuddy_projects = absent;
+      c.collect.cursor_projects = absent;
+      c.collect.qwenwork_projects = absent;
+    });
+    vi.stubEnv('OMEM_HOME', home);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    cleanupHome(home);
+  });
+
+  // UsageError 从 console.error 出去，capture() 只收 stdout，这里两路一起收
+  function captureAll(): string[] {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { out.push(a.join(' ')); });
+    return out;
+  }
+
+  it('omem sync remote <url> is a usage error, not a silent transcript ingest', async () => {
+    const out = captureAll();
+    const code = await main(['sync', 'remote', 'git@example.com:me/mem.git']);
+    const text = out.join('\n');
+    expect(code).toBe(1);
+    expect(text).toContain('omem sync takes no subcommand');
+    expect(text).toContain('omem backup remote');
+    // 守卫失效的旧行为是跑完采集并打印总结
+    expect(text).not.toContain('Summary');
+  });
+
+  it('omem sync with a bare leftover word still refuses', async () => {
+    captureAll();
+    expect(await main(['sync', 'status'])).toBe(1);
   });
 });
