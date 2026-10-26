@@ -116,6 +116,23 @@ export const CLIENTS: ClientSpec[] = [
     note: 'MCP servers are managed inside the app; install prints an in-app add snippet',
   },
   {
+    id: 'qoder',
+    name: 'Qoder IDE',
+    kind: 'manual-connector',
+    // Qoder（国际版 / 中文版）桌面端 MCP 配置在应用内部管理，没有用户可编辑的配置文件。
+    // configPath 仅用于 --list 展示 detect 依据（数据目录存在 = 已安装）。
+    configPath: () =>
+      win({
+        win: join(LOCALAPPDATA, 'Qoder'),
+        mac: join(homedir(), 'Library', 'Application Support', 'Qoder'),
+        linux: join(homedir(), '.qoder'),
+      }),
+    detect: () =>
+      existsSync(win({ win: join(LOCALAPPDATA, 'Qoder'), mac: join(homedir(), 'Library', 'Application Support', 'Qoder'), linux: join(homedir(), '.qoder') })),
+    verified: false, // 本机未核实：Qoder 桌面端待确认
+    note: 'MCP servers are managed inside the app; install prints an in-app add snippet',
+  },
+  {
     id: 'codex',
     name: 'Codex CLI',
     kind: 'toml-mcp',

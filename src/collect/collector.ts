@@ -5,15 +5,17 @@ import type { OmemIndex } from '../core/index.js';
 import type { OmemConfig } from '../core/config.js';
 import { expandHome } from '../core/paths.js';
 import { listSessionFiles, parseSessionFile, defaultProjectsRoot } from './claude-code.js';
+import type { SessionFile } from './claude-code.js';
 import { listCursorTranscripts, parseCursorTranscript } from './cursor.js';
 import { parseWorkbuddyFile } from './workbuddy.js';
 import { parseQwenworkFile } from './qwenwork.js';
 import { listDoubaoSessions, parseDoubaoFile, defaultDoubaoRoot } from './doubao.js';
 import { listDeepSeekSessions, parseDeepSeekFile, defaultDeepSeekRoot } from './deepseek.js';
+import { listQoderSessions, parseQoderFile, defaultQoderRoot, defaultQoderCnRoot } from './qoder.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 
-export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek'] as const;
+export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek', 'qoder'] as const;
 export type CollectorId = (typeof COLLECTOR_IDS)[number];
 
 export interface Collector {
@@ -61,6 +63,32 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
       ? defaultDeepSeekRoot(env)
       : config.collect.deepseek_projects;
     return { id, root: () => root, list: () => listDeepSeekSessions(root), parse: (path) => parseDeepSeekFile(path) };
+  }
+  if (id === 'qoder') {
+    const rootIntl = config.collect.qoder_projects.startsWith('~')
+      ? defaultQoderRoot(env)
+      : config.collect.qoder_projects;
+    const rootCn = config.collect.qoder_cn_projects.startsWith('~')
+      ? defaultQoderCnRoot(env)
+      : config.collect.qoder_cn_projects;
+    // Qoder 双根：国际版 + 中文版。root() 返回主根（国际版）用于展示。
+    // list() 合并两边，parse() 按文件所属根选择（此处逻辑相同，统一用 parseQoderFile）。
+    return {
+      id,
+      root: () => rootIntl,
+      list: () => {
+        const a = listQoderSessions(rootIntl);
+        const b = listQoderSessions(rootCn);
+        // 去重：同一 session_id 保留 mtime 最新那份
+        const byId = new Map<string, SessionFile>();
+        for (const f of [...a, ...b]) {
+          const ex = byId.get(f.sessionId);
+          if (!ex || f.mtimeMs > ex.mtimeMs) byId.set(f.sessionId, f);
+        }
+        return [...byId.values()].sort((x, y) => x.mtimeMs - y.mtimeMs);
+      },
+      parse: (path) => parseQoderFile(path),
+    };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }

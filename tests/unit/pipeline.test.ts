@@ -31,6 +31,8 @@ function isolateOthers(config: ReturnType<typeof defaultConfig>) {
   config.collect.qwenwork_projects = ABSENT;
   config.collect.doubao_projects = ABSENT;
   config.collect.deepseek_projects = ABSENT;
+  config.collect.qoder_projects = ABSENT;
+  config.collect.qoder_cn_projects = ABSENT;
 }
 
 function cfgWithFixture() {

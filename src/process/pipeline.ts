@@ -532,6 +532,8 @@ const ROOT_ENV: Record<string, string> = {
   qwenwork: 'OMEM_QWENWORK_PROJECTS',
   doubao: 'OMEM_DOUBAO_PROJECTS',
   deepseek: 'OMEM_DEEPSEEK_PROJECTS',
+  qoder: 'OMEM_QODER_PROJECTS',
+  'qoder-cn': 'OMEM_QODER_CN_PROJECTS',
 };
 
 /** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */
