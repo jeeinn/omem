@@ -33,6 +33,8 @@ V0.1，公开测试版 `0.1.0-beta.5`（`npm install -g @jeeinn/omem@beta`）。
 - Node.js ≥ 22.5（内建 `node:sqlite`，无需原生编译）
 - git（仅 `omem backup` 需要；没有 git 时给出安装提示，不抛栈）
 
+唯一需要原生二进制的依赖是 `@toondepauw/node-zstd`——DeepSeek Harness 的会话是 zstd 压缩的，采集时要解压。它提供预编译包（Windows / macOS / Linux，x64 与 arm64），不需要本地编译工具链。
+
 ## 安装
 
 ```bash
@@ -71,11 +73,13 @@ omem backup
 | `cursor` | Cursor | 对话记录 |
 | `qwenwork` | 千问办公（QwenWork） | 会话目录 |
 | `doubao` | 豆包办公（Doubao） | 会话目录，`%LOCALAPPDATA%` |
-| `deepseek` | DeepSeek Harness | 会话目录 |
+| `deepseek` | DeepSeek Harness | 会话目录（zstd 压缩，读时解压） |
 | `qoder` | Qoder IDE | 国际版 + 中文版双根 |
 | `catpaw` | CatPaw | 会话纯文本，`~/.catpaw/projects/` |
 
 每新增一个采集器，在此表追加一行。`omem sync --collectors id,id` 可指定子集；不指定时扫全部。
+
+每个采集器的会话根目录都可以用环境变量覆盖（例如 `OMEM_CATPAW_PROJECTS`、`OMEM_QODER_PROJECTS`）。这主要用于测试隔离——把变量指向临时目录，就不必改动真实会话目录。完整变量名清单见 `src/collect/registry.ts`。
 
 ## 命令
 

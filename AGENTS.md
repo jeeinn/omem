@@ -32,6 +32,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/commands/` | One file per command, returns an exit code |
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots |
 | `src/collect/` | Read-only collection (`claude-code`, `workbuddy`, `cursor`, `qwenwork`, `doubao`, `deepseek`, `qoder`, `catpaw`). Transcripts land in `sessions/`. New platforms: see "Skills" |
+| `src/collect/registry.ts` | Collector registry: the single source of truth for collector ids, their `config.collect.*` keys, and their `OMEM_*_PROJECTS` isolation env vars |
 | `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `api` (off by default). `rules` is removed |
 | `src/mcp/` | stdio MCP server and tool implementations |
 | `src/install/` | Client registry, config writing, TOML subset |
@@ -52,7 +53,9 @@ npm test               # vitest, forks + --experimental-sqlite
 npm run smoke          # bash tests/smoke.sh, ships with an isolated OMEM_HOME
 ```
 
-Node uses the built-in `node:sqlite`; do not introduce `better-sqlite3` or other native modules. The only runtime dependency is `@modelcontextprotocol/sdk`.
+Node uses the built-in `node:sqlite`; do not introduce `better-sqlite3` or other native modules.
+
+Runtime dependencies are `@modelcontextprotocol/sdk` and `@toondepauw/node-zstd`. The zstd package is the one exception to the "no native modules" rule: DeepSeek Harness stores its sessions as zstd-compressed JSONL, and the collector must decompress them. It ships prebuilt binaries (win32/darwin/linux, x64 and arm64) so no source compilation is required. Do not add further native dependencies without weighing the install cost against the alternative.
 
 ## Code conventions
 
@@ -61,6 +64,7 @@ Node uses the built-in `node:sqlite`; do not introduce `better-sqlite3` or other
 - Persisted writes go through `atomicWrite` (temp file + `rename`). CLI and MCP paths use synchronous IO.
 - New commands: implement in `src/commands/`, register `desc` / `usage` / `run` in `COMMANDS` in `src/cli.ts`, add unit tests.
 - New sync backends or collectors: implement the interface and add one line to the registry; undelivered ids return an actionable error, never a stub implementation. Read `.agents/skills/add-session-collector/SKILL.md` before adding a new session collector.
+- **The collector registry (`src/collect/registry.ts`) is the single source of truth** for collector ids, their `config.collect.*` keys, and their `OMEM_*_PROJECTS` isolation env vars. Do not hand-write a second copy of that mapping — `src/process/pipeline.ts` derives its missing-directory hints from it, and `tests/smoke.sh` derives its isolation list from it.
 - Do not invent product behavior. V0.1 ships no time decay, no WebDAV/local-directory sync, no MCP sampling.
 
 ## Skills
@@ -77,4 +81,5 @@ The repo-root `.agents/skills/<name>/SKILL.md` directory is the cross-client ski
 - Unit tests import `src/`, never `dist/`. When covering `src/cli.ts`, call the exported `main()` directly; do not treat the module as a process entry.
 - Index-related tests depend on FTS5; when changing `vitest.config.ts`, keep `pool: 'forks'` and `--experimental-sqlite`.
 - When touching MCP, install writes, or sync, run `npm run smoke` in addition to unit tests. The MCP probe must assert that stdout carries no logs.
+- **Isolation is a hard requirement, not a convention.** Any test or script that scans sessions must run against isolated directories only — the developer's real `~/.claude`, `~/.catpaw`, `~/.qoder`, and friends must never be read. `tests/smoke.sh` derives its isolation list from `src/collect/registry.ts` and refuses to run if any collector root falls outside the repository; `tests/unit/collector-isolation.test.ts` fails if the registry, the config keys, the env vars, and the smoke script drift apart. Adding a collector means adding one row to the registry — the guards then cover it automatically.
 - Do not commit `dist/`, `node_modules/`, `.omem-test/`.

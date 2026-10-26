@@ -12,6 +12,11 @@ flowchart TB
     CC[Claude Code]
     WB[WorkBuddy]
     CU[Cursor]
+    QW[千问办公]
+    DB[豆包办公]
+    DS[DeepSeek Harness]
+    QD[Qoder IDE]
+    CP[CatPaw]
     MCP[其他 MCP 客户端]
   end
 
@@ -23,6 +28,7 @@ flowchart TB
 
   subgraph collect [采集 只读]
     COL[collect/collector]
+    REG[collect/registry<br/>采集器注册表]
   end
 
   subgraph store [OMEM_HOME]
@@ -42,6 +48,12 @@ flowchart TB
   CC --> COL
   WB --> COL
   CU --> COL
+  QW --> COL
+  DB --> COL
+  DS --> COL
+  QD --> COL
+  CP --> COL
+  REG -.-> COL
   SYNC --> COL
   COL --> SESS
   SYNC --> PROC
@@ -62,11 +74,32 @@ flowchart TB
 | 层 | 代码 | 职责 |
 | --- | --- | --- |
 | 入口 | `src/cli.ts`、`src/mcp/` | 命令分发；stdio MCP，默认只有 `search_memory` / `save_memory` |
-| 采集 | `src/collect/` | 只读扫描 Claude Code、WorkBuddy、Cursor，转成统一会话 |
+| 采集 | `src/collect/` | 只读扫描 8 个平台的会话目录，转成统一会话 |
+| 采集注册表 | `src/collect/registry.ts` | 采集器 id、config 字段、隔离 env 的唯一真相源 |
 | 加工 | `src/process/` | 默认只落原文并写 `PROCESS.md`；`--tier api` 才调用模型 |
 | 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、SQLite/FTS5 |
 | 备份 | `src/sync/` | `SyncBackend`；本版只实现 GitBackend |
 | 安装 | `src/install/` | 只改客户端配置里的 omem 段，先备份、原子写 |
+
+## 采集器
+
+采集器只读，不改源平台的任何文件。每个平台一个适配器，各自解析自己的落盘格式：
+
+| ID | 源平台 | 落盘格式 | 默认根 |
+| --- | --- | --- | --- |
+| `claude-code` | Claude Code | JSONL | `~/.claude/projects` |
+| `workbuddy` | WorkBuddy | JSONL | `~/.workbuddy/projects` |
+| `cursor` | Cursor | JSONL | `~/.cursor/projects` |
+| `qwenwork` | 千问办公 | JSONL（Claude Code 同构） | `~/.qwenworkcn/projects` |
+| `doubao` | 豆包办公 | OpenAI messages 风格 JSONL | Windows 下 `%LOCALAPPDATA%/Doubao/.../.sessions` |
+| `deepseek` | DeepSeek Harness | **zstd 压缩**的 typed JSONL | `~/.dsh/sessions` |
+| `qoder` | Qoder IDE | 纯 JSONL | `~/.qoder` + `~/.qoder-cn`（双根） |
+| `catpaw` | CatPaw | 纯文本 transcript | `~/.catpaw/projects` |
+
+每个采集器的根目录都可以用 `OMEM_<ID>_PROJECTS` 环境变量覆盖（Qoder 中文版是 `OMEM_QODER_CN_PROJECTS`）。这些环境变量是测试隔离的唯一手段——配置里的绝对路径优先于 env，只有以 `~` 开头的默认值才允许被 env 接管。变量名清单由 `src/collect/registry.ts` 统一定义，测试和冒烟脚本都从它派生，不各写一份。
+
+DeepSeek 的会话是 zstd 压缩的，解析时需要解压。这是本项目**唯一的原生运行时依赖**（`@toondepauw/node-zstd`，prebuilt，无需源码编译，覆盖 win32/darwin/linux 的 x64 与 arm64）。其余功能不依赖任何原生模块——SQLite 用 Node 22 内建的 `node:sqlite`。
+
 
 ## 数据怎么流
 
