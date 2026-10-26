@@ -283,7 +283,7 @@ node bin/omem.js review --dismiss $ID # 归档，默认检索不可见
 node bin/omem.js search "<关键词>" --all   # 预期：--all 才能找回带 "superseded/archived" 的条目
 
 # T9 确认结果落到 git（凡 schema 改动最终都进版本历史）
-node bin/omem.js sync status   # 预期：未提交改动 N ≥ 1
+node bin/omem.js backup status   # 预期：未提交改动 N ≥ 1
 
 rm -rf $OMEM_HOME   # 收尾
 ```
