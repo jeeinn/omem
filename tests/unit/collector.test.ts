@@ -82,15 +82,16 @@ describe('collector: registry', () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  it('registers claude-code / workbuddy / cursor; unknown id errors', () => {
-    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor']);
+  it('registers claude-code / workbuddy / cursor / qwenwork; unknown id errors', () => {
+    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor', 'qwenwork']);
     const config = defaultConfig();
     expect(getCollector('workbuddy', config).id).toBe('workbuddy');
     expect(getCollector('cursor', config).id).toBe('cursor');
+    expect(getCollector('qwenwork', config).id).toBe('qwenwork');
     expect(() => getCollector('codex', config)).toThrow(/Unknown collector/);
   });
 
-  it('scanSessions scans all three at once; a missing directory does not block the rest', () => {
+  it('scanSessions scans all four at once; a missing directory does not block the rest', () => {
     const home = makeHome();
     dirs.push(home);
     const index = new OmemIndex(home);
@@ -100,23 +101,29 @@ describe('collector: registry', () => {
     const claude = join(root, 'claude', 'proj');
     const workbuddy = join(root, 'wb', 'proj');
     const cursor = join(root, 'cursor', 'p1', 'agent-transcripts', 'cur-1');
+    const qwenwork = join(root, 'qw', 'proj');
     mkdirSync(claude, { recursive: true });
     mkdirSync(workbuddy, { recursive: true });
     mkdirSync(cursor, { recursive: true });
+    mkdirSync(qwenwork, { recursive: true });
     writeFileSync(join(claude, 's1.jsonl'), '{"type":"user","message":{"role":"user","content":"claude 以后都用手写 SQL"},"uuid":"u","timestamp":"2026-10-10T09:00:00Z","sessionId":"s1"}\n');
     writeFileSync(join(workbuddy, 'wb-1.jsonl'), '{"type":"message","id":"u1","sessionId":"wb-1","timestamp":"2026-10-15T01:00:01.000Z","role":"user","content":[{"type":"input_text","text":"workbuddy 以后都用手写 SQL"}]}\n');
     writeFileSync(join(cursor, 'cur-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"cursor 以后都用手写 SQL"}]}}\n');
+    writeFileSync(join(qwenwork, 'qw-1.jsonl'), '{"type":"user","uuid":"u1","sessionId":"qw-1","timestamp":"2026-10-20T08:00:01.000Z","cwd":"X:/demo/qw","message":{"role":"user","content":[{"type":"text","text":"qwenwork 以后都用手写 SQL"}]}}\n');
     const config = defaultConfig();
     config.collect.claude_projects = join(root, 'claude');
     config.collect.workbuddy_projects = join(root, 'wb');
     config.collect.cursor_projects = join(root, 'absent-cursor');
+    config.collect.qwenwork_projects = join(root, 'absent-qw');
     let scan = scanSessions(index, config, {});
     expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'workbuddy']);
     expect(scan.roots.find((r) => r.id === 'cursor')?.exists).toBe(false);
+    expect(scan.roots.find((r) => r.id === 'qwenwork')?.exists).toBe(false);
 
     config.collect.cursor_projects = join(root, 'cursor');
+    config.collect.qwenwork_projects = join(root, 'qw');
     scan = scanSessions(index, config, {});
-    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'cursor', 'workbuddy']);
+    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'cursor', 'qwenwork', 'workbuddy']);
     } finally {
       index.close();
     }

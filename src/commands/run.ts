@@ -1,4 +1,4 @@
-// omem sync：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor，都只读。
+// omem sync：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor、qwenwork，都只读。
 // 终端只打进度、总结和下一步。待办明细留在 PROCESS.md，不列到屏幕上。
 // --since 7d|YYYY-MM-DD · --session <id> · --tier agent|api · --dry-run · --base/--model/--limit（API 档）
 import { openCtx } from '../core/ctx.js';

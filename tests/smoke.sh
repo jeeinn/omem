@@ -10,6 +10,7 @@ rm -rf "$ROOT/.omem-test"
 mkdir -p "$ROOT/.omem-test/empty-projects"
 export OMEM_WORKBUDDY_PROJECTS="$ROOT/.omem-test/empty-projects"
 export OMEM_CURSOR_PROJECTS="$ROOT/.omem-test/empty-projects"
+export OMEM_QWENWORK_PROJECTS="$ROOT/.omem-test/empty-projects"
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }

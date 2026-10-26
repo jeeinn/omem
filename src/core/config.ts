@@ -15,6 +15,7 @@ export interface OmemConfig {
     claude_projects: string;
     workbuddy_projects: string;
     cursor_projects: string;
+    qwenwork_projects: string;
     exclude_paths: string[];
   };
   process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
@@ -40,6 +41,7 @@ export function defaultConfig(): OmemConfig {
       claude_projects: '~/.claude/projects',
       workbuddy_projects: '~/.workbuddy/projects',
       cursor_projects: '~/.cursor/projects',
+      qwenwork_projects: '~/.qwenworkcn/projects',
       exclude_paths: [],
     },
     process: {
@@ -236,6 +238,7 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       claude_projects: typeof p?.collect?.claude_projects === 'string' ? p.collect.claude_projects : d.collect.claude_projects,
       workbuddy_projects: typeof p?.collect?.workbuddy_projects === 'string' ? p.collect.workbuddy_projects : d.collect.workbuddy_projects,
       cursor_projects: typeof p?.collect?.cursor_projects === 'string' ? p.collect.cursor_projects : d.collect.cursor_projects,
+      qwenwork_projects: typeof p?.collect?.qwenwork_projects === 'string' ? p.collect.qwenwork_projects : d.collect.qwenwork_projects,
       exclude_paths: strArr(p?.collect?.exclude_paths),
     },
     process: {
@@ -283,6 +286,7 @@ export function serializeConfig(c: OmemConfig): string {
     `claude_projects = ${tomlStr(c.collect.claude_projects)}`,
     `workbuddy_projects = ${tomlStr(c.collect.workbuddy_projects)}`,
     `cursor_projects = ${tomlStr(c.collect.cursor_projects)}`,
+    `qwenwork_projects = ${tomlStr(c.collect.qwenwork_projects)}`,
     `exclude_paths = ${tomlArr(c.collect.exclude_paths)}`,
     '',
     '[process]',

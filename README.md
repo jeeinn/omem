@@ -5,6 +5,7 @@
 omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLite 只是可以删掉重建的索引。MCP 让多个客户端共用同一份记忆。
 
 - 默认零配置：`omem sync` 把对话原文放进 `sessions/`，结论由 Agent 写回 `knowledge/`
+- 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）的会话目录，不改对方的文件
 - Markdown 是事实源，Obsidian 里改完，下次访问会吸回索引
 - `omem backup` 用 git 做备份和跨机器同步；冲突只报告，不自动合并
 - 不自动删除。硬删只有 `omem redact`

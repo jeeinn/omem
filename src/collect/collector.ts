@@ -7,10 +7,11 @@ import { expandHome } from '../core/paths.js';
 import { listSessionFiles, parseSessionFile, defaultProjectsRoot } from './claude-code.js';
 import { listCursorTranscripts, parseCursorTranscript } from './cursor.js';
 import { parseWorkbuddyFile } from './workbuddy.js';
+import { parseQwenworkFile } from './qwenwork.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
 
-export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor'] as const;
+export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork'] as const;
 export type CollectorId = (typeof COLLECTOR_IDS)[number];
 
 export interface Collector {
@@ -40,6 +41,10 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
   if (id === 'cursor') {
     const root = rootFrom(config.collect.cursor_projects, 'OMEM_CURSOR_PROJECTS', env);
     return { id, root: () => root, list: () => listCursorTranscripts(root), parse: (path) => parseCursorTranscript(path) };
+  }
+  if (id === 'qwenwork') {
+    const root = rootFrom(config.collect.qwenwork_projects, 'OMEM_QWENWORK_PROJECTS', env);
+    return { id, root: () => root, list: () => listSessionFiles(root), parse: (path) => parseQwenworkFile(path) };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);
 }

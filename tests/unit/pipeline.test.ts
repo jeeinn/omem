@@ -28,6 +28,7 @@ afterEach(() => {
 function isolateOthers(config: ReturnType<typeof defaultConfig>) {
   config.collect.workbuddy_projects = ABSENT;
   config.collect.cursor_projects = ABSENT;
+  config.collect.qwenwork_projects = ABSENT;
 }
 
 function cfgWithFixture() {
