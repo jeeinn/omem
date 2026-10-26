@@ -1,6 +1,6 @@
 // MCP 工具面测试（规格 §8）：search/save/feedback、幂等去重、env 门控、返回格式。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { buildTools, handleTool } from '../../src/mcp/tools.js';
@@ -118,6 +118,73 @@ describe('mcp: handleTool', () => {
     expect(textOf(r)).toContain('Saved');
     const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
     expect(readFileSync(row.path, 'utf8')).not.toContain('abc123def456');
+  });
+
+  it('save_memory infers the project from the absorbed session when not given', async () => {
+    // project 决定这条结论归到哪个分组。没显式给就从被吸收的会话推断——
+    // 缺了它，PROCESS.md 无法把文档挂回分组（docId 会变空）。
+    const sessId = 'sess-proj-1';
+    const dir = join(home, 'sessions', 'cursor');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${sessId}.md`),
+      [
+        '---',
+        'agent: cursor',
+        `session_id: ${sessId}`,
+        'project: proj-inferred',
+        'started: 2026-10-16T00:00:00.000Z',
+        'ended: 2026-10-16T00:00:00.000Z',
+        'messages: 1',
+        'content_hash: h1',
+        '---',
+        '',
+        '## user',
+        '原始会话内容',
+        '',
+      ].join('\n'),
+    );
+    await handleTool('save_memory', {
+      content: '从会话推断出分组归属的结论',
+      topic: 'a-topic',
+      session_id: sessId,
+    }, ctx);
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
+    const entry = readEntryFile(row.path)!;
+    expect(entry.fm.project).toBe('proj-inferred');
+  });
+
+  it('save_memory keeps an explicitly given project', async () => {
+    const sessId = 'sess-proj-2';
+    const dir = join(home, 'sessions', 'cursor');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${sessId}.md`),
+      [
+        '---',
+        'agent: cursor',
+        `session_id: ${sessId}`,
+        'project: proj-from-session',
+        'started: 2026-10-16T00:00:00.000Z',
+        'ended: 2026-10-16T00:00:00.000Z',
+        'messages: 1',
+        'content_hash: h2',
+        '---',
+        '',
+        '## user',
+        '原始会话内容',
+        '',
+      ].join('\n'),
+    );
+    await handleTool('save_memory', {
+      content: '显式指定分组的结论',
+      topic: 'b-topic',
+      session_id: sessId,
+      project: 'proj-explicit',
+    }, ctx);
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
+    const entry = readEntryFile(row.path)!;
+    expect(entry.fm.project).toBe('proj-explicit');
   });
 
   it('memory_feedback helpful → reconfirm', async () => {

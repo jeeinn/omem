@@ -121,17 +121,25 @@ function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
 export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[], { topics: number; unassigned: number }] {
   const absorbed = absorbedSessionIds(home);
   const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
-  // 反查表：会话 → 它产出的活文档。项目分组名是 project_fp，而活文档用 Agent 自己起的 topic，
-  // 两者不同命名空间，只能靠「同组里已被吸收的会话 → 当年写出的文档」把待办挂到现实存在的文档上。
+  // 反查表：会话 → 它产出的活文档。
   const docBySession = new Map<string, EntryLoc>();
   const remember = (key: string | undefined, loc: EntryLoc): void => {
     if (!key) return;
     const prev = docBySession.get(key);
     if (!prev || createdOf(loc) > createdOf(prev)) docBySession.set(key, loc);
   };
+  // 主路径：活文档的 project 字段就是会话分组用的 project_fp。
+  // 分组名与文档的 project 是同一个命名空间，直接按它匹配即可——不必绕道会话。
+  // 真实库实测：26 份活文档里 25 份带 project 字段。
+  const docsByProject = new Map<string, Map<string, EntryLoc>>();
   for (const loc of active) {
     remember(loc.entry.fm.session_id, loc);
     for (const sid of loc.entry.fm.source_sessions) remember(sid, loc);
+    const project = loc.entry.fm.project;
+    if (!project) continue;
+    let docs = docsByProject.get(project);
+    if (!docs) docsByProject.set(project, (docs = new Map()));
+    docs.set(loc.entry.fm.id, loc);
   }
 
   const byTopic = new Map<string, GuideTopic>();
@@ -142,12 +150,20 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
     const absorbedAlready = absorbed.has(sessionId) || absorbed.has(rec.session_id);
     const project = rec.project_fp || 'unknown';
     if (absorbedAlready) {
-      // 已吸收的会话不再是待办，但它是这一组与现实文档的连线：记下它产出的文档。
-      const doc = docBySession.get(sessionId) ?? docBySession.get(rec.session_id);
-      if (doc && project !== 'unknown') {
+      // 已吸收的会话不再是待办，但它可能是这一组与现实文档的连线：
+      // 优先看文档自己的 project 字段，缺失时才靠会话反查。
+      const byProject = docsByProject.get(project);
+      if (byProject && byProject.size > 0) {
         let docs = groupDocs.get(project);
         if (!docs) groupDocs.set(project, (docs = new Map()));
-        docs.set(doc.entry.fm.id, doc);
+        for (const [id, loc] of byProject) docs.set(id, loc);
+      } else {
+        const doc = docBySession.get(sessionId) ?? docBySession.get(rec.session_id);
+        if (doc && project !== 'unknown') {
+          let docs = groupDocs.get(project);
+          if (!docs) groupDocs.set(project, (docs = new Map()));
+          docs.set(doc.entry.fm.id, doc);
+        }
       }
       continue;
     }
@@ -175,7 +191,8 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
   }
   // 分两趟：先收齐全组的连线，再回填文档，避免受 listSessions() 的会话顺序影响。
   for (const [project, topic] of byTopic) {
-    const docs = groupDocs.get(project);
+    // 优先用 project 直接命中的文档集合；没有才用会话反查的结果。
+    const docs = docsByProject.get(project) ?? groupDocs.get(project);
     if (docs) fillDocSlot(topic, [...docs.values()]);
   }
   const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);

@@ -11,6 +11,7 @@ import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
+import { readSessionsById } from '../collect/session-store.js';
 import type { EntryRow } from '../core/index.js';
 
 export interface ToolCtx {
@@ -207,11 +208,19 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
     const evidence = typeof args.evidence === 'string' ? args.evidence : '';
     const scored = scoreEvidence(ctx.home, { content, sessionId: sessionId || undefined, evidence }, ctx.index);
     const tags = [...(Array.isArray(args.tags) ? args.tags.map(String) : []), ...scored.tags];
+    // project 决定这条结论归到哪个分组。没显式给就从被吸收的会话推断——
+    // 缺了它，PROCESS.md 就无法把这条文档挂回对应的分组（docId 会变空）。
+    let project = typeof args.project === 'string' && args.project ? args.project : undefined;
+    if (!project && sessionId) {
+      const cited = readSessionsById(ctx.home, sessionId);
+      const withProject = cited.find((s) => s.project && s.project !== 'unknown');
+      if (withProject) project = withProject.project;
+    }
     const result = commitEntry(ctx.home, ctx.config, ctx.index, {
       content,
       type,
       domain: typeof args.domain === 'string' && args.domain ? args.domain : undefined,
-      project: typeof args.project === 'string' && args.project ? args.project : undefined,
+      project,
       topic: topic || undefined,
       tags,
       session_id: sessionId || undefined,
