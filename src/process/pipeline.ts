@@ -10,6 +10,7 @@ import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
 import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
+import { COLLECTOR_SPECS } from '../collect/registry.js';
 import {
   prepareDialogue,
   readStoredSession,
@@ -525,24 +526,21 @@ function finish(home: string, index: OmemIndex, report: RunReport, dryRun: boole
   });
 }
 
-const ROOT_ENV: Record<string, string> = {
-  'claude-code': 'OMEM_CLAUDE_PROJECTS',
-  workbuddy: 'OMEM_WORKBUDDY_PROJECTS',
-  cursor: 'OMEM_CURSOR_PROJECTS',
-  qwenwork: 'OMEM_QWENWORK_PROJECTS',
-  doubao: 'OMEM_DOUBAO_PROJECTS',
-  deepseek: 'OMEM_DEEPSEEK_PROJECTS',
-  qoder: 'OMEM_QODER_PROJECTS',
-  'qoder-cn': 'OMEM_QODER_CN_PROJECTS',
-  catpaw: 'OMEM_CATPAW_PROJECTS',
-};
+/**
+ * 缺目录时提示用哪个环境变量覆盖。来源是采集器注册表（src/collect/registry.ts），
+ * 不再手写第二份映射——手写的那份在 2026-10-26 已经和注册表漂移过一次。
+ */
+function rootEnvHint(id: string): string {
+  const spec = COLLECTOR_SPECS[id as keyof typeof COLLECTOR_SPECS];
+  if (!spec) return 'the corresponding environment variable';
+  return spec.envKeys.join(' / ');
+}
 
 /** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */
 function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
   for (const r of scan.roots) {
     if (r.exists) continue;
-    const env = ROOT_ENV[r.id] ?? 'the corresponding environment variable';
-    report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${env})`);
+    report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${rootEnvHint(r.id)})`);
   }
   return scan.roots.some((r) => r.exists);
 }

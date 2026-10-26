@@ -15,9 +15,10 @@ import { listQoderSessions, parseQoderFile, defaultQoderRoot, defaultQoderCnRoot
 import { listCatpawTranscripts, parseCatpawFile, defaultCatpawRoot } from './catpaw.js';
 import { prepareDialogue, sessionKey } from './session-store.js';
 import type { SessionDigest } from './types.js';
+import { COLLECTOR_IDS, COLLECTOR_SPECS, type CollectorId } from './registry.js';
 
-export const COLLECTOR_IDS = ['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek', 'qoder', 'catpaw'] as const;
-export type CollectorId = (typeof COLLECTOR_IDS)[number];
+export { COLLECTOR_IDS, type CollectorId };
+export { COLLECTOR_SPECS, allCollectorEnvKeys } from './registry.js';
 
 export interface Collector {
   id: string;
@@ -40,15 +41,15 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
     return { id, root: () => root, list: () => listSessionFiles(root), parse: (path) => parseSessionFile(path) };
   }
   if (id === 'workbuddy') {
-    const root = rootFrom(config.collect.workbuddy_projects, 'OMEM_WORKBUDDY_PROJECTS', env);
+    const root = rootFrom(config.collect.workbuddy_projects, COLLECTOR_SPECS.workbuddy.envKeys[0], env);
     return { id, root: () => root, list: () => listSessionFiles(root), parse: (path) => parseWorkbuddyFile(path) };
   }
   if (id === 'cursor') {
-    const root = rootFrom(config.collect.cursor_projects, 'OMEM_CURSOR_PROJECTS', env);
+    const root = rootFrom(config.collect.cursor_projects, COLLECTOR_SPECS.cursor.envKeys[0], env);
     return { id, root: () => root, list: () => listCursorTranscripts(root), parse: (path) => parseCursorTranscript(path) };
   }
   if (id === 'qwenwork') {
-    const root = rootFrom(config.collect.qwenwork_projects, 'OMEM_QWENWORK_PROJECTS', env);
+    const root = rootFrom(config.collect.qwenwork_projects, COLLECTOR_SPECS.qwenwork.envKeys[0], env);
     return { id, root: () => root, list: () => listSessionFiles(root), parse: (path) => parseQwenworkFile(path) };
   }
   if (id === 'doubao') {
@@ -92,7 +93,7 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
     };
   }
   if (id === 'catpaw') {
-    const root = rootFrom(config.collect.catpaw_projects, 'OMEM_CATPAW_PROJECTS', env);
+    const root = rootFrom(config.collect.catpaw_projects, COLLECTOR_SPECS.catpaw.envKeys[0], env);
     return { id, root: () => root, list: () => listCatpawTranscripts(root), parse: (path) => parseCatpawFile(path) };
   }
   throw new Error(`Unknown collector: ${id} (supported: ${COLLECTOR_IDS.join(' / ')})`);

@@ -5,12 +5,32 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OMEM=(node "$ROOT/bin/omem.js")
 export OMEM_HOME="$ROOT/.omem-test/home"
-export OMEM_CLAUDE_PROJECTS="$ROOT/tests/fixtures/claude-projects"
 rm -rf "$ROOT/.omem-test"
 mkdir -p "$ROOT/.omem-test/empty-projects"
-export OMEM_WORKBUDDY_PROJECTS="$ROOT/.omem-test/empty-projects"
-export OMEM_CURSOR_PROJECTS="$ROOT/.omem-test/empty-projects"
-export OMEM_QWENWORK_PROJECTS="$ROOT/.omem-test/empty-projects"
+EMPTY="$ROOT/.omem-test/empty-projects"
+
+# ── 采集器隔离 ────────────────────────────────────────────────────────────
+# 隔离清单从采集器注册表派生（src/collect/registry.ts），不手写：手写清单每加一个
+# 采集器就会漏一处，而漏一处的后果不是测试失败，是端到端冒烟把开发者本机的真实会话
+# 扫进测试产物（2026-10-26 实测：catpaw 漏配，冒烟读到了真实 ~/.catpaw）。
+export OMEM_CLAUDE_PROJECTS="$ROOT/tests/fixtures/claude-projects"
+COLLECTOR_ENV_KEYS=$(node "$ROOT/tests/print-collector-envs.mjs")
+[ -n "$COLLECTOR_ENV_KEYS" ] || { echo "FATAL: cannot derive collector env keys from the registry"; exit 1; }
+for KEY in $COLLECTOR_ENV_KEYS; do
+  export "$KEY=$EMPTY"
+done
+# Claude Code 用合成 fixture（其余采集器没有 fixture，一律指向空目录）。
+export OMEM_CLAUDE_PROJECTS="$ROOT/tests/fixtures/claude-projects"
+
+# 守卫：所有采集根必须落在仓库内。漏配 env 时采集器会退回 ~/.xxx 的真实目录，
+# 这里当场失败，而不是等到产物里混进真实会话才被发现。
+for VAR in OMEM_HOME $COLLECTOR_ENV_KEYS; do
+  VAL="${!VAR:-}"
+  case "$VAL" in
+    "$ROOT"/*) ;;
+    *) echo "FATAL: $VAR=$VAL is outside the repository ($ROOT). Smoke tests must never read real session directories."; exit 1 ;;
+  esac
+done
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
@@ -63,6 +83,15 @@ if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/sessions" 2>/dev/null; then bad "
 if grep -rq "会话摘要" "$OMEM_HOME/sessions" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
 BAD=$(run sync --tier rules); CODE=$?
 [ $CODE -eq 1 ] && ok "tier rules rejected" || bad "tier rules exit $CODE: $BAD"
+
+echo "== S6b isolation self-check (no real session directories were read) =="
+# 采集产物只能来自 claude-code fixture——其余采集器都指向空目录。
+# 出现别的 agent 子目录 = 某个采集器漏了隔离 env，读到了本机真实会话，当场失败。
+STRAY=$(find "$OMEM_HOME/sessions" -mindepth 1 -maxdepth 1 -type d ! -name claude-code 2>/dev/null | tr '\n' ' ')
+if [ -z "$STRAY" ]; then ok "no stray agent directories in sessions/"; else bad "stray session dirs (isolation broken): $STRAY"; fi
+# 双保险：每个 agent 子目录里的文件必须都是 fixture 带来的那一个 session。
+NFILES=$(find "$OMEM_HOME/sessions" -name '*.md' | wc -l | tr -d ' ')
+[ "$NFILES" = "1" ] && ok "exactly 1 session ingested (fixture only)" || bad "expected 1 session file, got $NFILES"
 
 echo "== S7 omem review --confirm =="
 RID=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1 | xargs basename | sed 's/\.md$//')
