@@ -12,10 +12,27 @@ import { scoreApiDoc, scoreEvidence, evidenceIn, SCORE_API_CAP } from '../../src
 import { serializeEntry, parseEntry, newFrontmatter } from '../../src/core/entry.js';
 import { listEntries } from '../../src/core/store.js';
 import { searchEntries } from '../../src/core/search.js';
+import { tailLog } from '../../src/core/log.js';
 import { main } from '../../src/cli.js';
 import { makeHome, cleanupHome } from './helpers.js';
 
 const ABSENT = join(process.cwd(), 'tests', 'fixtures', 'claude-projects', 'nonexistent');
+
+/**
+ * 近似/撞车 topic 的记录通道是日志 + 总结提示（终端不逐条刷屏），
+ * 这里读日志断言，而不是捕获 pipeline 的 console 输出。
+ */
+function dupTopicEvents(h: string): { status: string; session?: string; note?: string }[] {
+  return tailLog(h, 500)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter((j) => j?.status === 'possible-duplicate-topic') as { status: string; session?: string; note?: string }[];
+}
 
 let home: string;
 let index: OmemIndex;
@@ -297,16 +314,23 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     const lines: string[] = [];
     const orig = console.log;
     console.log = (s: string) => { lines.push(String(s)); };
+    let second: Awaited<ReturnType<typeof runPipelineAsync>>;
     try {
       await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 's1' });
-      await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 's2' });
+      second = await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 's2' });
     } finally {
       console.log = orig;
     }
     // 不合并：两份都落盘
     expect(activeEntry(['git-sync-trust'])).toHaveLength(1);
     expect(activeEntry(['git-sync-trust-model'])).toHaveLength(1);
-    expect(lines.join('\n')).toMatch(/possible-duplicate-topic/);
+    // 计数 + 日志记录（明细进 logs/usage，终端只在总结里给一行提示）
+    expect(second.duplicateTopics).toBe(1);
+    const dup = dupTopicEvents(home);
+    expect(dup).toHaveLength(1);
+    expect(String(dup[0].note)).toContain('suspiciously close');
+    // 明细不进终端（fa62211 起终端只有进度/总结/下一步）
+    expect(lines.join('\n')).not.toMatch(/possible-duplicate-topic/);
   });
 
   it('O1: unassigned session creates new topics only; colliding topic is skipped with warning', async () => {
@@ -321,9 +345,10 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     const lines: string[] = [];
     const orig = console.log;
     console.log = (s: string) => { lines.push(String(s)); };
+    let second: Awaited<ReturnType<typeof runPipelineAsync>>;
     try {
       await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 's1' });
-      await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 'u1' });
+      second = await runPipelineAsync(home, cfgFor(stub.base), index, { sessionId: 'u1' });
     } finally {
       console.log = orig;
     }
@@ -334,7 +359,11 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     const docs = activeEntry(['existing-topic']);
     expect(docs).toHaveLength(1);
     expect(docs[0].entry.body).toContain('project doc');
-    expect(lines.join('\n')).toMatch(/possible-duplicate-topic/);
+    expect(second.duplicateTopics).toBe(1);
+    const dup = dupTopicEvents(home);
+    expect(dup).toHaveLength(1);
+    expect(String(dup[0].note)).toContain('already active');
+    expect(String(dup[0].note)).toContain('skipped');
   });
 
   it('omem review --confirm raises an API doc to 0.9 + verified (V19)', async () => {

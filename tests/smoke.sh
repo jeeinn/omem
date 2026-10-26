@@ -139,7 +139,8 @@ echo "$OUT" | grep -q "s15-old-marker" && ok "--all brings back superseded" || b
 OUT=$(run search "s15-new-marker")
 echo "$OUT" | grep -q "s15-new-marker" && ok "new entry still searchable" || bad "new entry not hit: $OUT"
 REV=$(run review)
-CAND=$(printf '%s\n' "$REV" | sed -n 's/^- `\([^`]*\)`.*/\1/p' | head -1)
+# review 的候选行是 "  <id>  <conf>  <source>  <topic>"（896bd19 精简后不再有反引号）
+CAND=$(printf '%s\n' "$REV" | sed -n 's/^[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-[0-9a-f]\{6\}\)[[:space:]].*/\1/p' | head -1)
 if [ -n "$CAND" ]; then
   OUT=$(run review --confirm "$CAND" --supersedes "$OLD")
   echo "$OUT" | grep -q "Confirmed" && ok "review --confirm --supersedes confirms" || bad "review not confirmed: $OUT"
@@ -159,15 +160,17 @@ echo "$OUT" | grep -q "Hard deleted" && ok "--yes performs the delete" || bad "-
 OUT=$(run redact --source llm)
 echo "$OUT" | grep -q "No entries match" && ok "zero matches is a no-op" || bad "unexpected zero-match output: $OUT"
 
-echo "== S17 (V12) sync warns about non-empty [api].key before committing =="
-sed -i 's/^\[search\]/[api]\nkey = "sk-smoke-guard"\n\n[search]/' "$OMEM_HOME/config.toml"
-OUT=$(run sync); CODE=$?
-[ $CODE -eq 0 ] && ok "sync with key in config exits 0" || bad "exit code $CODE: $OUT"
+echo "== S17 (V12) backup warns about non-empty [api].key before any git action =="
+# D9 的扫描挂在 git 路径上（omem backup），不在采集路径（omem sync）——
+# c1c9df8 改名后二者是分开的命令。
+sed -i 's/^key = ""$/key = "sk-smoke-guard"/' "$OMEM_HOME/config.toml"
+OUT=$(run backup); CODE=$?
+[ $CODE -eq 0 ] && ok "backup with key in config exits 0" || bad "exit code $CODE: $OUT"
 echo "$OUT" | grep -q "non-empty \[api\].key" && ok "key warning printed" || bad "no key warning: $OUT"
 echo "$OUT" | grep -q "OMEM_API_KEY" && ok "warning suggests env var alternative" || bad "no alternative suggested: $OUT"
-grep -q 'key = "sk-smoke-guard"' "$OMEM_HOME/config.toml" && ok "config not rewritten by sync" || bad "sync modified config"
+grep -q 'key = "sk-smoke-guard"' "$OMEM_HOME/config.toml" && ok "config not rewritten by backup" || bad "backup modified config"
 sed -i 's/^key = "sk-smoke-guard"/key = ""/' "$OMEM_HOME/config.toml"
-OUT=$(run sync)
+OUT=$(run backup)
 echo "$OUT" | grep -q "non-empty \[api\].key" && bad "warning fires with empty key" || ok "no warning when key empty"
 
 echo ""

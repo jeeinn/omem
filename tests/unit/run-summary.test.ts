@@ -44,5 +44,12 @@ describe('omem sync summary', () => {
     expect(text).toContain('pending 2');
     expect(text).toContain('omem sync --tier api');
     expect(text).not.toContain('## user');
+    expect(text).not.toContain('duplicate topic'); // no hint without a duplicate
+  });
+
+  it('api run with a possible duplicate topic points at review', () => {
+    const text = runSummaryLines(report({ tier: 'api', written: ['a'], duplicateTopics: 2 }), false).join('\n');
+    expect(text).toContain('Possible duplicate topics were logged');
+    expect(text).toContain('omem review');
   });
 });
