@@ -14,7 +14,14 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLi
 
 ## 状态
 
-V0.1，公开测试版 `0.1.0-beta.4`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。尚未用真实会话做完质量验证。
+V0.1，公开测试版 `0.1.0-beta.5`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。尚未用真实会话做完质量验证。
+
+从 beta.4 升级时命令名变了：
+
+- 采集会话用 `omem sync`。`omem run` 已删除
+- 备份数据仓用 `omem backup`。它不再叫 `omem sync`
+- `omem pause` / `omem resume` 已删除
+- `omem review` 默认只列出最近 10 条；`omem review <id>` 打开正文
 
 备份只交付 git。WebDAV 与本地目录后端还没有。从 beta.1 升级时：规则抽取已移除，`knowledge/` 只放结论；`omem install` 在非交互环境必须带 `--target`；`omem redact --source` 默认只预览。旧规则碎片用 `omem redact --source rules --yes` 删掉。
 
