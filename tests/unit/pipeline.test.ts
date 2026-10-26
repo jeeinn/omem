@@ -72,17 +72,6 @@ describe('pipeline: runPipeline (ingest only)', () => {
     expect(r2.written).toHaveLength(0);
   });
 
-  it('returns immediately when paused', () => {
-    const config = withConfig(home, (c) => {
-      c.general.paused = true;
-      c.collect.claude_projects = FIXTURE_ROOT;
-      isolateOthers(c);
-    });
-    const report = runPipeline(home, config, index, {});
-    expect(report.sessions).toBe(0);
-    expect(report.notes[0]).toContain('Collection paused');
-  });
-
   it('missing session directories give actionable hints', () => {
     const config = withConfig(home, (c) => {
       c.collect.claude_projects = ABSENT;

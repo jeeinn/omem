@@ -80,11 +80,6 @@ export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier }
 export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): RunReport {
   const { tier } = resolveTier(config, opts.tier);
   const report = emptyReport(tier);
-  if (config.general.paused) {
-    report.notes.push('Collection paused (run omem resume to resume)');
-    return report;
-  }
-
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
@@ -100,10 +95,6 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   if (tier !== 'api') return runPipeline(home, config, index, opts);
 
   const report = emptyReport('api');
-  if (config.general.paused) {
-    report.notes.push('Collection paused (run omem resume to resume)');
-    return report;
-  }
   // §6.2：策略/配置错误抛 UsageError（exit 1），不再用裸 Error
   const cfg = resolveApiConfig(config, process.env, {
     base: opts.apiBase,

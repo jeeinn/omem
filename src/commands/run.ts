@@ -14,13 +14,6 @@ import type { Tier } from '../core/config.js';
 /** 跑完后的总结和下一步。不包含会话路径或逐条结果。 */
 export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
   const lines: string[] = ['Summary'];
-  if (report.notes.some((n) => n.startsWith('Collection paused'))) {
-    lines.push('  Collection is paused.');
-    lines.push('');
-    lines.push('Next');
-    lines.push('  omem resume');
-    return lines;
-  }
   for (const n of report.notes) {
     if (n.includes('not found')) lines.push(`  ${n}`);
   }

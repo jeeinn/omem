@@ -83,10 +83,10 @@ describe('config: TOML subset', () => {
     const home = makeHome();
     try {
       withConfig(home, (c) => {
-        c.general.paused = true;
+        c.general.profile = 'work';
       });
-      expect(readFileSync(configPath(home), 'utf8')).toContain('paused = true');
-      expect(loadConfig(home).general.paused).toBe(true);
+      expect(readFileSync(configPath(home), 'utf8')).toContain('profile = "work"');
+      expect(loadConfig(home).general.profile).toBe('work');
     } finally {
       cleanupHome(home);
     }
@@ -256,9 +256,9 @@ describe('config: [api] section (档 3 文档 §3.1)', () => {
       const c = defaultConfig();
       c.api.key = 'sk-must-survive';
       saveConfig(home, c);
-      // pause / resume / profile use / sync use 都走 loadConfig → 改一个无关字段 → saveConfig
+      // profile use / sync use 都走 loadConfig → 改一个无关字段 → saveConfig
       const again = loadConfig(home);
-      again.general.paused = true;
+      again.general.profile = 'work';
       saveConfig(home, again);
       const third = loadConfig(home);
       expect(third.api.key).toBe('sk-must-survive');
@@ -277,7 +277,7 @@ describe('config: [api] section (档 3 文档 §3.1)', () => {
       expect(parsed.api.key).toBe('sk-handwritten');
       expect(parsed.api.base).toBe('https://example.com/v1');
       const again = loadConfig(home);
-      again.general.paused = false;
+      again.general.profile = 'work';
       saveConfig(home, again);
       expect(loadConfig(home).api.key).toBe('sk-handwritten');
     } finally {

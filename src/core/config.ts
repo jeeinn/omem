@@ -10,7 +10,7 @@ export type SyncBackendId = 'git' | 'webdav' | 'dir';
 export type Tier = 'rules' | 'agent' | 'api';
 
 export interface OmemConfig {
-  general: { profile: Profile; paused: boolean };
+  general: { profile: Profile };
   collect: {
     claude_projects: string;
     workbuddy_projects: string;
@@ -35,7 +35,7 @@ export interface OmemConfig {
 
 export function defaultConfig(): OmemConfig {
   return {
-    general: { profile: 'home', paused: false },
+    general: { profile: 'home' },
     collect: {
       claude_projects: '~/.claude/projects',
       workbuddy_projects: '~/.workbuddy/projects',
@@ -231,7 +231,6 @@ function fromParsed(p: Record<string, any>): OmemConfig {
   return {
     general: {
       profile: p?.general?.profile === 'work' ? 'work' : 'home',
-      paused: Boolean(p?.general?.paused),
     },
     collect: {
       claude_projects: typeof p?.collect?.claude_projects === 'string' ? p.collect.claude_projects : d.collect.claude_projects,
@@ -279,7 +278,6 @@ export function serializeConfig(c: OmemConfig): string {
     '',
     '[general]',
     `profile = ${tomlStr(c.general.profile)}`,
-    `paused = ${c.general.paused}`,
     '',
     '[collect]',
     `claude_projects = ${tomlStr(c.collect.claude_projects)}`,

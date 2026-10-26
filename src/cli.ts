@@ -16,7 +16,6 @@ import { cmdRebuild } from './commands/rebuild.js';
 import { cmdContext } from './commands/context.js';
 import { cmdSync } from './commands/sync.js';
 import { cmdProfile } from './commands/profile.js';
-import { cmdPause, cmdResume } from './commands/pause.js';
 import { cmdRedact } from './commands/redact.js';
 import { cmdSnapshot } from './commands/snapshot.js';
 import { cmdServe } from './commands/serve.js';
@@ -60,8 +59,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdSearch,
   },
   review: {
-    desc: 'Review queue (unverified candidates + stale hints)',
-    usage: 'omem review [--confirm <id> [--supersedes <old-id>]] [--dismiss <id>] [--stale <id>]',
+    desc: 'Review a short queue; open one entry by id',
+    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id> [--supersedes <old-id>]] [--dismiss <id>] [--stale <id>]',
     run: cmdReview,
   },
   gc: {
@@ -88,16 +87,6 @@ const COMMANDS: Record<string, Command> = {
     desc: 'Switch and show work/home profile status',
     usage: 'omem profile [use work|home|status]',
     run: cmdProfile,
-  },
-  pause: {
-    desc: 'Pause collection',
-    usage: 'omem pause',
-    run: cmdPause,
-  },
-  resume: {
-    desc: 'Resume collection',
-    usage: 'omem resume',
-    run: cmdResume,
   },
   redact: {
     desc: 'Hard delete (the only way); --source previews by default, --yes deletes',

@@ -85,7 +85,7 @@
 | G4 | 同一条文件两边都改 → sync | 退出码 0（冲突已处理）；远端版另存 `.conflict.md`，本地版保留；不自动合并 |
 | G5 | `omem sync use webdav` 然后 `omem sync` | 前者退出码 0 只提示 V0.2 交付；后者退出码 2。测完 `omem sync use git` 还原 |
 
-## H. 档案、暂停、审计
+## H. 档案、审计
 
 | ID | 命令 | 预期 |
 | --- | --- | --- |
@@ -93,7 +93,6 @@
 | H2 | `omem context --for plain`（work 档） | 被拒；退出码 2（ProfileBlockedError） |
 | H3 | `$env:OMEM_ALLOW_WORK_EXPORT="1"; omem context --for plain` | 放行；退出码 0 |
 | H4 | `omem profile use home` | 切回，退出码 0 |
-| H5 | `omem pause; omem resume` | 各退出码 0 |
 
 ## I. MCP（真实使用路径，用远端包的 bin）
 
@@ -146,7 +145,7 @@
 | E 采集 | 5 | 5 | 含一次测试设计修正（见下） |
 | F 上下文 | 3 | 3 | plain/codex 导出、audit JSONL |
 | G 同步 | 5 | 5 | 双机互编、冲突只报告、`.conflict.md` 不进索引、webdav 退 2 |
-| H 档案 | 5 | 5 | work 档退 2、显式放行、pause/resume |
+| H 档案 | 4 | 4 | work 档退 2、显式放行 |
 | I MCP | 4 | 4 | 干净库探针 12/12 全过 |
 | J API 档 | 2 | 2 | 未配端点不崩溃、dry-run 零网络 |
 | K 退出码 | 6 | 6 | 全部符合契约 |

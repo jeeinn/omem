@@ -1,16 +1,29 @@
-// omem review：待确认队列（规格 §7）。默认列出 unverified 候选 + stale 提示。
-// --confirm <id> 确认刷新 · --confirm <id> --supersedes <old> 确认并取代
-// --dismiss <id> 归档（可逆）· --stale <id> 手动冷却
+// omem review：短队列 + 按 id 打开正文。
+// 默认只收「近 14 天写下的」和「置信度 ≤0.35 或带 ungrounded」的未确认活文档。
+// --confirm / --dismiss / --stale 仍是原来的三个动作。
 import { openCtx } from '../core/ctx.js';
 import { findById, listEntries, moveToArchive, updateEntry } from '../core/store.js';
 import { applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
-import { deriveTitle, serializeEntry } from '../core/entry.js';
-import { truncate, UsageError } from '../core/util.js';
-import { flagStr } from '../cli-args.js';
+import { serializeEntry } from '../core/entry.js';
+import type { Frontmatter } from '../core/entry.js';
+import { UsageError } from '../core/util.js';
+import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
+
+const PAGE = 10;
+const RECENT_DAYS = 14;
 
 function idList(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** 抽检队列：近两周的未确认文档，加上锚不上证据的（不随时间退出队列）。 */
+export function inReviewInbox(fm: Frontmatter, now = Date.now()): boolean {
+  if (fm.verified || fm.status !== 'active') return false;
+  if (fm.confidence <= 0.35 || fm.tags.includes('ungrounded')) return true;
+  const created = Date.parse(fm.created);
+  if (!Number.isFinite(created)) return false;
+  return now - created <= RECENT_DAYS * 86_400_000;
 }
 
 export async function cmdReview(args: ParsedArgs): Promise<number> {
@@ -76,32 +89,61 @@ async function reviewBody(
     return 0;
   }
 
-  // 默认：列出待确认队列
+  const openId = args._[0]?.trim();
+  if (openId) return showEntry(home, openId);
+
   const all = listEntries(home);
   const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
-  const stale = all.filter((l) => l.entry.fm.status === 'stale');
+  let queue = unverified.filter((l) => inReviewInbox(l.entry.fm));
+  const parked = unverified.length - queue.length;
+  const source = flagStr(args.flags, 'source');
+  const topic = flagStr(args.flags, 'topic');
+  if (source) queue = queue.filter((l) => l.entry.fm.source === source);
+  if (topic) queue = queue.filter((l) => l.entry.fm.topic === topic);
+  queue.sort((a, b) => (b.entry.fm.created || '').localeCompare(a.entry.fm.created || ''));
 
-  if (unverified.length === 0 && stale.length === 0) {
-    console.log('Queue is empty: no pending candidates and no cooled entries.');
+  const stale = all.filter((l) => l.entry.fm.status === 'stale');
+  const showAll = flagBool(args.flags, 'all');
+  const shown = showAll ? queue : queue.slice(0, PAGE);
+
+  if (shown.length === 0 && stale.length === 0) {
+    console.log('Queue is empty.');
+    if (!source && !topic && parked > 0) {
+      console.log(`${parked} older unverified entries stay in the library.`);
+    }
     return 0;
   }
-  if (unverified.length > 0) {
-    console.log(`Pending candidates (unverified, ${unverified.length} total):\n`);
-    for (const l of unverified) {
+
+  if (shown.length > 0) {
+    const scope = showAll || queue.length <= PAGE ? '' : ' newest';
+    console.log(`Pending ${queue.length} · showing ${shown.length}${scope}\n`);
+    for (const l of shown) {
       const fm = l.entry.fm;
-      console.log(`- \`${fm.id}\` [${fm.source}] ${truncate(deriveTitle(l.entry.body), 50)}`);
-      console.log(`  confidence ${fm.confidence} · #${fm.type} #${fm.domain} ${formatStaleness(fm)}`);
+      console.log(`  ${fm.id}  ${fm.confidence.toFixed(2)}  ${fm.source.padEnd(6)} ${fm.topic ?? '-'}`);
     }
     console.log('');
+    if (!showAll && queue.length > PAGE) {
+      console.log(`  … ${queue.length - PAGE} more.  omem review --all`);
+    }
+    console.log('Open one:  omem review <id>');
   }
   if (stale.length > 0) {
-    console.log(`Cooled (stale, search weight ×${config.process.stale_weight}, ${stale.length} total):\n`);
-    for (const l of stale.slice(0, 20)) {
-      console.log(`- \`${l.entry.fm.id}\` ${truncate(deriveTitle(l.entry.body), 50)} ${formatStaleness(l.entry.fm)}`);
-    }
-    if (stale.length > 20) console.log(`  …and ${stale.length - 20} more`);
-    console.log('');
+    console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <id>.`);
   }
-  console.log('Actions: omem review --confirm <id> [--supersedes <old-id>] | --dismiss <id> (archive) | --stale <id>');
+  return 0;
+}
+
+function showEntry(home: string, id: string): number {
+  const loc = findById(home, id, { includeArchived: true });
+  if (!loc) throw new UsageError(`Entry not found: ${id}`);
+  const fm = loc.entry.fm;
+  console.log(`File: ${loc.path}`);
+  console.log(`confidence ${fm.confidence.toFixed(2)} · ${fm.source} · ${fm.type}${fm.topic ? ` · topic ${fm.topic}` : ''} ${formatStaleness(fm)}`);
+  console.log('');
+  console.log(loc.entry.body.trimEnd());
+  console.log('');
+  console.log('Next');
+  console.log(`  omem review --confirm ${fm.id}`);
+  console.log(`  omem review --dismiss ${fm.id}`);
   return 0;
 }

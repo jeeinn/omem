@@ -92,13 +92,13 @@ Git 数据仓只在首次（`omem init` 或第一次 `omem sync`）建立；此�
 | `omem api status` | API 档诊断：生效配置、队列深度、端点模型探测 |
 | `omem add <content>` | 手工添加（自动脱敏、幂等去重） |
 | `omem search <query> [--detail] [--sessions] [--domain X]` | 默认只查结论；`--sessions` 只查对话原文 |
-| `omem review [--confirm <id>]` | 审阅队列。`--confirm` 把该条标为已确认并把置信度提到 0.9 |
+| `omem review [<id>] [--all] [--source X] [--topic X]` | 待审队列默认最近 10 条。`omem review <id>` 打开正文；`--confirm` / `--dismiss` 确认或归档 |
 | `omem gc [--days N]` | 标记 stale（直接标记，只标记不删除） |
 | `omem rebuild` | 从 Markdown 全量重建索引（删 db 也能恢复） |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 导出记忆为客户端上下文 |
 | `omem sync [status\|remote <url>\|pull\|push\|use <backend>]` | git 同步（V0.1 唯一后端） |
 | `omem profile [home\|work]` | 档案切换；work 档默认禁同步/导出 |
-| `omem pause` / `omem redact --id <id>` / `omem redact --source <s> [--yes]` | 暂停加工 / 硬删一条 / 按来源批量硬删（**默认只预览，必须 `--yes` 才删**） |
+| `omem redact --id <id>` / `omem redact --source <s> [--yes]` | 硬删一条 / 按来源批量硬删（**默认只预览，必须 `--yes` 才删**） |
 | `omem snapshot` | 手动快照（push 前自动快照，滚动保留 7 份） |
 | `omem serve` | MCP server（stdio；由 install 写入的配置自动拉起） |
 | `omem audit [--tail N]` | 使用日志尾部（默认 20 条 JSONL：commit / redact / run / sync 等事件） |

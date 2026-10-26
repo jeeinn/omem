@@ -321,7 +321,6 @@ omem sync use <git|webdav|dir>
 omem sync remote <url>           仅 git
 
 omem profile use work|home       work 默认禁导出
-omem pause                       一键停采集
 omem redact --id <id>            唯一硬删除途径
 ```
 

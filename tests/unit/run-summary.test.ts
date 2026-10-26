@@ -33,11 +33,10 @@ describe('omem run summary', () => {
     expect(text).not.toContain('session_id');
   });
 
-  it('paused run only suggests resume', () => {
-    const text = runSummaryLines(report({ notes: ['Collection paused (run omem resume to resume)'] }), false).join('\n');
-    expect(text).toContain('Collection is paused');
-    expect(text).toContain('omem resume');
-    expect(text).not.toContain('sessions 4');
+  it('nothing waiting suggests running again later', () => {
+    const text = runSummaryLines(report({ waitingTopics: 0, waitingUnassigned: 0 }), false).join('\n');
+    expect(text).toContain('Nothing is waiting');
+    expect(text).toContain('omem search');
   });
 
   it('api run with pending suggests continuing the queue', () => {
