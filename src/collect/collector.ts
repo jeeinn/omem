@@ -59,11 +59,12 @@ export interface ScanResult {
 export function scanSessions(
   index: OmemIndex,
   config: OmemConfig,
-  opts: { since?: Date; sessionId?: string } = {},
+  opts: { since?: Date; sessionId?: string; onProgress?: (done: number, total: number) => void } = {},
 ): ScanResult {
   const digests: SessionDigest[] = [];
   const roots: ScanRoot[] = [];
   let skipped = 0;
+  const work: { collector: Collector; path: string }[] = [];
   for (const id of COLLECTOR_IDS) {
     const collector = getCollector(id, config);
     const root = collector.root();
@@ -71,18 +72,23 @@ export function scanSessions(
     roots.push({ id, root, exists: rootExists });
     if (!rootExists) continue;
     const files = collector.list().filter((f) => (opts.sessionId ? f.sessionId === opts.sessionId : true));
-    for (const f of files) {
-      const digest = collector.parse(f.path);
-      if (!digest) continue;
-      if (opts.since && new Date(digest.ended_ts) < opts.since) continue;
-      const rec = index.getSession(sessionKey(digest.agent, digest.session_id));
-      const { hash } = prepareDialogue(digest);
-      if (!opts.sessionId && rec?.content_hash && rec.content_hash === hash) {
-        skipped++;
-        continue;
-      }
-      digests.push(digest);
+    for (const f of files) work.push({ collector, path: f.path });
+  }
+  const total = work.length;
+  opts.onProgress?.(0, total);
+  for (let i = 0; i < work.length; i++) {
+    opts.onProgress?.(i + 1, total);
+    const { collector, path } = work[i];
+    const digest = collector.parse(path);
+    if (!digest) continue;
+    if (opts.since && new Date(digest.ended_ts) < opts.since) continue;
+    const rec = index.getSession(sessionKey(digest.agent, digest.session_id));
+    const { hash } = prepareDialogue(digest);
+    if (!opts.sessionId && rec?.content_hash && rec.content_hash === hash) {
+      skipped++;
+      continue;
     }
+    digests.push(digest);
   }
   return { digests, skipped, roots };
 }

@@ -44,6 +44,8 @@ export interface RunOpts {
   apiBase?: string;
   apiModel?: string;
   apiLimit?: number;
+  /** TTY 进度。非 TTY 调用方传了也只是空操作（由 createRunProgress 决定）。 */
+  onProgress?: (phase: string, done: number, total: number) => void;
 }
 
 export interface RunReport {
@@ -63,6 +65,10 @@ export interface RunReport {
   quarantined?: number;
   queuePending?: number;
   elapsedMs?: number;
+  /** PROCESS.md 里还有会话的主题组数（不含本批截断）。 */
+  waitingTopics?: number;
+  waitingUnassigned?: number;
+  duplicateTopics?: number;
 }
 
 /** 显式 --tier 优先。rules 已从产品路径移除，残留配置按 agent 处理。 */
@@ -82,7 +88,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
-  ingest(home, index, scan.digests, opts.dryRun ?? false, report);
+  ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
   publishGuide(home, index, opts.dryRun ?? false, report);
   finish(home, index, report, opts.dryRun ?? false);
   return report;
@@ -108,7 +114,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
-  ingest(home, index, scan.digests, opts.dryRun ?? false, report);
+  ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
 
   const queue = materializeQueue(index, {
     since: opts.since,
@@ -151,7 +157,6 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     appendLog(home, 'api', { model: resolved.model, base: cfg.base, ...extra });
   };
 
-  const isTty = Boolean(process.stdout.isTTY);
   const total = queue.items.length;
   const startedAt = Date.now();
   let transportFails = 0;
@@ -161,20 +166,13 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   let dupTopics = 0;
   let stop: BackendUnavailableError | undefined;
 
-  const progress = (i: number, line: string): void => {
-    if (isTty) {
-      process.stdout.write(`\r\x1b[2K${line}`);
-    } else if (i % 10 === 0 || i === total) {
-      console.log(line);
-    }
-  };
+  const mark = (done: number): void => opts.onProgress?.('Processing', done, total);
 
   let fatal: unknown;
   try {
   for (let i = 0; i < queue.items.length; i++) {
     const item = queue.items[i];
     const t0 = Date.now();
-    const short = item.sessionId.slice(0, 8);
     try {
       const body = readStoredSession(item.path)?.body ?? '';
       // §7.2 注入既有活文档：按会话的 project_fp 取该项目的 active 活文档（无 project 的会话为空）
@@ -187,29 +185,24 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
       transportFails = 0;
       for (const n of notes) apiLog({ status: 'response_note', session: item.key, note: n });
       report.candidates += docs.length;
-      const landedTopics: string[] = [];
       for (const d of docs) {
-        const landed = commitDoc(home, config, index, item, d, report, (note) => {
+        commitDoc(home, config, index, item, d, report, (note) => {
           dupTopics++;
           apiLog({ status: 'possible-duplicate-topic', session: item.key, note });
         });
-        if (landed) landedTopics.push(landed);
       }
       // 规则 5 写序：先文件后索引
       const okState = formatApiState({ status: 'ok', prompt: API_PROMPT_VERSION, hash: item.content_hash, count: 0 });
       updateSessionApiState(item.path, okState);
       index.setSessionApiState(item.key, okState);
-      const secs = ((Date.now() - t0) / 1000).toFixed(1);
-      const topicPart = landedTopics.length > 0 ? ` (${landedTopics.join(', ')})` : ' (nothing kept)';
-      progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  ${docs.length} doc${docs.length === 1 ? '' : 's'}${topicPart}${' '.repeat(Math.max(1, 20 - short.length))}${secs}s`);
+      mark(i + 1);
     } catch (e) {
-      const secs = ((Date.now() - t0) / 1000).toFixed(1);
       if (e instanceof ApiTransportError) {
         // 规则 3：传输失败不写状态 → 下次自动重试；连续 3 次中止整批（§3.4）
         failed++;
         transportFails++;
         apiLog({ status: 'transport_failed', error: e.message, http_status: e.status, session: item.key, duration_ms: Date.now() - t0 });
-        progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  failed: ${e.message} (logged, continue)${' '.repeat(Math.max(1, 8))}${secs}s`);
+        mark(i + 1);
         if (transportFails >= 3) {
           apiLog({ status: 'aborted', consecutive_failures: transportFails });
           stop = endpointUnavailableError(transportFails);
@@ -230,7 +223,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
         index.setSessionApiState(item.key, nextState);
         if (strikes >= 2) quarantinedNow++;
         apiLog({ status: 'parse_failed', session: item.key, strikes, duration_ms: Date.now() - t0, raw: e.raw.slice(0, 2000) });
-        progress(i + 1, `[api] ${i + 1}/${total}  session ${short}…  →  parse_failed (raw in log; ${strikes}${strikes === 2 ? 'nd' : strikes === 1 ? 'st' : 'th'} strike${strikes >= 2 ? ' → quarantined' : ''})${' '.repeat(Math.max(1, 4))}${secs}s`);
+        mark(i + 1);
         continue;
       }
       throw e;
@@ -239,7 +232,6 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   } catch (e) {
     fatal = e;
   }
-  if (isTty && total > 0) process.stdout.write('\n');
 
   report.failed = failed;
   report.parseFailed = parseFailed;
@@ -252,16 +244,13 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     promptVersion: API_PROMPT_VERSION,
   }).pending;
   report.queuePending = pendingAfter;
+  report.duplicateTopics = dupTopics;
   if (!stop && !fatal) {
     // §3.9 汇总分列：parse_failed 与 failed 不混。中止走退出码 2，不打印看起来已经跑完的 done 行。
     console.log(
       `[api] done: written ${report.written.length} · deduped ${report.deduped} · failed ${failed} · parse_failed ${parseFailed} · `
         + `quarantined ${report.quarantined} · elapsed ${formatElapsed(report.elapsedMs)} · pending ${pendingAfter}`,
     );
-    if (dupTopics > 0) {
-      // §7.4：近似 topic 只报告不合并，由 omem review 人工裁决
-      console.log(`[api] note: ${dupTopics} possible-duplicate-topic event(s) logged; review them before they fragment`);
-    }
   }
   // 规则 9：同一次运行就把已吸收会话从 PROCESS.md 待办里去掉。中止前也刷新，已产出留在索引里。
   publishGuide(home, index, false, report, true);
@@ -379,7 +368,13 @@ function emptyReport(tier: Tier): RunReport {
 
 function scanHome(config: OmemConfig, index: OmemIndex, opts: RunOpts): ScanResult {
   const since = opts.since ? parseSince(opts.since) : undefined;
-  return scanSessions(index, config, { since, sessionId: opts.sessionId });
+  return scanSessions(index, config, {
+    since,
+    sessionId: opts.sessionId,
+    onProgress: opts.onProgress
+      ? (done, total) => opts.onProgress!('Scanning sessions', done, total)
+      : undefined,
+  });
 }
 
 /** 把本批变化的对话写入 sessions/，并更新会话索引。 */
@@ -389,8 +384,12 @@ function ingest(
   digests: SessionDigest[],
   dryRun: boolean,
   report: RunReport,
+  onProgress?: (phase: string, done: number, total: number) => void,
 ): void {
-  for (const digest of digests) {
+  const total = digests.length;
+  for (let i = 0; i < digests.length; i++) {
+    const digest = digests[i];
+    onProgress?.('Writing sessions', i + 1, total);
     report.sessions++;
     report.messages += digest.messages.length;
     const { body, hash } = prepareDialogue(digest);
@@ -411,15 +410,16 @@ function ingest(
 }
 
 function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport, silent = false): void {
-  const [topics, remaining, unassigned] = pendingTopics(home, index);
+  const [topics, remaining, unassigned, counts] = pendingTopics(home, index);
+  report.waitingTopics = counts.topics;
+  report.waitingUnassigned = counts.unassigned;
   const text = renderGuide(topics, remaining, unassigned);
   if (!dryRun) {
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);
   }
-  // API 档只更新文件。引导全文和「不调用模型」是 agent 档的终端输出。
+  // 待办清单只写文件。终端由 omem run 打总结，不把会话路径列出来。
   if (silent) return;
-  console.log(text);
   report.notes.push('Conclusions are written by the Agent via save_memory / omem add after reading PROCESS.md; omem does not call a model');
 }
 
@@ -439,7 +439,7 @@ function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
   topic.otherDocs = sorted.length - 1;
 }
 
-export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[]] {
+export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[], { topics: number; unassigned: number }] {
   const absorbed = absorbedSessionIds(home);
   const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
   // 反查表：会话 → 它产出的活文档。项目分组名是 project_fp，而活文档用 Agent 自己起的 topic，
@@ -500,7 +500,12 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
     if (docs) fillDocSlot(topic, [...docs.values()]);
   }
   const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);
-  return [all.slice(0, GUIDE_BATCH), Math.max(0, all.length - GUIDE_BATCH), unassigned.slice(0, GUIDE_BATCH)];
+  return [
+    all.slice(0, GUIDE_BATCH),
+    Math.max(0, all.length - GUIDE_BATCH),
+    unassigned.slice(0, GUIDE_BATCH),
+    { topics: all.length, unassigned: unassigned.length },
+  ];
 }
 
 /** 已写进任一结论的 session_id 或 source_sessions，不再进入待吸收列表。 */

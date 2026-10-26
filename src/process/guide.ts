@@ -1,4 +1,4 @@
-// 档 2：把待加工主题写成 PROCESS.md，并打印同一份引导。omem 不调用模型。
+// 档 2：把待加工主题写成 PROCESS.md。omem 不调用模型，终端也不再打印这份清单。
 import { statSync } from 'node:fs';
 import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';

@@ -1,0 +1,49 @@
+// omem run 结束时的总结和下一步，不包含会话清单。
+import { describe, it, expect } from 'vitest';
+import { runSummaryLines } from '../../src/commands/run.js';
+import type { RunReport } from '../../src/process/pipeline.js';
+
+function report(over: Partial<RunReport> = {}): RunReport {
+  return {
+    tier: 'agent',
+    sessions: 4,
+    skipped: 3,
+    messages: 10,
+    candidates: 0,
+    written: [],
+    deduped: 0,
+    redacted: 0,
+    excluded: 0,
+    notes: [],
+    waitingTopics: 2,
+    waitingUnassigned: 1,
+    ...over,
+  };
+}
+
+describe('omem run summary', () => {
+  it('agent run points at PROCESS.md and does not list sessions', () => {
+    const text = runSummaryLines(report(), false).join('\n');
+    expect(text).toContain('Summary');
+    expect(text).toContain('sessions 4 (3 unchanged)');
+    expect(text).toContain('2 topic group(s) waiting');
+    expect(text).toContain('1 unassigned');
+    expect(text).toContain('Next');
+    expect(text).toContain('PROCESS.md');
+    expect(text).not.toContain('session_id');
+  });
+
+  it('paused run only suggests resume', () => {
+    const text = runSummaryLines(report({ notes: ['Collection paused (run omem resume to resume)'] }), false).join('\n');
+    expect(text).toContain('Collection is paused');
+    expect(text).toContain('omem resume');
+    expect(text).not.toContain('sessions 4');
+  });
+
+  it('api run with pending suggests continuing the queue', () => {
+    const text = runSummaryLines(report({ tier: 'api', queuePending: 2, failed: 1, written: ['a'] }), false).join('\n');
+    expect(text).toContain('pending 2');
+    expect(text).toContain('omem run --tier api');
+    expect(text).not.toContain('## user');
+  });
+});
