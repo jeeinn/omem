@@ -43,8 +43,9 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     }
     const spec = getClient(printId);
     const path = spec.configPath(homedir());
-    const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
-    console.log(`# Target file: ${path}${raw === null ? ' (does not exist; will be created on install)' : ''}`);
+    // manual-connector（qwenwork）无文件形态配置，path 是数据目录，不能读；直接打印应用内添加指引
+    const raw = spec.kind === 'manual-connector' ? null : existsSync(path) ? readFileSync(path, 'utf8') : null;
+    console.log(`# Target: ${spec.kind === 'manual-connector' ? 'in-app connector config (no file)' : path}${raw === null && spec.kind !== 'manual-connector' ? ' (does not exist; will be created on install)' : ''}`);
     console.log('# Preview: only the omem entry is shown below; all other content in the file is preserved untouched.');
     console.log(previewClientConfig(spec, command, raw));
     return 0;

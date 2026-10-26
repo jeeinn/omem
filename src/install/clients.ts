@@ -8,7 +8,8 @@ export type ClientKind =
   | 'json-mcp' // {"mcpServers": {"omem": {command, args}}}
   | 'json-array-mcp' // continue: {"mcpServers": [{name, command, args}]}
   | 'json-zed' // zed: {"context_servers": {"omem": {command: {path, args}}}}
-  | 'toml-mcp'; // codex: [mcp_servers.omem]
+  | 'toml-mcp' // codex: [mcp_servers.omem]
+  | 'manual-connector'; // qwenwork: MCP servers live inside the app; install prints an in-app add snippet
 
 export interface ClientSpec {
   id: string;
@@ -67,6 +68,17 @@ export const CLIENTS: ClientSpec[] = [
     configPath: (h) => join(h, '.workbuddy', 'mcp.json'),
     detect: (h) => existsSync(join(h, '.workbuddy')),
     verified: true, // 本机已核实：~/.workbuddy/mcp.json（不是带点前缀的 .mcp.json）
+  },
+  {
+    id: 'qwenwork',
+    name: 'QwenWork',
+    kind: 'manual-connector',
+    // 千问办公没有用户可编辑的 MCP 配置文件：自定义 MCP 存在应用内部数据里，
+    // 只能通过应用内「设置 → 连接器 → 自定义 MCP」或会话内让 agent 调 Connector 添加。
+    // configPath 只用于 --list 展示检测依据（数据目录存在 = 已安装）。
+    configPath: (h) => join(h, '.qwenworkcn'),
+    detect: (h) => existsSync(join(h, '.qwenworkcn')),
+    verified: true, // 本机已核实：无文件形态配置，install 打印应用内添加指引
   },
   {
     id: 'codex',

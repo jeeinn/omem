@@ -44,6 +44,22 @@ export function renderGenericMcpSnippet(command: string): string {
   );
 }
 
+/**
+ * manual-connector 片段（qwenwork）：MCP 配置在应用内部，无用户可编辑文件。
+ * 走纪律 5 的降级路径——打印应用内添加指引，不写任何文件。
+ */
+export function renderManualConnectorSnippet(command: string): string {
+  return [
+    'QwenWork keeps MCP server configs inside the app; there is no user-editable config file.',
+    'Add omem as a custom MCP server inside QwenWork:',
+    '  Settings → Connectors → Custom MCP (设置 → 连接器 → 自定义 MCP), or just ask the agent in a chat:',
+    '    "add a custom MCP server named omem, command ' + command + ', args [serve]"',
+    'Server config:',
+    JSON.stringify({ command, args: ['serve'] }, null, 2),
+    '',
+  ].join('\n');
+}
+
 /** JSONC 容错解析：去行/块注释与尾随逗号。 */
 export function parseJsonc(text: string): { ok: true; value: any } | { ok: false; error: string } {
   try {
@@ -94,6 +110,10 @@ function mergeInto(obj: any, spec: ClientSpec, command: string): void {
  */
 export function renderClientConfig(spec: ClientSpec, command: string, raw: string | null): RenderOutcome {
   const entry = omemEntry(command);
+  if (spec.kind === 'manual-connector') {
+    // 千问办公无文件形态配置：永远走降级路径，打印应用内添加指引
+    return { reason: 'This client manages MCP servers inside the app; omem cannot write its config file.', manual: renderManualConnectorSnippet(command) };
+  }
   const manual =
     spec.kind === 'toml-mcp'
       ? `[mcp_servers.omem]\ncommand = "${entry.command}"\nargs = ["serve"]`
@@ -133,6 +153,9 @@ export function renderClientConfig(spec: ClientSpec, command: string, raw: strin
  */
 export function previewClientConfig(spec: ClientSpec, command: string, raw: string | null): string {
   const entry = omemEntry(command);
+  if (spec.kind === 'manual-connector') {
+    return renderManualConnectorSnippet(command);
+  }
   const lines: string[] = [];
   if (spec.kind === 'toml-mcp') {
     lines.push('[mcp_servers.omem]', `command = "${entry.command}"`, 'args = ["serve"]');
@@ -188,7 +211,8 @@ export function previewClientConfig(spec: ClientSpec, command: string, raw: stri
 export function writeClientConfig(spec: ClientSpec, command: string): WriteOutcome {
   const path = spec.configPath(homedir());
   const outcome: WriteOutcome = { ok: false, client: spec.id, path };
-  const raw = existsSync(path) ? readFileSync(path, 'utf8') : null;
+  // manual-connector 的 configPath 是数据目录（不是文件），不能 readFileSync；render 自带降级
+  const raw = spec.kind === 'manual-connector' ? null : existsSync(path) ? readFileSync(path, 'utf8') : null;
 
   const rendered = renderClientConfig(spec, command, raw);
   if (rendered.text === undefined) {

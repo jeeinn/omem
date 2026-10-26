@@ -14,6 +14,7 @@ import {
   previewClientConfig,
 } from '../../src/install/writer.js';
 import type { ClientSpec } from '../../src/install/clients.js';
+import { CLIENTS, getClient } from '../../src/install/clients.js';
 import { upsertTomlSection } from '../../src/install/toml-bridge.js';
 
 let dir: string;
@@ -379,5 +380,55 @@ describe('install: marker-fenced instruction section', () => {
     expect(s).toContain('omem add');
     expect(s).toContain('omem context --for');
     expect(s).toContain('save_memory');
+  });
+});
+
+describe('install: manual-connector client (qwenwork)', () => {
+  // 千问办公无用户可编辑配置文件：configPath 指向数据目录本身
+  function qwenworkSpec(): ClientSpec {
+    return {
+      id: 'qwenwork',
+      name: 'QwenWork',
+      kind: 'manual-connector',
+      configPath: () => dir, // 目录，存在但不是文件
+      detect: () => true,
+      verified: true,
+    };
+  }
+
+  it('renderClientConfig always degrades to the in-app snippet (no file write shape)', () => {
+    const out = renderClientConfig(qwenworkSpec(), 'omem', null);
+    expect(out.text).toBeUndefined();
+    expect(out.reason).toBeTruthy();
+    expect(out.manual).toContain('Custom MCP');
+    expect(out.manual).toContain('"command": "omem"');
+    expect(out.manual).toContain('"serve"');
+  });
+
+  it('previewClientConfig prints the snippet instead of reading the directory', () => {
+    const text = previewClientConfig(qwenworkSpec(), 'omem', null);
+    expect(text).toContain('Custom MCP');
+    expect(text).toContain('"args"');
+  });
+
+  it('writeClientConfig does not throw when configPath is an existing directory', () => {
+    const out = writeClientConfig(qwenworkSpec(), 'omem');
+    expect(out.ok).toBe(false);
+    expect(out.manual).toBeTruthy();
+    expect(out.backup).toBeUndefined(); // 不读不写不备份
+    // 目录内容未被改动（没有创建任何备份/临时文件）
+    expect(readdirSync(dir).some((f) => f.includes('omem-backup') || f.includes('.tmp-'))).toBe(false);
+  });
+
+  it('registry: qwenwork is registered as manual-connector and detects ~/.qwenworkcn', () => {
+    const spec = getClient('qwenwork');
+    expect(spec.kind).toBe('manual-connector');
+    expect(spec.verified).toBe(true);
+    expect(CLIENTS.some((c) => c.id === 'qwenwork')).toBe(true);
+    // detect：临时 home 下建 .qwenworkcn 目录即命中
+    const home = join(dir, 'home');
+    mkdirSync(join(home, '.qwenworkcn'), { recursive: true });
+    expect(spec.detect(home)).toBe(true);
+    expect(spec.detect(dir)).toBe(false); // 无 .qwenworkcn 的目录不命中
   });
 });
