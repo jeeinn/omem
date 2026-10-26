@@ -30,6 +30,7 @@ function isolateOthers(config: ReturnType<typeof defaultConfig>) {
   config.collect.cursor_projects = ABSENT;
   config.collect.qwenwork_projects = ABSENT;
   config.collect.doubao_projects = ABSENT;
+  config.collect.deepseek_projects = ABSENT;
 }
 
 function cfgWithFixture() {

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseSessionFile, listSessionFiles, resolveProjectFp } from '../../src/collect/claude-code.js';
 import { COLLECTOR_IDS, getCollector, scanSessions } from '../../src/collect/collector.js';
+import { Encoder } from '@toondepauw/node-zstd';
 import { defaultConfig } from '../../src/core/config.js';
 import { OmemIndex } from '../../src/core/index.js';
 import { makeHome, cleanupHome } from './helpers.js';
@@ -83,7 +84,7 @@ describe('collector: registry', () => {
   });
 
   it('registers claude-code / workbuddy / cursor / qwenwork / doubao; unknown id errors', () => {
-    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao']);
+    expect([...COLLECTOR_IDS]).toEqual(['claude-code', 'workbuddy', 'cursor', 'qwenwork', 'doubao', 'deepseek']);
     const config = defaultConfig();
     expect(getCollector('workbuddy', config).id).toBe('workbuddy');
     expect(getCollector('cursor', config).id).toBe('cursor');
@@ -104,33 +105,43 @@ describe('collector: registry', () => {
     const cursor = join(root, 'cursor', 'p1', 'agent-transcripts', 'cur-1');
     const qwenwork = join(root, 'qw', 'proj');
     const doubao = join(root, 'doubao', 'sess-1', 'agents', 'm_a', 'system');
+    const deepseek = join(root, 'deepseek', 'proj', 'ds-sess-1');
     mkdirSync(claude, { recursive: true });
     mkdirSync(workbuddy, { recursive: true });
     mkdirSync(cursor, { recursive: true });
     mkdirSync(qwenwork, { recursive: true });
     mkdirSync(doubao, { recursive: true });
+    mkdirSync(deepseek, { recursive: true });
     writeFileSync(join(claude, 's1.jsonl'), '{"type":"user","message":{"role":"user","content":"claude 以后都用手写 SQL"},"uuid":"u","timestamp":"2026-10-10T09:00:00Z","sessionId":"s1"}\n');
     writeFileSync(join(workbuddy, 'wb-1.jsonl'), '{"type":"message","id":"u1","sessionId":"wb-1","timestamp":"2026-10-15T01:00:01.000Z","role":"user","content":[{"type":"input_text","text":"workbuddy 以后都用手写 SQL"}]}\n');
     writeFileSync(join(cursor, 'cur-1.jsonl'), '{"role":"user","message":{"content":[{"type":"text","text":"cursor 以后都用手写 SQL"}]}}\n');
     writeFileSync(join(qwenwork, 'qw-1.jsonl'), '{"type":"user","uuid":"u1","sessionId":"qw-1","timestamp":"2026-10-20T08:00:01.000Z","cwd":"X:/demo/qw","message":{"role":"user","content":[{"type":"text","text":"qwenwork 以后都用手写 SQL"}]}}\n');
     writeFileSync(join(doubao, 'trajectory.jsonl'), '{"role":"user","content":"doubao 以后都用手写 SQL"}\n');
+    const deepseekLines = [
+      JSON.stringify({ type: 'session', version: 4, id: 'ds-sess-1', createdAt: 1_700_000_000_000, cwd: 'X:/demo/ds' }),
+      JSON.stringify({ type: 'user/message', data: { content: 'deepseek 以后都用手写 SQL' } }),
+    ].join('\n');
+    writeFileSync(join(deepseek, 'session.v4.jsonl.zstd'), new Encoder(3).encodeSync(Buffer.from(deepseekLines, 'utf8')));
     const config = defaultConfig();
     config.collect.claude_projects = join(root, 'claude');
     config.collect.workbuddy_projects = join(root, 'wb');
     config.collect.cursor_projects = join(root, 'absent-cursor');
     config.collect.qwenwork_projects = join(root, 'absent-qw');
     config.collect.doubao_projects = join(root, 'absent-doubao');
+    config.collect.deepseek_projects = join(root, 'absent-ds');
     let scan = scanSessions(index, config, {});
     expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'workbuddy']);
     expect(scan.roots.find((r) => r.id === 'cursor')?.exists).toBe(false);
     expect(scan.roots.find((r) => r.id === 'qwenwork')?.exists).toBe(false);
     expect(scan.roots.find((r) => r.id === 'doubao')?.exists).toBe(false);
+    expect(scan.roots.find((r) => r.id === 'deepseek')?.exists).toBe(false);
 
     config.collect.cursor_projects = join(root, 'cursor');
     config.collect.qwenwork_projects = join(root, 'qw');
     config.collect.doubao_projects = join(root, 'doubao');
+    config.collect.deepseek_projects = join(root, 'deepseek');
     scan = scanSessions(index, config, {});
-    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'cursor', 'doubao', 'qwenwork', 'workbuddy']);
+    expect(scan.digests.map((d) => d.agent).sort()).toEqual(['claude-code', 'cursor', 'deepseek', 'doubao', 'qwenwork', 'workbuddy']);
     } finally {
       index.close();
     }

@@ -50,6 +50,7 @@ function fixtureConfig() {
   config.collect.cursor_projects = ABSENT;
   config.collect.qwenwork_projects = ABSENT;
   config.collect.doubao_projects = ABSENT;
+  config.collect.deepseek_projects = ABSENT;
   saveConfig(home, config);
   return config;
 }

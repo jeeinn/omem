@@ -56,7 +56,7 @@ omem backup remote git@github.com:you/omem-memory.git
 omem backup
 ```
 
-`omem install` 默认只预选路径已核实的客户端。非交互环境要写 `omem install --target claude-code,cursor`。不在列表里的客户端用 `omem install --print-config generic`。千问办公（QwenWork）与豆包办公（Doubao）的 MCP 配置在应用内部管理，没有可写文件：`omem install --target qwenwork,doubao` 会打印应用内添加指引（设置 → 连接器 / MCP，或在会话里让 agent 添加 `omem serve`）。
+`omem install` 默认只预选路径已核实的客户端。非交互环境要写 `omem install --target claude-code,cursor`。不在列表里的客户端用 `omem install --print-config generic`。千问办公（QwenWork）、豆包办公（Doubao）与 DeepSeek Harness 的 MCP 配置在应用内部管理，没有可写文件：`omem install --target qwenwork,doubao,deepseek` 会打印应用内添加指引（设置 → 连接器 / MCP，或在会话里让 agent 添加 `omem serve`）。
 
 接入后，会话里可以直接用 `search_memory` / `save_memory`。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
 

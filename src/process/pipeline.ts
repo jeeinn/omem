@@ -531,6 +531,7 @@ const ROOT_ENV: Record<string, string> = {
   cursor: 'OMEM_CURSOR_PROJECTS',
   qwenwork: 'OMEM_QWENWORK_PROJECTS',
   doubao: 'OMEM_DOUBAO_PROJECTS',
+  deepseek: 'OMEM_DEEPSEEK_PROJECTS',
 };
 
 /** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */

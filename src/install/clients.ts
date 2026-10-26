@@ -99,6 +99,23 @@ export const CLIENTS: ClientSpec[] = [
     note: 'MCP servers are managed inside the app; install prints an in-app add snippet',
   },
   {
+    id: 'deepseek',
+    name: 'DeepSeek Harness',
+    kind: 'manual-connector',
+    // DeepSeek Harness 桌面端 MCP 配置在应用内部管理，没有用户可编辑的配置文件。
+    // configPath 仅用于 --list 展示 detect 依据（数据目录存在 = 已安装）。
+    configPath: () =>
+      win({
+        win: join(LOCALAPPDATA, 'DeepSeek'),
+        mac: join(homedir(), 'Library', 'Application Support', 'DeepSeek'),
+        linux: join(homedir(), '.dsh'),
+      }),
+    detect: () =>
+      existsSync(win({ win: join(LOCALAPPDATA, 'DeepSeek'), mac: join(homedir(), 'Library', 'Application Support', 'DeepSeek'), linux: join(homedir(), '.dsh') })),
+    verified: false, // 本机未核实：DeepSeek Harness 桌面端形态待确认
+    note: 'MCP servers are managed inside the app; install prints an in-app add snippet',
+  },
+  {
     id: 'codex',
     name: 'Codex CLI',
     kind: 'toml-mcp',

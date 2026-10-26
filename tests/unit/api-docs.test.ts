@@ -88,6 +88,7 @@ function cfgFor(base: string, over: Partial<OmemConfig['api']> = {}): OmemConfig
   config.collect.cursor_projects = ABSENT;
   config.collect.qwenwork_projects = ABSENT;
   config.collect.doubao_projects = ABSENT;
+  config.collect.deepseek_projects = ABSENT;
   config.api.base = base;
   config.api.model = 'test-model';
   config.api.timeout_ms = 5_000;
