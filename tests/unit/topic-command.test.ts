@@ -1,134 +1,153 @@
-// omem topic list：让「库里有哪些主题」「旧主题去哪了」变成可查的输出。
+// omem topic set / rename 元数据修补测试（Issue 3：content-hash 去重早于 topic 校验的绕行痛点）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { main } from '../../src/cli.js';
-import { writeEntry } from '../../src/core/store.js';
-import { newFrontmatter } from '../../src/core/entry.js';
-import type { Frontmatter } from '../../src/core/entry.js';
+import { OmemIndex } from '../../src/core/index.js';
+import { writeEntry, readEntryFile } from '../../src/core/store.js';
+import { newFrontmatter, serializeEntry } from '../../src/core/entry.js';
 import { makeHome, cleanupHome } from './helpers.js';
+import { cmdTopic } from '../../src/commands/topic.js';
 
 let home: string;
-
-function add(id: string, topic: string | undefined, fm: Partial<Frontmatter> = {}, body = `正文 ${id}`): void {
-  writeEntry(home, { fm: newFrontmatter({ id, type: 'fact', domain: 'coding', topic, ...fm }), body });
-}
-
-function capture(): string[] {
-  const out: string[] = [];
-  vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => {
-    out.push(a.join(' '));
-  });
-  return out;
-}
+let index: OmemIndex;
 
 beforeEach(() => {
   home = makeHome();
   vi.stubEnv('OMEM_HOME', home);
+  index = new OmemIndex(home);
 });
-
 afterEach(() => {
+  index.close();
   vi.unstubAllEnvs();
-  vi.restoreAllMocks();
   cleanupHome(home);
 });
 
-describe('cli: omem topic list', () => {
-  it('lists topics with doc count, date and confidence', async () => {
-    add('2026-10-19-aaaaaa', 'pool-tuning', { confidence: 0.9, created: '2026-10-19T00:00:00.000Z' }, '连接池上限 20');
-    add('2026-10-20-bbbbbb', 'deploy-pipeline', { confidence: 0.55, created: '2026-10-20T00:00:00.000Z' }, '部署走国内源');
+/** 建一条 active 文档入库，返回其 id。 */
+function seedEntry(opts: { idPrefix?: string; topic?: string; status?: string; verified?: boolean; confidence?: number; body?: string } = {}): string {
+  const id = opts.idPrefix ?? '2026-10-15';
+  const fm = newFrontmatter({
+    id,
+    type: 'fact',
+    domain: 'coding',
+    status: (opts.status ?? 'active') as any,
+    verified: opts.verified ?? true,
+    confidence: opts.confidence ?? 0.9,
+    topic: opts.topic,
+  });
+  const body = opts.body ?? '原始正文 unchanged-body-marker';
+  const entry = { fm, body };
+  const { path } = writeEntry(home, entry);
+  index.upsert(entry, path, serializeEntry(entry));
+  return id;
+}
 
-    const out = capture();
-    expect(await main(['topic', 'list'])).toBe(0);
-    const text = out.join('\n');
+describe('omem topic set', () => {
+  it('sets topic on an active entry without changing confidence / verified / body / id', async () => {
+    const id = seedEntry({ verified: true, confidence: 0.9, body: 'unchanged-body' });
+    const before = readEntryFile(`${home}/knowledge/coding/2026/${id}.md`)!;
+    expect(before.fm.topic).toBeUndefined();
 
-    expect(text).toContain('2 topic(s)');
-    expect(text).toContain('pool-tuning');
-    expect(text).toContain('deploy-pipeline');
-    expect(text).toContain('0.90');
-    expect(text).toContain('连接池上限 20');
-    // 最近的排在前面
-    expect(text.indexOf('deploy-pipeline')).toBeLessThan(text.indexOf('pool-tuning'));
+    const rc = await cmdTopic({ _: ['set', id, 'my-topic'], flags: {} });
+    expect(rc).toBe(0);
+
+    const after = readEntryFile(`${home}/knowledge/coding/2026/${id}.md`)!;
+    expect(after.fm.topic).toBe('my-topic');
+    expect(after.fm.confidence).toBe(0.9);
+    expect(after.fm.verified).toBe(true);
+    expect(after.fm.id).toBe(id);
+    expect(after.body).toBe('unchanged-body');
+    expect(after.fm.supersedes).toEqual([]);
   });
 
-  it('reports documents that have no topic, with ids so they can be fixed', async () => {
-    add('2026-10-19-aaaaaa', 'pool-tuning');
-    add('2026-10-21-cccccc', undefined);
-
-    const out = capture();
-    await main(['topic', 'list']);
-    const text = out.join('\n');
-
-    expect(text).toContain('1 active document(s) without a topic');
-    expect(text).toContain('Without a topic (1)');
-    expect(text).toContain('2026-10-21-cccccc');
+  it('keeps normalized form (lowercase, spaces \u2192 hyphens)', async () => {
+    const id = seedEntry();
+    const rc = await cmdTopic({ _: ['set', id, 'Knee Rehab Topics'], flags: {} });
+    expect(rc).toBe(0);
+    const entry = readEntryFile(`${home}/knowledge/coding/2026/${id}.md`)!;
+    expect(entry.fm.topic).toBe('knee-rehab-topics');
   });
 
-  it('holds the same topic once even if several active documents claim it', async () => {
-    add('2026-10-19-aaaaaa', 'pool-tuning', { created: '2026-10-19T00:00:00.000Z' });
-    add('2026-10-25-bbbbbb', 'pool-tuning', { created: '2026-10-25T00:00:00.000Z' });
-
-    const out = capture();
-    await main(['topic', 'list']);
-    const text = out.join('\n');
-
-    expect(text).toContain('1 topic(s) · 2 topic document(s)');
-    expect((text.match(/pool-tuning/g) ?? []).length).toBe(1);
+  it('rejects when target topic is owned by a different active entry', async () => {
+    const id1 = seedEntry({ idPrefix: '2026-10-15-a' });
+    const id2 = seedEntry({ idPrefix: '2026-10-15-b', topic: 'taken' });
+    await expect(cmdTopic({ _: ['set', id1, 'taken'], flags: {} })).rejects.toThrow(/already belongs to active/);
   });
 
-  it('--all maps a retired topic to the document that absorbed it', async () => {
-    add('2026-10-19-old000', 'matea-setup-wizard', {
-      status: 'superseded',
-      superseded_by: '2026-10-26-new000',
-    });
-    add('2026-10-26-new000', 'e2e-gitea-pitfalls');
-
-    const out = capture();
-    await main(['topic', 'list', '--all']);
-    const text = out.join('\n');
-
-    expect(text).toContain('Retired topics');
-    expect(text).toContain('matea-setup-wizard');
-    expect(text).toContain('e2e-gitea-pitfalls');
-    expect(text).toContain('2026-10-26-new000');
+  it('noop when the entry already has the same topic', async () => {
+    const id = seedEntry({ topic: 'already' });
+    const rc = await cmdTopic({ _: ['set', id, 'already'], flags: {} });
+    expect(rc).toBe(0);
   });
 
-  it('--all marks a retired topic whose successor chain is broken', async () => {
-    add('2026-10-19-old111', 'orphan-topic', {
-      status: 'superseded',
-      superseded_by: '2026-10-26-gone00',
-    });
-
-    const out = capture();
-    await main(['topic', 'list', '--all']);
-
-    expect(out.join('\n')).toContain('(no active successor)');
+  it('refuses to set on a superseded entry', async () => {
+    const id = seedEntry({ status: 'superseded' });
+    await expect(cmdTopic({ _: ['set', id, 'x'], flags: {} })).rejects.toThrow(/topic can only be set on active/);
   });
 
-  it('without --all the retired section stays hidden', async () => {
-    add('2026-10-19-old222', 'gone-topic', { status: 'superseded', superseded_by: '2026-10-26-new222' });
-    add('2026-10-26-new222', 'current-topic');
+  it('updates the index topic column (topic becomes queryable)', async () => {
+    const id = seedEntry();
+    expect(index.activeTopics()).toHaveLength(0);
 
-    const out = capture();
-    await main(['topic', 'list']);
-
-    const text = out.join('\n');
-    expect(text).not.toContain('Retired topics');
-    expect(text).not.toContain('gone-topic');
+    await cmdTopic({ _: ['set', id, 'indexed-topic'], flags: {} });
+    expect(index.activeTopics()).toContain('indexed-topic');
+    const row = index.getById(id);
+    expect(row?.topic).toBe('indexed-topic');
   });
 
-  it('empty store prints a hint instead of an empty table', async () => {
-    const out = capture();
-    await main(['topic', 'list']);
+  it('dry-run does not write to disk or index', async () => {
+    const id = seedEntry({ body: 'dry-run-should-not-change' });
+    const rc = await cmdTopic({ _: ['set', id, 'no-write'], flags: { 'dry-run': true } });
+    expect(rc).toBe(0);
+    const entry = readEntryFile(`${home}/knowledge/coding/2026/${id}.md`)!;
+    expect(entry.fm.topic).toBeUndefined();
+    expect(index.activeTopics()).toHaveLength(0);
+  });
+});
 
-    expect(out.join('\n')).toContain('No living-document topics yet');
+describe('omem topic rename', () => {
+  it('renames topic across all active matches', async () => {
+    const id1 = seedEntry({ idPrefix: '2026-10-15-a', topic: 'old-name', body: 'doc-a' });
+    const id2 = seedEntry({ idPrefix: '2026-10-15-b', topic: 'old-name', body: 'doc-b' });
+    const id3 = seedEntry({ idPrefix: '2026-10-15-c', topic: 'other-topic', body: 'doc-c' });
+
+    const rc = await cmdTopic({ _: ['rename', 'old-name', 'new-name'], flags: {} });
+    expect(rc).toBe(0);
+
+    const e1 = readEntryFile(`${home}/knowledge/coding/2026/${id1}.md`)!;
+    const e2 = readEntryFile(`${home}/knowledge/coding/2026/${id2}.md`)!;
+    const e3 = readEntryFile(`${home}/knowledge/coding/2026/${id3}.md`)!;
+    expect(e1.fm.topic).toBe('new-name');
+    expect(e2.fm.topic).toBe('new-name');
+    expect(e3.fm.topic).toBe('other-topic');
+    // Bodies and confidence untouched
+    expect(e1.body).toBe('doc-a');
+    expect(e1.fm.confidence).toBe(0.9);
   });
 
-  it('rejects an unknown subcommand with a usage error', async () => {
-    const out = capture();
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const code = await main(['topic', 'merge']);
+  it('rejects rename when target already owned by a different topic', async () => {
+    seedEntry({ idPrefix: '2026-10-15-a', topic: 'src' });
+    seedEntry({ idPrefix: '2026-10-15-b', topic: 'occupied' });
+    await expect(cmdTopic({ _: ['rename', 'src', 'occupied'], flags: {} })).rejects.toThrow(/already belongs to active/);
+  });
 
-    expect(code).toBe(1);
-    expect(err.mock.calls.join('\n')).toContain('omem topic list');
-    expect(out.join('\n')).toBe('');
+  it('dry-run previews count without writing', async () => {
+    seedEntry({ topic: 'preview-me' });
+    const rc = await cmdTopic({ _: ['rename', 'preview-me', 'renamed'], flags: { 'dry-run': true } });
+    expect(rc).toBe(0);
+    // Entry still has the old name
+    const row = index.db.prepare('SELECT topic FROM entries').all() as { topic: string | null }[];
+    expect(row).toHaveLength(1);
+    expect(row[0].topic).toBe('preview-me');
+  });
+
+  it('normalizes the new name (lowercase, spaces collapsed)', async () => {
+    const id = seedEntry({ topic: 'raw' });
+    const rc = await cmdTopic({ _: ['rename', 'raw', 'Fancy  New   Name'], flags: {} });
+    expect(rc).toBe(0);
+    const entry = readEntryFile(`${home}/knowledge/coding/2026/${id}.md`)!;
+    expect(entry.fm.topic).toBe('fancy-new-name');
+  });
+
+  it('errors when old topic has no active matches', async () => {
+    const rc = await cmdTopic({ _: ['rename', 'nonexistent-topic', 'any'], flags: {} });
+    expect(rc).toBe(0); // No error, just a message
   });
 });

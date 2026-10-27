@@ -7,9 +7,10 @@
 // 跨主题合并之后，旧名字不再出现在检索里，这条映射是唯一的线索。
 import { openCtx } from '../core/ctx.js';
 import { normalizeTopic } from '../core/commit.js';
-import { findByIdIndexed, listEntries } from '../core/store.js';
+import { writeEntry, findByIdIndexed, listEntries } from '../core/store.js';
+import { deriveTitle, serializeEntry } from '../core/entry.js';
+import type { Ctx } from '../core/ctx.js';
 import type { OmemIndex } from '../core/index.js';
-import { deriveTitle } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
 import { flagBool } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
@@ -17,7 +18,9 @@ import type { Located } from '../core/store.js';
 import { TOPIC_POLICIES, loadTopicPolicies, saveTopicPolicy } from '../core/review-policy.js';
 import type { TopicPolicy } from '../core/review-policy.js';
 
-const USAGE = 'Usage: omem topic list [--all] | omem topic policy <topic> always|once|never|default';
+const USAGE =
+  'Usage: omem topic list [--all] | omem topic policy <topic> always|once|never|default | ' +
+  'omem topic set <id> <topic> [--dry-run] | omem topic rename <old> <new> [--dry-run]';
 const NAME_WIDTH = 44;
 
 interface TopicRow {
@@ -31,6 +34,85 @@ interface TopicRow {
 
 function sortByCreatedDesc(entries: Located[]): Located[] {
   return [...entries].sort((a, b) => ((a.entry.fm.created || '') < (b.entry.fm.created || '') ? 1 : -1));
+}
+
+/** `omem topic set <id> <topic> [--dry-run]`：纯元数据修补——不改正文 / 置信度 / verified / supersedes。 */
+function cmdTopicSet(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
+  const id = String(args._[1] ?? '').trim();
+  const rawTopic = args._[2];
+  if (!id || rawTopic === undefined) throw new UsageError(USAGE);
+  const topic = normalizeTopic(rawTopic);
+  if (!topic) throw new UsageError('Topic must not be empty');
+
+  const loc = findByIdIndexed(ctx.home, ctx.index, id, { includeArchived: true });
+  if (!loc) throw new UsageError(`Entry not found: ${id}`);
+  if (loc.entry.fm.status !== 'active') {
+    throw new UsageError(`Entry ${id} is status="${loc.entry.fm.status}"; topic can only be set on active entries.`);
+  }
+  if (loc.entry.fm.topic === topic) {
+    console.log(`Entry ${id} already has topic "${topic}".`);
+    return 0;
+  }
+
+  // 同 topic 仅一篇 active 不变式
+  const clash = ctx.index.findActiveByTopic(topic);
+  if (clash && clash.id !== id) {
+    throw new UsageError(
+      `Topic "${topic}" already belongs to active entry ${clash.id}. Resolve it first (e.g. supersede or topic rename).`,
+    );
+  }
+
+  if (dryRun) {
+    console.log(`[dry-run] Would set topic="${topic}" on ${id}; confidence / verified / body unchanged.`);
+    return 0;
+  }
+
+  const fm = { ...loc.entry.fm, topic };
+  const entry = { ...loc.entry, fm };
+  // 路径由 id + domain + created 决定，单纯改 topic 不会变
+  const written = writeEntry(ctx.home, entry);
+  ctx.index.upsert(entry, written.path, serializeEntry(entry));
+  console.log(`Set topic="${topic}" on ${id}. Confidence / verified / body unchanged.`);
+  return 0;
+}
+
+/** `omem topic rename <old> <new> [--dry-run]`：对 all active 文档批量改名——不改正文 / 置信度 / verified。 */
+function cmdTopicRename(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
+  const oldName = String(args._[1] ?? '').trim();
+  const rawNew = args._[2];
+  if (!oldName || rawNew === undefined) throw new UsageError(USAGE);
+  const newName = normalizeTopic(rawNew);
+  if (!newName) throw new UsageError('New topic must not be empty');
+  if (oldName === newName) throw new UsageError('Old and new topic are the same.');
+
+  // 目标名已被另一份 active 占位时拒绝——避免改名后出现两篇同 topic
+  const clash = ctx.index.findActiveByTopic(newName);
+  if (clash && clash.topic !== oldName) {
+    throw new UsageError(
+      `Target topic "${newName}" already belongs to active ${clash.id}. Resolve it first.`,
+    );
+  }
+
+  const all = listEntries(ctx.home);
+  const matches = all.filter((l) => l.entry.fm.status === 'active' && l.entry.fm.topic === oldName);
+  if (matches.length === 0) {
+    console.log(`No active entries with topic "${oldName}".`);
+    return 0;
+  }
+
+  if (dryRun) {
+    console.log(`[dry-run] Would rename topic "${oldName}" → "${newName}" on ${matches.length} active entr${matches.length === 1 ? 'y' : 'ies'}.`);
+    return 0;
+  }
+
+  for (const loc of matches) {
+    const fm = { ...loc.entry.fm, topic: newName };
+    const entry = { ...loc.entry, fm };
+    const written = writeEntry(ctx.home, entry);
+    ctx.index.upsert(entry, written.path, serializeEntry(entry));
+  }
+  console.log(`Renamed topic "${oldName}" → "${newName}" on ${matches.length} active entr${matches.length === 1 ? 'y' : 'ies'}.`);
+  return 0;
 }
 
 /** 沿 superseded_by 链找到最终接盘的 active 文档；链断或无终态返回 null。 */
@@ -51,10 +133,16 @@ function resolveOwner(home: string, index: OmemIndex, start: Located, limit = 20
 
 export async function cmdTopic(args: ParsedArgs): Promise<number> {
   const sub = args._[0] ?? 'list';
-  if (sub !== 'list' && sub !== 'policy') throw new UsageError(USAGE);
+  if (sub !== 'list' && sub !== 'policy' && sub !== 'set' && sub !== 'rename') {
+    throw new UsageError(USAGE);
+  }
 
+  const dryRun = flagBool(args.flags, 'dry-run');
   const ctx = openCtx();
   try {
+    if (sub === 'set') return cmdTopicSet(ctx, args, dryRun);
+    if (sub === 'rename') return cmdTopicRename(ctx, args, dryRun);
+
     const all = listEntries(ctx.home, { includeArchived: true });
     const active = all.filter((l) => l.entry.fm.status === 'active');
     const withTopic = active.filter((l) => l.entry.fm.topic);
