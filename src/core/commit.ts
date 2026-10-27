@@ -33,6 +33,12 @@ export interface CommitInput {
   verified: boolean;
   supersedes?: string[];
   profile?: Profile;
+  /**
+   * 调用方类别。默认 'cli' 保持向后兼容。
+   * 为什么需要：同一句冲突提示要按调用方生成——MCP 侧没有 `--force` 参数，
+   * 也没有命令行，把 CLI 语法塞进去等于给 Agent 一条执行不了的指令。
+   */
+  caller?: 'mcp' | 'cli';
 }
 
 export interface CommitOpts {
@@ -63,6 +69,12 @@ export interface CommitResult {
    * 误把项目分组名当主题）。不拒绝写入——拒绝会打断 Agent 的写回流程。
    */
   warnings?: string[];
+  /**
+   * 命中 content-hash 去重时，既有条目的元数据。
+   * 调用方据此判断「请求的 topic/type 与既有文档是否不一致」——不一致时要能说出来，
+   * 否则元数据被静默丢弃，响应还读起来像成功。
+   */
+  existing?: { topic?: string; type: string; tags: string[] };
 }
 
 /** 脱敏后只剩下供应商前缀和占位符，视为整条都是密钥。 */
@@ -115,10 +127,19 @@ export function commitEntry(
 
   const dup = index.getByBodyHash(contentHash(text));
   if (dup) {
-    return finish(home, { status: 'deduped', id: dup.id, redacted, reason: 'Content already exists' }, input, opts);
+    return finish(home, {
+      status: 'deduped',
+      id: dup.id,
+      redacted,
+      reason: 'Content already exists',
+      // 去重命中时把既有元数据带回去：调用方要判断请求的 topic/type 是否与既有一致。
+      existing: { topic: dup.topic ?? undefined, type: dup.type, tags: (dup.tags ?? '').split(/\s+/).filter(Boolean) },
+    }, input, opts);
   }
 
   const supersedes = (input.supersedes ?? []).map((s) => s.trim()).filter(Boolean);
+  // 提前解析 topic：supersedes 落空时的提示要用它给出「该主题现在的活文档是谁」。
+  const topic = resolveTopic(input);
   // 一次遍历同时完成「存在性校验」和「继承所需的数据」，避免对同一批 id 反复 findById。
   const oldEntries: Located[] = [];
   const missing: string[] = [];
@@ -128,10 +149,13 @@ export function commitEntry(
     else missing.push(id);
   }
   if (missing.length > 0) {
-    return finish(home, { status: 'excluded', redacted, reason: `Old entries not found: ${missing.join(', ')}` }, input, opts);
+    return finish(home, {
+      status: 'excluded',
+      redacted,
+      reason: `Old entries not found: ${missing.join(', ')}. It may be mistyped, already superseded, or in another profile.${missingHint(index, topic, input.caller)}`,
+    }, input, opts);
   }
 
-  const topic = resolveTopic(input);
   const warnings: string[] = [];
   // `once` 策略：该主题被人工审过之后，后续版本自动落 assent（提底 0.8、不设 verified），
   // 于是不再回到 review 队列。低置信或未锚定的条目不参与——那是安全阀，必须留给人看。
@@ -142,11 +166,16 @@ export function commitEntry(
   if (topic) {
     const active = index.findActiveByTopic(topic);
     if (active && !supersedes.includes(active.id)) {
+      // 按 caller 生成「下一步」：MCP 侧没有 --force 参数，也没有命令行，
+      // 把 CLI 语法塞进 MCP 响应等于给 Agent 一条执行不了的指令。
+      const next = input.caller === 'mcp'
+        ? `Pass supersedes: ["${active.id}"] to update it.`
+        : `Pass --supersedes ${active.id} (or supersedes: ["${active.id}"]) to update it. --force does not bypass this.`;
       return finish(home, {
         status: 'excluded',
         id: active.id,
         redacted,
-        reason: `Topic "${topic}" already has an active document ${active.id}. Pass --supersedes ${active.id} (or supersedes: ["${active.id}"]) to update it. --force does not bypass this.`,
+        reason: `Topic "${topic}" already has an active document ${active.id}. ${next}`,
       }, input, opts);
     }
     // 只在新建主题时查近似：命中不拒绝（拒绝会让 Agent 卡住），而是提示它
@@ -154,8 +183,9 @@ export function commitEntry(
     if (!active) {
       const near = index.activeTopics().find((t) => isNearDupTopic(topic, t));
       if (near) {
+        // 两个方向都要说清：只说「写进去」会把「本来就该是两个主题」的情况也诱导成合并。
         warnings.push(
-          `Topic "${topic}" is close to existing "${near}". If they mean the same thing, write into "${near}" with supersedes instead of starting a second living document.`,
+          `Topic "${topic}" is close to existing "${near}". If they describe the same subject, write into "${near}" with supersedes instead of starting a second living document; if they are different subjects, keep the new topic and ignore this warning.`,
         );
       }
     }
@@ -171,10 +201,14 @@ export function commitEntry(
     }
     if (retired.size > 0) {
       const names = [...retired.keys()].join(', ');
+      // MCP 侧没有 omem topic list / omem search --all，给 CLI 命令等于空话。
+      const where = (topicName?: string): string => (input.caller === 'mcp'
+        ? `search_memory(topic="${topicName ?? '<name>'}") shows where it went.`
+        : `\`omem topic list --all\` shows where it went.`);
       warnings.push(
         topic
-          ? `Merged ${retired.size} topic(s) into "${topic}": ${names}. Those names stop resolving in search; \`omem topic list --all\` shows where they went.`
-          : `Superseded ${retired.size} topic(s) without giving the new document a topic: ${names}. The topic is now only reachable with \`omem search --all\`.`,
+          ? `Merged ${retired.size} topic(s) into "${topic}": ${names}. Those names stop resolving in search; ${where()}`
+          : `Superseded ${retired.size} topic(s) without giving the new document a topic: ${names}. The topic is now only reachable with \`status\` including superseded entries.`,
       );
     }
   }
@@ -219,6 +253,21 @@ function resolveTopic(input: CommitInput): string | undefined {
   // 只有调用方显式给了 topic 才成活文档。project 只用于归组，不在这里回落。
   if (!input.topic?.trim()) return undefined;
   return normalizeTopic(input.topic);
+}
+
+/**
+ * supersedes 指向不存在的 id 时的补充线索。
+ * 调用方多半同时知道 topic——那就直接告诉它该主题现在的活文档是谁，
+ * 比让它再去猜「是拼错了、已被 superseded、还是归档了」有用得多。
+ */
+function missingHint(index: OmemIndex, topic: string | undefined, caller?: 'mcp' | 'cli'): string {
+  if (topic) {
+    const active = index.findActiveByTopic(topic);
+    if (active) return ` The active document for "${topic}" is ${active.id}.`;
+  }
+  return caller === 'mcp'
+    ? ' Use search_memory(topic="<name>") to look up the current id.'
+    : ' Check ids with `omem topic list` or `omem search --all`.';
 }
 
 /** 小写，空白收成连字符，避免热层把「knee rehab」切成两个标签。 */

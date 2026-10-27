@@ -26,9 +26,25 @@ export interface ScoreInput {
   evidence?: string | string[];
 }
 
+export interface Anchor {
+  evidence: string;
+  /** 命中的会话（裸 id）。 */
+  session: string;
+}
+
 export interface ScoreResult {
   confidence: number;
   tags: string[];
+  /**
+   * 主引用会话是否在已采集集合里。false 表示这个 id 根本找不到（拼错、未 sync、别的 profile），
+   * 与「会话存在但没这句话」是两件事，响应必须能分开说。
+   */
+  sessionFound?: boolean;
+  /**
+   * 逐条证据的归属。只报 overall「锚定成功/失败」时，
+   * 两条证据里一条真一条假也会整体通过——举证纪律就退化成「过安检即可」。
+   */
+  anchors?: { total: number; matched: Anchor[] };
 }
 
 function charLen(s: string): number {
@@ -56,7 +72,17 @@ export interface CorroborationInfo {
 function corroboratingSessions(index: OmemIndex, evidence: string, skipIds?: string | string[]): CorroborationInfo {
   const probe = [...evidence].slice(0, 24).join('');
   const hits = searchSessions(index, probe, 8);
-  const skipSet = new Set(Array.isArray(skipIds) ? skipIds : (skipIds ? [skipIds] : []));
+  // skip 集合必须放归一化后的裸 id：调用方给的可能是 `claude-code:probe-0001`，
+  // 而命中行的 session_key 拆分后是 `probe-0001`。只比原文会让来源会话把自己算成印证。
+  const skipSet = new Set<string>();
+  for (const raw of Array.isArray(skipIds) ? skipIds : (skipIds ? [skipIds] : [])) {
+    const value = raw.trim();
+    if (!value) continue;
+    skipSet.add(value);
+    skipSet.add(splitSessionKey(value).sessionId);
+    const last = value.split('/').filter(Boolean).pop();
+    if (last) skipSet.add(last);
+  }
   const seenSessions = new Set<string>();
   const seenProjects = new Set<string>();
   for (const hit of hits) {
@@ -89,6 +115,21 @@ function corroborationBonus(info: CorroborationInfo): number {
   return Math.round(Math.min(bonus, 0.25) * 100) / 100;
 }
 
+/**
+ * 没有引用会话时的印证口径（2026-10-27 修正的倒折算在这里）。
+ *
+ * 问题：`corroboratingSessions` 不给 skipIds 时，会把「证据的来源会话本身」算成一份独立印证，
+ * 于是「给了证据但不指名 session_id」得 0.65，而「给了证据且指名了正确会话」只有 0.55——
+ * 指名反而更低，激励方向是反的。
+ *
+ * 口径：无法证明第一个命中不是来源会话时，它不能算独立印证。
+ * 命中 1 份 → 0 加分（0.55）；命中 ≥2 份 → 从第二份起才计入印证。
+ * 方向上是收紧：既有条目只降不升，review 队列只会变严。
+ */
+function corroborationFromIndex(info: CorroborationInfo): number {
+  return corroborationBonus({ count: Math.max(0, info.count - 1), uniqueProjects: info.uniqueProjects });
+}
+
 /** 归一化证据输入为字符串数组：兼容 string（向后兼容）与 string[]（多证据）。 */
 function normalizeEvidence(ev: string | string[] | undefined): string[] {
   if (!ev) return [];
@@ -100,14 +141,21 @@ function normalizeEvidence(ev: string | string[] | undefined): string[] {
  * 支持单证据（向后兼容）与多证据：多证据取最佳印证结果（与 scoreApiDoc 同口径，但 cap 0.8）。 */
 export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex): ScoreResult {
   const evidences = normalizeEvidence(input.evidence);
-  const primary = evidences[0] ?? '';
   const tags: string[] = [];
   // 引用会话：主 sessionId + 新增吸收的 sessionIds 合并用于 cited 检查
   const allSessionIds = [input.sessionId, ...(input.sessionIds ?? [])].filter((id): id is string => Boolean(id));
   const cited = allSessionIds.length > 0
     ? allSessionIds.flatMap((id) => readSessionsById(home, id))
     : [];
-  const citedHit = evidences.length > 0 && evidences.some((e) => cited.some((s) => evidenceIn(userSectionText(s.body), e)));
+  const sessionFound = allSessionIds.length === 0 ? undefined : cited.length > 0;
+  const anchors = {
+    total: evidences.length,
+    matched: evidences.flatMap((e) => {
+      const hit = cited.find((s) => evidenceIn(userSectionText(s.body), e));
+      return hit ? [{ evidence: e, session: hit.sessionId }] : [];
+    }),
+  };
+  const citedHit = evidences.length > 0 && anchors.matched.length > 0;
   let base = SCORE_UNGROUNDED;
   let grounded = false;
 
@@ -136,7 +184,7 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
       };
     }, { count: 0, uniqueProjects: 0 });
     if (info.count > 0) {
-      base = SCORE_GROUNDED + corroborationBonus(info);
+      base = SCORE_GROUNDED + corroborationFromIndex(info);
       grounded = true;
     } else {
       tags.push('ungrounded');
@@ -148,7 +196,7 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
   if (!grounded && !tags.includes('pending-session') && !tags.includes('ungrounded')) tags.push('ungrounded');
 
   const confidence = Math.min(SCORE_AUTO_CAP, base);
-  return { confidence, tags };
+  return { confidence, tags, sessionFound, anchors };
 }
 
 /**
@@ -183,7 +231,7 @@ export function scoreApiDoc(
       base = SCORE_GROUNDED + corroborationBonus(others);
       tags = [];
     } else if (!input.sessionId && index) {
-      // 无引用会话时退化为全库印证（与 scoreEvidence 的无 sessionId 分支同一口径）
+      // 无引用会话时退化为全库印证（与 scoreEvidence 的无 sessionId 分支同一口径，含首位不计）
       const info = valid.reduce<CorroborationInfo>((acc, e) => {
         const cur = corroboratingSessions(index, e);
         return {
@@ -192,7 +240,7 @@ export function scoreApiDoc(
         };
       }, { count: 0, uniqueProjects: 0 });
       if (info.count > 0) {
-        base = SCORE_GROUNDED + corroborationBonus(info);
+        base = SCORE_GROUNDED + corroborationFromIndex(info);
         tags = [];
       }
     }

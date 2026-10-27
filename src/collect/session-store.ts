@@ -39,22 +39,52 @@ export function sessionFilePath(home: string, agent: string, sessionId: string):
   return join(dirs.sessions(home), safeSeg(agent), `${safeSeg(sessionId)}.md`);
 }
 
-/** 按 session_id 只打开对应文件，不读 sessions/ 下的其他会话。 */
+/**
+ * 按 session_id 只打开对应文件，不读 sessions/ 下的其他会话。
+ *
+ * 前缀容错（2026-10-27）：调用方最自然的写法是 PROCESS.md / scope=sessions 里看到的
+ * `claude-code:probe-0001`，而落盘文件名是 `probe-0001.md`。原先按原样拼路径必然落空，
+ * 结果 evidence 锚定静默掉到 0.35，连 project 推断也一起失效。
+ * 这里用 fallback 链而不是无条件剥离：id 本身可能含冒号，先按原样找才安全。
+ */
 export function readSessionsById(home: string, sessionId: string): StoredSession[] {
   const root = dirs.sessions(home);
-  const name = `${safeSeg(sessionId)}.md`;
   let agents: string[];
   try {
     agents = readdirSync(root);
   } catch {
     return [];
   }
-  const out: StoredSession[] = [];
-  for (const agent of agents) {
-    const stored = readStoredSession(join(root, agent, name));
-    if (stored) out.push(stored);
+  for (const candidate of sessionIdCandidates(sessionId)) {
+    const name = `${safeSeg(candidate)}.md`;
+    const out: StoredSession[] = [];
+    for (const agent of agents) {
+      const stored = readStoredSession(join(root, agent, name));
+      if (stored) out.push(stored);
+    }
+    if (out.length > 0) return out;
   }
-  return out;
+  return [];
+}
+
+/**
+ * 候选 id，按优先级排列：原样 → 去 collector 前缀（`agent:id`）→ 取路径末段（`slug/uuid`）。
+ * 去重且不返回空串，避免无谓的文件系统访问。
+ */
+function sessionIdCandidates(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  const out = [trimmed];
+  const { sessionId: bare } = splitSessionKey(trimmed);
+  if (bare && bare !== trimmed) out.push(bare);
+  const lastSegment = trimmed.split('/').filter(Boolean).pop();
+  if (lastSegment && lastSegment !== trimmed) out.push(lastSegment);
+  // `agent:slug/uuid` 这种混合写法：先剥前缀，再对结果取末段
+  if (bare && bare !== trimmed) {
+    const bareLast = bare.split('/').filter(Boolean).pop();
+    if (bareLast && bareLast !== bare) out.push(bareLast);
+  }
+  return [...new Set(out)];
 }
 
 /** 按时间拼成 ## user / ## assistant 正文（尚未脱敏）。 */
