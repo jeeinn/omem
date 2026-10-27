@@ -117,13 +117,47 @@ describe('mcp: handleTool', () => {
     expect(rows[0].verified).toBe(0);
   });
 
-  it('save_memory truncates over-long content to max_content_chars', async () => {
+  it('save_memory truncates over-long content + warns in response', async () => {
     const long = 'x'.repeat(5000);
-    await handleTool('save_memory', { content: long }, ctx);
+    const r = await handleTool('save_memory', { content: long }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('Saved');
+    expect(text).toContain('Truncated'); // Agent is warned about truncation
     const row = index.db.prepare('SELECT id, path FROM entries LIMIT 1').get() as unknown as { id: string; path: string };
     const entry = readEntryFile(row.path)!;
     expect([...entry.body].length).toBeLessThanOrEqual(2001); // 2000 + 省略号
     expect(readFileSync(row.path, 'utf8')).toContain('…');
+  });
+
+  it('save_memory truncates correctly with emoji (code points vs UTF-16)', async () => {
+    // 1998 ASCII + 3 emoji (each 1 code point but 2 UTF-16 units) = 2001 code points
+    const emoji = String.fromCodePoint(0x1F600); 
+    const body = 'a'.repeat(1998) + emoji.repeat(3);
+    expect([...body].length).toBe(2001); // code points
+    expect(body.length).toBe(2004); // UTF-16 units (emoji are surrogate pairs)
+    const r = await handleTool('save_memory', { content: body }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('Saved');
+    expect(text).toContain('Truncated');
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const raw = readFileSync(row.path, 'utf8');
+    expect(raw).toContain('…'); // truncated body includes ellipsis
+    // After truncation: exactly 2000 code points + '…' = 2001 code points
+    const entry = readEntryFile(row.path)!;
+    expect([...entry.body].length).toBe(2001);
+    // Old bug: body.length (UTF-16) would have been miscounted and produced broken surrogate pairs
+  });
+
+  it('save_memory dry_run validates without writing', async () => {
+    const long = 'y'.repeat(2100); // Over limit, triggers truncation
+    const r = await handleTool('save_memory', { content: long, topic: 'dry-run-topic', dry_run: true }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('[dry-run]');
+    expect(text).toContain('written');
+    expect(text).toContain('Truncated');
+    // No entry written
+    const rows = index.db.prepare('SELECT id FROM entries').all();
+    expect(rows).toHaveLength(0);
   });
 
   it('save_memory redacts secrets', async () => {

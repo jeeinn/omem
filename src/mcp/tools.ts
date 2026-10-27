@@ -81,11 +81,12 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
             items: { type: 'string' },
             description: 'Additional session ids absorbed into this document (multi-session corroboration). The primary session_id is tracked separately.',
           },
-          evidence: {
+            evidence: {
             type: 'array',
             items: { type: 'string' },
             description: 'At least 12 characters each, copied from a ## user section of the session files. Assistant text does not count. Multiple items strengthen corroboration scoring.',
           },
+          dry_run: { type: 'boolean', description: 'Validate and preview without writing to disk (no entry, no index row, no PROCESS.md update).' },
           supersedes: {
             type: 'array',
             items: { type: 'string' },
@@ -203,10 +204,15 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
   let content = String(args.content ?? '').trim();
   const confirmIds = idList(args.confirm_ids);
   if (!content && confirmIds.length === 0) throw new Error('content must not be empty');
+  const dryRun = Boolean(args.dry_run);
   const parts: string[] = [];
   if (content) {
-    if ([...content].length > ctx.config.process.max_content_chars) {
-      content = content.slice(0, ctx.config.process.max_content_chars) + '…';
+    // Truncation: unify code-point count + slice (fixes UTF-16 surrogate pair mismatch)
+    let truncated = false;
+    const chars = [...content];
+    if (chars.length > ctx.config.process.max_content_chars) {
+      content = chars.slice(0, ctx.config.process.max_content_chars).join('') + '…';
+      truncated = true;
     }
     const type = (['preference', 'fact', 'decision', 'experience'] as MemoryType[]).includes(args.type)
       ? (args.type as MemoryType)
@@ -249,15 +255,21 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       confidence: scored.confidence,
       verified: false,
       supersedes,
-    });
-    if (result.status === 'deduped') parts.push(`Content already exists (id: ${result.id}); not written again.`);
-    else if (result.status === 'excluded' || result.status === 'redacted-empty') parts.push(`Not written: ${result.reason}`);
+    }, { dryRun });
+    if (dryRun) {
+      parts.push(`[dry-run] ${result.status}${result.reason ? ': ' + result.reason : ''}. Confidence would be ${scored.confidence}.`);
+      if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split topic.`);
+      for (const w of result.warnings ?? []) parts.push(w);
+    } else if (result.status === 'deduped') {
+      parts.push(`Content already exists (id: ${result.id}); not written again.`);
+    } else if (result.status === 'excluded' || result.status === 'redacted-empty') parts.push(`Not written: ${result.reason}`);
     else {
       const saved = result.path ? readEntryFile(result.path) : null;
       const domain = saved?.fm.domain ?? 'general';
       const savedType = saved?.fm.type ?? type;
       const replaced = supersedes.length > 0 ? ` Superseded: ${supersedes.join(', ')}.` : '';
       parts.push(`Saved (id: ${result.id}, ${domain}/${savedType}, confidence ${scored.confidence}). Unverified entry.${replaced}`);
+      if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split topic.`);
       for (const w of result.warnings ?? []) parts.push(w);
     }
   }
