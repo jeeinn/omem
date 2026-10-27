@@ -169,6 +169,13 @@ export class OmemIndex {
   }
 
   /** 该主题当前的 active 活文档。多条时取最近确认的一份。 */
+  /** 全部 active 主题名。用于写入时的近似重复检测（不需要打开任何 md 文件）。 */
+  activeTopics(): string[] {
+    return (this.db.prepare(
+      "SELECT DISTINCT topic FROM entries WHERE status = 'active' AND topic IS NOT NULL AND topic != ''",
+    ).all() as { topic: string }[]).map((r) => r.topic);
+  }
+
   findActiveByTopic(topic: string): EntryRow | null {
     // 按 created 而非 last_confirmed：版次由创建时间定义。用 last_confirmed 时，
     // 对旧版跑一次 review --confirm 就会让它在 topic 检查里盖过真正的最新版，

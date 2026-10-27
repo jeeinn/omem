@@ -183,6 +183,16 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
 }
 
 /**
+ * 近似主题判据（规格 §7.4-3）：归一化后互为前缀、或去掉分隔符后相同，且不是同一个 topic。
+ * 放在 core 是因为所有写入路径都要用它——API 档曾经是唯一检查点，Agent 路径没有护栏。
+ */
+export function isNearDupTopic(a: string, b: string): boolean {
+  if (a === b) return false;
+  const strip = (s: string): string => s.replace(/[-_]/g, '');
+  return a.startsWith(b) || b.startsWith(a) || strip(a) === strip(b);
+}
+
+/**
  * 域名归一化。domain 是唯一进入文件路径的自由输入（id/created 由程序生成），
  * 不校验就能用 `domain: "../../x"` 把文件写出知识库。规则：保留 a-z0-9 与
  * 中日韩字符，其余折叠为 '-'；空值回落 'general'。

@@ -353,3 +353,183 @@ describe('three write paths share one channel', () => {
     }
   });
 });
+
+describe('commitEntry: 跨 topic 合并告警', () => {
+  function writeTopic(content: string, topic: string): string {
+    const r = commitEntry(home, base(), index, {
+      content,
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic,
+    }, { refreshIndex: false, refreshGuide: false });
+    expect(r.status).toBe('written');
+    return r.id!;
+  }
+
+  it('把两个旧主题合并进一个新主题时给出告警，列出消失的主题名', () => {
+    const a = writeTopic('旧主题 A 的内容', 'matea-build-facts');
+    const b = writeTopic('旧主题 B 的内容', 'matea-setup-wizard');
+
+    const r = commitEntry(home, base(), index, {
+      content: '合并后的新内容',
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic: 'matea-overview',
+      supersedes: [a, b],
+    }, { refreshIndex: false, refreshGuide: false });
+
+    expect(r.status).toBe('written');
+    const warnings = (r.warnings ?? []).join('\n');
+    expect(warnings).toContain('Merged 2 topic(s)');
+    expect(warnings).toContain('matea-build-facts');
+    expect(warnings).toContain('matea-setup-wizard');
+    expect(warnings).toContain('omem topic list --all');
+  });
+
+  it('同 topic 正常更新（supersede 自己那一版）不告警', () => {
+    const old = writeTopic('第一版内容', 'pool-tuning');
+
+    const r = commitEntry(home, base(), index, {
+      content: '第二版内容',
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic: 'pool-tuning',
+      supersedes: [old],
+    }, { refreshIndex: false, refreshGuide: false });
+
+    expect(r.status).toBe('written');
+    expect(r.warnings ?? []).toEqual([]);
+  });
+
+  it('新文档不给 topic 却取代了有 topic 的旧文档 → 告警提示主题降级', () => {
+    const old = writeTopic('有主题的旧内容', 'fm-cmp-rules');
+
+    const r = commitEntry(home, base(), index, {
+      content: '没主题的新内容',
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      supersedes: [old],
+    }, { refreshIndex: false, refreshGuide: false });
+
+    expect(r.status).toBe('written');
+    const warnings = (r.warnings ?? []).join('\n');
+    expect(warnings).toContain('without giving the new document a topic');
+    expect(warnings).toContain('fm-cmp-rules');
+  });
+
+  it('未被取代的既有主题不受影响（无告警）', () => {
+    writeTopic('另一个主题', 'other-topic');
+    const r = commitEntry(home, base(), index, {
+      content: '独立的新内容',
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic: 'brand-new',
+    }, { refreshIndex: false, refreshGuide: false });
+
+    expect(r.status).toBe('written');
+    expect(r.warnings ?? []).toEqual([]);
+  });
+
+  it('omem add 把合并告警打到终端', async () => {
+    const a = writeTopic('旧 A 内容', 'merge-a');
+    const b = writeTopic('旧 B 内容', 'merge-b');
+    index.close();
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    const prev = process.env.OMEM_HOME;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.join(' '));
+    };
+    process.env.OMEM_HOME = home;
+    try {
+      const code = await cmdAdd({ _: ['合并后的新内容'], flags: { topic: 'merged', supersedes: `${a},${b}` } });
+      expect(code).toBe(0);
+      expect(logs.join('\n')).toContain('Note: Merged 2 topic(s)');
+    } finally {
+      console.log = origLog;
+      if (prev === undefined) delete process.env.OMEM_HOME;
+      else process.env.OMEM_HOME = prev;
+    }
+  });
+});
+
+describe('commitEntry: 近似主题告警（Agent 路径同样有护栏）', () => {
+  function seedTopic(content: string, topic: string): void {
+    const r = commitEntry(home, base(), index, {
+      content,
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic,
+    }, { refreshIndex: false, refreshGuide: false });
+    expect(r.status).toBe('written');
+  }
+
+  function writeWithTopic(topic: string) {
+    return commitEntry(home, base(), index, {
+      content: `关于 ${topic} 的结论`,
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic,
+    }, { refreshIndex: false, refreshGuide: false });
+  }
+
+  it('新主题是既有主题的前缀扩展 → 告警，但照常写入', () => {
+    seedTopic('既有主题的结论', 'fm-cmp-rules');
+
+    const r = writeWithTopic('fm-cmp-rules-v2');
+
+    expect(r.status).toBe('written');
+    expect((r.warnings ?? []).join('\n')).toContain('is close to existing "fm-cmp-rules"');
+  });
+
+  it('去掉分隔符后相同 → 告警', () => {
+    seedTopic('短横线主题', 'cost-log');
+
+    const r = writeWithTopic('costlog');
+
+    expect(r.status).toBe('written');
+    const warnings = (r.warnings ?? []).join('\n');
+    expect(warnings).toContain('is close to existing "cost-log"');
+  });
+
+  it('语义无关的新主题不告警', () => {
+    seedTopic('连接池主题', 'pool-tuning');
+
+    const r = writeWithTopic('deploy-pipeline');
+
+    expect(r.warnings ?? []).toEqual([]);
+  });
+
+  it('同主题正常更新不触发近似检查（走 supersede 分支）', () => {
+    seedTopic('第一版', 'fm-cmp-rules');
+    const old = index.findActiveByTopic('fm-cmp-rules')!;
+
+    const r = commitEntry(home, base(), index, {
+      content: '第二版内容',
+      type: 'fact',
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      topic: 'fm-cmp-rules',
+      supersedes: [old.id],
+    }, { refreshIndex: false, refreshGuide: false });
+
+    expect(r.status).toBe('written');
+    expect(r.warnings ?? []).toEqual([]);
+  });
+});

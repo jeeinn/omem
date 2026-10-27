@@ -55,6 +55,23 @@ describe('cli: omem search output', () => {
     expect(out.join('\n')).toContain('Found 1 memory (including archived and superseded):');
   });
 
+  it('prints the topic on the hit line so it is visible without opening the file', async () => {
+    writeEntry(home, {
+      fm: newFrontmatter({ id: '2026-10-15-e1b2c3', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      body: 'Doris 连接池上限的笔记',
+    });
+    const out = capture();
+    await main(['search', 'Doris']);
+    expect(out.join('\n')).toContain('topic:pool-tuning');
+  });
+
+  it('omits the topic segment when the entry has none', async () => {
+    addEntry('2026-10-15-f1b2c3', 'Doris 无主题笔记');
+    const out = capture();
+    await main(['search', 'Doris']);
+    expect(out.join('\n')).not.toContain('topic:');
+  });
+
   it('--all shows the concrete superseding id on a superseded entry (defect: stale label)', async () => {
     writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-old', type: 'fact', domain: 'coding', status: 'superseded', superseded_by: '2026-10-16-new' }), body: 'Doris 旧约定' });
     writeEntry(home, { fm: newFrontmatter({ id: '2026-10-16-new', type: 'fact', domain: 'coding' }), body: 'Doris 新约定' });

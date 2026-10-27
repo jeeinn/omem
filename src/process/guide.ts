@@ -28,8 +28,55 @@ export interface GuideTopic {
 
 const BATCH = 5;
 const LONG_BYTES = 100 * 1024;
+/** PROCESS.md 里列多少个既有主题。全量清单交给 `omem topic list`。 */
+const EXISTING_LIMIT = 15;
 
-export function renderGuide(topics: GuideTopic[], remaining: number, unassigned: GuideSessionRef[] = []): string {
+export interface ExistingTopic {
+  name: string;
+  confidence: number;
+  created: string;
+}
+
+/**
+ * 已存在的 active 主题（按最近创建排序）。
+ *
+ * 为什么写进 PROCESS.md：Agent 读这份文件决定怎么写回，但它原本只看到项目分组名
+ * （project_fp，不是 topic），完全不知道库里已有 25 个主题叫什么。于是它只能自己
+ * 新造一个名字——同一主题于是有了两份活文档。这份清单就是它的词表。
+ */
+export function collectExistingTopics(home: string): ExistingTopic[] {
+  const seen = new Set<string>();
+  const out: ExistingTopic[] = [];
+  for (const loc of listEntries(home)) {
+    const fm = loc.entry.fm;
+    if (fm.status !== 'active' || !fm.topic || seen.has(fm.topic)) continue;
+    seen.add(fm.topic);
+    out.push({ name: fm.topic, confidence: fm.confidence, created: fm.created });
+  }
+  return out.sort((a, b) => (a.created < b.created ? 1 : -1));
+}
+
+function renderExistingTopics(lines: string[], existing: ExistingTopic[]): void {
+  if (existing.length === 0) return;
+  lines.push('## Existing topics');
+  lines.push('');
+  lines.push('Reuse one of these names when the sessions belong to it. A new name starts a second living document for the same subject.');
+  lines.push('');
+  for (const t of existing.slice(0, EXISTING_LIMIT)) {
+    lines.push(`- \`${t.name}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
+  }
+  if (existing.length > EXISTING_LIMIT) {
+    lines.push(`- …${existing.length - EXISTING_LIMIT} more. Run \`omem topic list\`.`);
+  }
+  lines.push('');
+}
+
+export function renderGuide(
+  topics: GuideTopic[],
+  remaining: number,
+  unassigned: GuideSessionRef[] = [],
+  existing: ExistingTopic[] = [],
+): string {
   const lines: string[] = [
     '# omem topics waiting for an update',
     '',
@@ -45,6 +92,7 @@ export function renderGuide(topics: GuideTopic[], remaining: number, unassigned:
   if (topics.length === 0 && unassigned.length === 0) {
     lines.push('No topics are waiting.');
     lines.push('');
+    renderExistingTopics(lines, existing);
     return lines.join('\n');
   }
   if (topics.length > 0) {
@@ -77,6 +125,7 @@ export function renderGuide(topics: GuideTopic[], remaining: number, unassigned:
     for (const s of unassigned) lines.push(`- \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\``);
     lines.push('');
   }
+  renderExistingTopics(lines, existing);
   return lines.join('\n');
 }
 
@@ -99,7 +148,7 @@ export function writeProcessGuide(home: string, text: string): string {
  */
 export function refreshProcessGuide(home: string, index: OmemIndex): string {
   const [topics, remaining, unassigned] = pendingTopics(home, index);
-  return writeProcessGuide(home, renderGuide(topics, remaining, unassigned));
+  return writeProcessGuide(home, renderGuide(topics, remaining, unassigned, collectExistingTopics(home)));
 }
 
 type EntryLoc = ReturnType<typeof listEntries>[number];

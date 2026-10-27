@@ -69,7 +69,10 @@ async function searchBody(
       if (entry) fm = { ...row, superseded_by: entry.fm.superseded_by };
     }
     console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(fm as any)}`);
-    console.log(`   #${row.type} #${row.domain} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
+    // topic 不进路径（knowledge/<domain>/<year>/<id>.md），不在这里打印就完全看不见。
+    // 它是活文档的唯一标识，消费方靠它判断「这条属于哪个主题」。
+    const topic = row.topic ? ` · topic:${row.topic}` : '';
+    console.log(`   #${row.type} #${row.domain}${topic} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
     if (detail) {
       const entry = readEntryFile(row.path);
       console.log(`   File: ${row.path}`);

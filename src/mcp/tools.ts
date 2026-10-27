@@ -113,9 +113,12 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
 }
 
 function hitLine(row: EntryRow, i: number): string {
+  // topic 是活文档的唯一标识，且不进文件路径——不在这里给出来，Agent 就看不到
+  // 库里已有的主题名，只能自己再造一个近似的新 topic。
+  const topic = row.topic ? ` topic:${row.topic}` : '';
   return (
     `${i}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}` +
-    ` · #${row.type} #${row.domain} · id \`${row.id}\``
+    ` · #${row.type} #${row.domain}${topic} · id \`${row.id}\``
   );
 }
 
@@ -237,6 +240,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       const savedType = saved?.fm.type ?? type;
       const replaced = supersedes.length > 0 ? ` Superseded: ${supersedes.join(', ')}.` : '';
       parts.push(`Saved (id: ${result.id}, ${domain}/${savedType}, confidence ${scored.confidence}). Unverified entry.${replaced}`);
+      for (const w of result.warnings ?? []) parts.push(w);
     }
   }
   if (confirmIds.length > 0) {

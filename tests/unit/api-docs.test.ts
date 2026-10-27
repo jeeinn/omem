@@ -327,7 +327,8 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     expect(second.duplicateTopics).toBe(1);
     const dup = dupTopicEvents(home);
     expect(dup).toHaveLength(1);
-    expect(String(dup[0].note)).toContain('suspiciously close');
+    // 文案由 core/commit.ts 统一提供（API 档以前自己拼一句），断言跟随统一措辞
+    expect(String(dup[0].note)).toContain('is close to existing');
     // 明细不进终端（fa62211 起终端只有进度/总结/下一步）
     expect(lines.join('\n')).not.toMatch(/possible-duplicate-topic/);
   });

@@ -4,7 +4,7 @@
 import type { OmemConfig } from './config.js';
 import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, MemoryType, Profile } from './entry.js';
-import { newFrontmatter, normalizeDomain } from './entry.js';
+import { isNearDupTopic, newFrontmatter, normalizeDomain } from './entry.js';
 import { findById, writeEntry } from './store.js';
 import { contentHash, newId } from './util.js';
 import { redactSecrets } from './redact.js';
@@ -55,6 +55,11 @@ export interface CommitResult {
   /** dry-run 且本应落盘时为 true；此时没有 id / path。 */
   dryRun?: boolean;
   reason?: string;
+  /**
+   * 非致命提醒：写入成功，但这件事值得让调用方知道（跨 topic 合并、近似 topic、
+   * 误把项目分组名当主题）。不拒绝写入——拒绝会打断 Agent 的写回流程。
+   */
+  warnings?: string[];
 }
 
 /** 脱敏后只剩下供应商前缀和占位符，视为整条都是密钥。 */
@@ -117,6 +122,7 @@ export function commitEntry(
   }
 
   const topic = resolveTopic(input);
+  const warnings: string[] = [];
   if (topic) {
     const active = index.findActiveByTopic(topic);
     if (active && !supersedes.includes(active.id)) {
@@ -127,10 +133,39 @@ export function commitEntry(
         reason: `Topic "${topic}" already has an active document ${active.id}. Pass --supersedes ${active.id} (or supersedes: ["${active.id}"]) to update it. --force does not bypass this.`,
       }, input, opts);
     }
+    // 只在新建主题时查近似：命中不拒绝（拒绝会让 Agent 卡住），而是提示它
+    // 改用既有主题 + supersedes。此前只有 API 档做这个检查。
+    if (!active) {
+      const near = index.activeTopics().find((t) => isNearDupTopic(topic, t));
+      if (near) {
+        warnings.push(
+          `Topic "${topic}" is close to existing "${near}". If they mean the same thing, write into "${near}" with supersedes instead of starting a second living document.`,
+        );
+      }
+    }
+  }
+
+  // 跨主题合并：被取代的旧文档属于别的主题时，那些主题名此后不再出现在检索结果里
+  // （旧文件置 superseded，默认查询排除）。合并是合法操作，但必须让操作者知道。
+  if (supersedes.length > 0) {
+    const retired = new Map<string, string>();
+    for (const oldId of supersedes) {
+      const old = findById(home, oldId, { includeArchived: true });
+      const oldTopic = old?.entry.fm.topic;
+      if (oldTopic && oldTopic !== topic) retired.set(oldTopic, oldId);
+    }
+    if (retired.size > 0) {
+      const names = [...retired.keys()].join(', ');
+      warnings.push(
+        topic
+          ? `Merged ${retired.size} topic(s) into "${topic}": ${names}. Those names stop resolving in search; \`omem topic list --all\` shows where they went.`
+          : `Superseded ${retired.size} topic(s) without giving the new document a topic: ${names}. The topic is now only reachable with \`omem search --all\`.`,
+      );
+    }
   }
 
   if (opts.dryRun) {
-    return { status: 'written', redacted, dryRun: true, reason: 'dry-run' };
+    return { status: 'written', redacted, dryRun: true, reason: 'dry-run', warnings };
   }
 
   const entry: Entry = {
@@ -162,7 +197,7 @@ export function commitEntry(
   // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
   if (opts.refreshGuide !== false) refreshGuide(home, index);
   logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes });
-  return { status: 'written', id: entry.fm.id, path: written.path, redacted };
+  return { status: 'written', id: entry.fm.id, path: written.path, redacted, warnings };
 }
 
 function resolveTopic(input: CommitInput): string | undefined {

@@ -4,7 +4,7 @@
 import type { OmemConfig, Tier } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import { nowIso, parseSince, BackendUnavailableError } from '../core/util.js';
-import { deriveTitle } from '../core/entry.js';
+import { deriveTitle, isNearDupTopic } from '../core/entry.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { commitEntry } from '../core/commit.js';
@@ -20,7 +20,7 @@ import {
   writeSessionFile,
 } from '../collect/session-store.js';
 import type { SessionDigest } from '../collect/types.js';
-import { GUIDE_BATCH, pendingTopics, renderGuide, writeProcessGuide, type GuideSessionRef, type GuideTopic } from './guide.js';
+import { GUIDE_BATCH, collectExistingTopics, pendingTopics, renderGuide, writeProcessGuide, type GuideSessionRef, type GuideTopic } from './guide.js';
 import {
   extractWithApi,
   resolveApiConfig,
@@ -276,18 +276,8 @@ function projectDocs(home: string, projectFp: string | undefined): { topic: stri
     .map((l) => ({ topic: l.entry.fm.topic as string, content: l.entry.body }));
 }
 
-function activeTopics(home: string): string[] {
-  return listEntries(home)
-    .filter((l) => l.entry.fm.status === 'active' && l.entry.fm.topic)
-    .map((l) => l.entry.fm.topic as string);
-}
-
-/** §7.4-3 近似判据：归一化后互为前缀、或去掉分隔符后相同（且不是同一个 topic）。 */
-function isNearDupTopic(a: string, b: string): boolean {
-  if (a === b) return false;
-  const strip = (s: string) => s.replace(/[-_]/g, '');
-  return a.startsWith(b) || b.startsWith(a) || strip(a) === strip(b);
-}
+// 近似主题与跨主题合并的判定已收进 core/commit.ts（所有写入路径共用），
+// 本文件只通过 result.warnings 呈现，不再自己扫一遍。
 
 /**
  * 单份活文档落盘（§7）：topic 收敛 → 自动 supersede（§7.3）→ 证据锚定（§7.1）→ commitEntry。
@@ -315,13 +305,6 @@ function commitDoc(
     }
     // §7.3：API 档没有 Agent 在环，supersede 由 omem 自己补，否则每次都被 commitEntry 拒
     supersedes = [active.id];
-  } else {
-    for (const t of activeTopics(home)) {
-      if (isNearDupTopic(topic, t)) {
-        warnDup(`new topic ${topic} is suspiciously close to active ${t}; both kept for review`);
-        break;
-      }
-    }
   }
   const scored = scoreApiDoc(home, { sessionId: item.sessionId, evidence: doc.evidence, content: doc.content }, index);
   const result = commitEntry(home, config, index, {
@@ -341,6 +324,8 @@ function commitDoc(
   if ((result.redacted ?? 0) > 0) report.redacted++;
   if (result.status === 'excluded' || result.status === 'redacted-empty') report.excluded++;
   if (result.status === 'deduped') report.deduped++;
+  // 近似主题 / 跨主题合并由 commitEntry 统一判定，这里只负责呈现
+  for (const w of result.warnings ?? []) warnDup(w);
   if (result.status === 'written' && result.id) report.written.push(result.id);
   return result.status === 'written' ? topic : null;
 }
@@ -408,7 +393,7 @@ function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: R
   const [topics, remaining, unassigned, counts] = pendingTopics(home, index);
   report.waitingTopics = counts.topics;
   report.waitingUnassigned = counts.unassigned;
-  const text = renderGuide(topics, remaining, unassigned);
+  const text = renderGuide(topics, remaining, unassigned, collectExistingTopics(home));
   if (!dryRun) {
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);

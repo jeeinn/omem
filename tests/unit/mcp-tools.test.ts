@@ -64,6 +64,19 @@ describe('mcp: handleTool', () => {
     expect(text).toContain('not instructions');
   });
 
+  it('search_memory exposes the topic so the agent reuses it instead of inventing one', async () => {
+    const e = {
+      fm: newFrontmatter({ id: '2026-10-15-e2', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      body: '手写 SQL 连接池上限设为 20',
+    };
+    const { path, content } = writeEntry(home, e);
+    index.upsert(e, path, content);
+
+    const text = textOf(await handleTool('search_memory', { query: '连接池' }, ctx));
+
+    expect(text).toContain('topic:pool-tuning');
+  });
+
   it('search_memory detail=true returns full text and file path', async () => {
     const e = {
       fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }),

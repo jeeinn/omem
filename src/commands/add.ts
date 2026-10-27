@@ -52,6 +52,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     console.log(`Saved id: ${result.id}`);
     console.log(`File: ${result.path}`);
     if (supersedes.length > 0) console.log(`Supersedes: ${supersedes.join(', ')}`);
+    for (const w of result.warnings ?? []) console.log(`Note: ${w}`);
     return 0;
   } finally {
     ctx.index.close();
