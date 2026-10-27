@@ -120,6 +120,7 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
 | `omem review [<id>]` | 待审默认最近 10 条。带 id 打开正文；`--confirm <id\|id,id>` / `--dismiss` / `--stale` 确认、归档或冷却 |
 | `omem review --ui` | 起一个本地页面，勾选后一次提交。`--no-open` 只打印链接，`--port N` 指定端口，`--timeout SEC` 改超时（默认 600） |
+| `omem topic list [--all]` | 列活文档主题（文档数 / 最近更新 / 置信度 / 标题）。`--all` 额外列出已被合并掉的旧主题 → 现在归到哪个文档 |
 | `omem gc [--days N]` | 把长期未确认的条目标成 stale，不删除 |
 | `omem rebuild` | 从 Markdown 重建索引 |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 给不走 MCP 的客户端导出上下文 |
@@ -145,6 +146,34 @@ omem sync --tier api --model minicpm5-2b --limit 5
 $env:OMEM_API_KEY = 'sk-xxx'
 omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 ```
+
+## 主题（topic）
+
+`topic` 是活文档的标识，**可选**，只写在 frontmatter 里，不影响文件路径——`knowledge/coding/2026/` 下既有 `coding` 这个 domain，也可能放着十几个不同主题的文档。
+
+```bash
+omem add "连接池上限 20，超过就排队" --topic pool-tuning
+omem topic list          # 有哪些主题
+omem topic list --all    # 连已经合并掉的旧主题一起看
+```
+
+同一主题同时只有一份 active 文档。要更新它，必须指向当前那份：
+
+```bash
+omem add "连接池上限 20，超过排队（补充：不要盲调大）" --topic pool-tuning --supersedes <id>
+```
+
+不传 `supersedes` 会被拒绝，`--force` 也不绕过。更新是整篇覆盖：旧版置 `superseded`、文件留在原目录、默认检索不再返回；`source_sessions` 会继承累积，`evidence` 和 `verified` 不继承。
+
+**三种「看不见」的补救**：
+
+| 情况 | 现在会怎样 |
+| --- | --- |
+| 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 附一份 `## Existing topics` 词表 |
+| 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，但照常写入 |
+| 用新主题取代了别的主题的文档 | 写入时告警「Merged N topic(s) into "xxx"」，并列出消失的主题名 |
+
+最后一种不阻止、只提示：合并本身是合法操作，但那些主题名之后就搜不到了（`omem search --all` 才看得到）。`omem topic list --all` 会给出「旧主题 → 现在归到哪个文档」的映射。
 
 ## 图形化审阅（`review --ui`）
 

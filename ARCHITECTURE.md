@@ -160,6 +160,32 @@ stateDiagram-v2
 
 硬删只有 `omem redact`，同时删 Markdown 和索引行。确认（`verified: true`，置信度 0.9）只来自 `omem add` 或 `omem review --confirm`。
 
+## 活文档与 topic
+
+**topic 只在 frontmatter 里，不进文件路径。** `knowledge/` 下的 `coding/`、`general/` 是 domain，不是 topic；一条带 topic 的记忆和其它记忆混在同一个目录里，文件名只有 id。所以 topic 的可见性必须由输出端保证（见下）。
+
+只有**显式传 `topic`** 才算活文档。`project` 只用于 `PROCESS.md` 归组，不会回落到 topic——两者是不同命名空间，`PROCESS.md` 里的 `## xxx` 是项目指纹，不是主题名。
+
+同一 topic 同时只有一份 `active`。再次写入必须带 `supersedes` 指向当前那份，否则 `commitEntry` 拒绝，`--force` 也不绕过。topic 归一化：小写、空白转连字符、合并连续连字符。
+
+更新是**整篇覆盖**，不是增量合并：
+
+| 项目 | 行为 |
+| --- | --- |
+| 新版本 | 新 id、新文件、新正文 |
+| 旧版本 | 置 `superseded` + 回填 `superseded_by`，**文件留在 `knowledge/` 原路径**，默认检索不再返回 |
+| `source_sessions` | 继承并累积（会话吸收历史不丢） |
+| `evidence` | **不继承**，只保留本次写入的 |
+| `confidence` | 重算 |
+| `verified` / `confirmations` | 重置（新内容需要重新核实） |
+
+**可见性**：`MEMORY-INDEX.md` 用 `topic:xxx` 标签、`omem search` 的命中行、`omem review` 的第三列、`omem topic list`。写入前 `PROCESS.md` 会附一份 `## Existing topics` 词表，让 Agent 复用已有名字而不是为同一主题再开一份。
+
+**两个护栏**（只在 `core/commit.ts` 里，所有写入路径共用）：
+
+- 近似主题：新 topic 与既有 topic 互为前缀或去掉分隔符后相同 → 告警，但不拒绝（拒绝会打断 Agent 写回）。
+- 跨主题合并：`supersedes` 指向的旧文档属于别的主题 → 告警并列出将要消失的主题名。合并允许，但操作者必须知道后果：那些名字此后只能 `omem search --all` 才看得到。
+
 ## 目录
 
 ```text

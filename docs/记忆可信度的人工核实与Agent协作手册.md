@@ -8,13 +8,14 @@
 
 ## 0. 结论摘要
 
-标记可信度有**三条路径**，能力不同，别混用：
+标记可信度有**三条路径、四个入口**，能力不同，别混用：
 
 | 路径 | 载体 | 能做什么 | 留痕 | 推荐度 |
 | --- | --- | --- | --- | --- |
 | **A. 让 Agent 跑 CLI** | Cursor / CodeBuddy 的终端或对话 | 全能力：`review` / `review --confirm` / `--dismiss` / `--stale` / 直接改 md | 有（`confirmations+1`、`last_confirmed` 刷新） | **★ 推荐** |
+| **A2. 浏览器勾选**（A 的图形入口） | `omem review --ui` | 勾选确认 / 归档 / 冷却；右栏并排正文、evidence 与来源会话 | 有（同 A） | 条目多时首选 |
 | **B. MCP 工具** | `memory_feedback`（默认关闭） | 只能「+1 确认」，不能否认（见 §4.4） | 有（等同 `review --confirm`） | 有条件使用 |
-| **C. 直接编辑 md** | 任意编辑器 / Agent 的文件编辑 | 改 `verified` 与 `confidence` 任意值 | **无**（不递增<｜hy_place▁holder▁no▁813｜> `confirmations`，不刷新 `last_confirmed`） | 批量改分时用 |
+| **C. 直接编辑 md** | 任意编辑器 / Agent 的文件编辑 | 改 `verified` 与 `confidence` 任意值 | **无**（不递增 `confirmations`，不刷新 `last_confirmed`） | 批量改分时用 |
 
 三条铁律：
 
@@ -153,11 +154,12 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 **模板 3：批量（已知 id 列表时）**
 
 ```bash
-# Git Bash
-for id in 2026-10-16-0557e1 2026-10-16-a86344; do omem review --confirm "$id"; done
+omem review --confirm 2026-10-16-0557e1,2026-10-16-a86344
 ```
 
-> 一条 `--confirm` 只接受**一个 id**，逗号列表不支持（`--supersedes` 才支持逗号列表）。
+> `--confirm` 支持逗号列表，一条命令写一批。批量时不能同时带 `--supersedes`（N 个旧 id 对 1 个新文档，归属不明确），那一项只属于单条确认。
+>
+> 条目多到记不住 id 时，用 `omem review --ui`：浏览器里勾选、右栏看正文与来源会话，一次提交。详见 README 的「图形化审阅」一节。
 
 ### 3.4 红线
 
