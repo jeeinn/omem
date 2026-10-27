@@ -38,11 +38,11 @@ describe('rules: tier-0 rule extraction', () => {
     expect(p.some((x) => x.type === 'preference')).toBe(true);
   });
 
-  it('imperative tone halves confidence + low-weight tag (first line of anti-poisoning defense)', () => {
+  it('candidate confidence from rule match is now purely rule-base (no longer halved for imperative tone)', () => {
     const c = extractCandidates(userMsg('以后必须在提交前运行全部测试'));
     expect(c).toHaveLength(1);
-    expect(c[0].confidence).toBeCloseTo(0.2); // 0.4 * 0.5
-    expect(c[0].tags).toContain('low-weight');
+    expect(c[0].confidence).toBeCloseTo(0.4); // rule base, no INSTRUCTION_TONE penalty
+    expect(c[0].tags).toEqual([]);
   });
 
   it('too-short matches discarded (<6 chars is not a memory)', () => {

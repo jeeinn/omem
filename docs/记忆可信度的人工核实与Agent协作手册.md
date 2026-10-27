@@ -21,7 +21,7 @@
 
 1. **`review --confirm` 会把 `verified` 置 true，并把 `confidence` 提到 0.9。** 一条 `confidence: 0.55` 的 agent 条目确认后是 `0.9 / verified:true`（`reconfirm()` 的实现，同时 `confirmations+1`、刷新 `last_confirmed`）。旧版手册说「只翻 verified、不动 confidence」是 beta.1 规则抽取时代的描述，规则抽取已移除，不会再有 `confidence: 0.4` 的候选。要手动改分仍可走路径 C 改 md。
 2. **只有人才是高可信度的来源。** 让 Agent 自己给它自己刚写入的条目盖章（路径 B），等于取消整套防投毒设计。
-3. **`save_memory` 写出来的永远是 `verified: false`**（实测 `confidence: 0.6`）。它必须回到人工/半人工队列才升可信。
+3. **`save_memory` 写出来的永远是 `verified: false`**（`confidence` 由证据锚定深度决定：单会话锚定 0.55，多会话印证最高 0.80）。它必须回到人工/半人工队列才升可信。
 
 ---
 
@@ -106,8 +106,7 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 
 | 写入路径 | `confidence` | `verified` | `confirmations` | `source` |
 | --- | --- | --- | --- | --- |
-| 规则抽取 `omem sync` | 0.35 ~ 0.45（指令式语气减半并打 `low-weight`） | `false` | 0 | `rules` |
-| MCP `save_memory` | **0.6** | **`false`** | 0 | `agent` |
+| MCP `save_memory` | **0.55 ~ 0.80**（梯级：单锚定 0.55 起，多会话印证 +0.10/+0.06/+0.03，跨项目再 +0.03，封顶 0.80） | **`false`** | 0 | `agent` |
 | CLI `omem add` | **0.9** | **`true`** | 0 | `manual` |
 
 也因此，**用 `omem add` 手工补记是最快拿到「已确认」状态的路径**——人写的就是可信的，这条默认值设计是对的。

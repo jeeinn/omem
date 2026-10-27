@@ -152,18 +152,50 @@ describe('score: 证据锚定与归一化（V15/V16/V17/V32）', () => {
     expect(evidenceIn(haystack, 'unrelated text here')).toBe(false);
   });
 
-  it('V16: grounded 0.55 / corroborated 0.75 / ungrounded 0.35 + tag', () => {
-    // e1 含两条引文；e2 只含第一条 → 第一条两会话印证（0.75），第二条单会话锚定（0.55）
+  it('V16: grounded 0.55 / single corroboration 0.65 / ungrounded 0.35 + tag', () => {
+    // e1 含两条引文；e2 只含第一条 → 第一条单会话印证（0.65），第二条仅 citedHit 无印证（0.55）
     seedSession('e1', '## user\nplease deploy the new release thanks and monitor the logs carefully now\n\n## assistant\nok', '2026-10-20T10:05:00.000Z');
     seedSession('e2', '## user\nplease deploy the new release thanks\n\n## assistant\nnoted', '2026-10-19T10:05:00.000Z');
     index.catchUp();
     const corroborated = scoreApiDoc(home, { sessionId: 'e1', evidence: ['please deploy the new release thanks'], content: '结论' }, index);
-    expect(corroborated.confidence).toBe(0.75);
+    expect(corroborated.confidence).toBe(0.65);
     const single = scoreApiDoc(home, { sessionId: 'e1', evidence: ['monitor the logs carefully now'], content: '结论' }, index);
     expect(single.confidence).toBe(0.55);
     const miss = scoreApiDoc(home, { sessionId: 'e1', evidence: ['this quote appears nowhere at all'], content: '结论' });
     expect(miss.confidence).toBe(0.35);
     expect(miss.tags).toContain('ungrounded');
+  });
+
+  it('V16b: graded corroboration ladder (1 / 2 / 3 corroborations)', () => {
+    const quote = 'always deploy on fridays';
+    seedSession('g1', `## user\n${quote}\n\n## assistant\nok`, '2026-10-18T10:00:00.000Z', 'proj-x');
+    index.catchUp();
+    // g1 is cited; no corroboration yet → 0.55
+    expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.55);
+    // add 1 corroborating session from same project → 0.65
+    seedSession('g2', `## user\n${quote}\n\n## assistant\nok`, '2026-10-19T10:00:00.000Z', 'proj-x');
+    index.catchUp();
+    expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.65);
+    // add 2nd corroborating session from a different project → 0.71 + 0.03 cross-project = 0.74
+    seedSession('g3', `## user\n${quote}\n\n## assistant\nok`, '2026-10-20T10:00:00.000Z', 'proj-y');
+    index.catchUp();
+    expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.74);
+  });
+
+  it('V16c: corroboration bonus capped at 0.25 even with many sessions', () => {
+    const quote = 'use rust for everything';
+    seedSession('c1', `## user\n${quote}`, '2026-10-10T10:00:00.000Z', 'proj-a');
+    for (let i = 2; i <= 6; i++) {
+      seedSession(`c${i}`, `## user\n${quote}`, `2026-10-${10 + i}T10:00:00.000Z`, `proj-${i}`);
+    }
+    index.catchUp();
+    // 5 corroborations from 5 different projects: 0.55 + 0.10 + 0.06 + 0.03×3 = 0.80, but capped at 0.25 bonus → 0.80
+    // since save_memory (scoreEvidence) auto cap is 0.8
+    const viaSave = scoreEvidence(home, { content: 'x', sessionId: 'c1', evidence: quote }, index);
+    expect(viaSave.confidence).toBe(0.8);
+    // scoreApiDoc cap is 0.75 → still 0.75
+    const viaApi = scoreApiDoc(home, { sessionId: 'c1', evidence: [quote], content: 'x' }, index);
+    expect(viaApi.confidence).toBe(0.75);
   });
 
   it('V17: API-doc confidence never exceeds the cap and stays unverified', () => {

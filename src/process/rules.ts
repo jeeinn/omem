@@ -1,7 +1,6 @@
 // 档 0：规则抽取（规格 §9.4，默认零配置）。
 // 正则 + 模板从会话提高信号句，生成 verified:false 候选。设计要点：
 // - 只从 user 消息抽取（模型自己的输出不作为用户偏好）
-// - 指令式语气（"以后总是/必须/一律"）置信度减半——防记忆投毒第一关（评估 4.5）
 // - 同会话多重印证 +0.1（封顶 0.6）——低但可用的候选信号
 import type { MemoryType } from '../core/entry.js';
 import type { UnifiedMessage } from '../collect/types.js';
@@ -35,9 +34,6 @@ const RULES: RuleSpec[] = [
   { id: 'pref-en', re: /(always use|never use|prefers? to|don'?t use|do not use)[^.\n]{2,90}/i, type: 'preference', conf: 0.4 },
 ];
 
-/** 指令式语气（防投毒）：命中则置信度减半并打 low-weight 标签。 */
-const INSTRUCTION_TONE = /(以后总是|必须|一律|永远|每次都要|无条件|务必|always must)/;
-
 const CODING_RE =
   /代码|函数|bug|调试|部署|docker|git|sql|api|报错|编译|框架|测试|服务|端口|代理|配置|环境变量|数据库|仓库|分支|提交|重构|接口|脚本|code|function|debug|deploy|docker|sql|api|error|compile|test|server|port|proxy|config|refactor/i;
 
@@ -66,12 +62,7 @@ export function extractCandidates(msg: UnifiedMessage): Candidate[] {
     const content = m[0].trim();
     if ([...content].length < 6) continue; // 太短不成记忆
     const clipped = [...content].length > 300 ? content.slice(0, 299) + '…' : content;
-    let conf = rule.conf;
-    const tags: string[] = [];
-    if (INSTRUCTION_TONE.test(clipped)) {
-      conf *= 0.5;
-      tags.push('low-weight');
-    }
+    const conf = rule.conf;
     const key = normalizeForHash(clipped);
     const prev = byKey.get(key);
     if (prev && prev.confidence >= conf) continue;
@@ -80,7 +71,7 @@ export function extractCandidates(msg: UnifiedMessage): Candidate[] {
       domain: inferDomain(clipped),
       content: clipped,
       confidence: Math.round(conf * 100) / 100,
-      tags,
+      tags: [],
       project_fp: msg.project_fp,
       session_id: msg.session_id,
       source: 'rules',

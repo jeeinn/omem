@@ -189,6 +189,108 @@ describe('evidence score', () => {
     expect(done.verified).toBe(true);
     expect(done.confidence).toBe(0.9);
   });
+
+
+  it('graded corroboration: bonus scales with corroboration count and cross-project spread', () => {
+    const userLine = 'always deploy on fridays';
+    const d1 = digest('gl-1', userLine, 'assistant-a');
+    const d2 = digest('gl-2', userLine, 'assistant-b');
+    const d3 = digest('gl-3', userLine, 'assistant-c');
+    // write d1 and d2 to disk with different projects; only d1 and d2 go into the index
+    writeSessionFile(home, d1, renderDialogue(d1), 'h1');
+    writeSessionFile(home, { ...d2, project_fp: 'proj-y' }, renderDialogue(d2), 'h2');
+    // put d2 under a different project via raw file write (digest project_fp is 'unknown'; override file content)
+    const path2 = join(home, 'sessions', 'cursor', 'gl-2.md');
+    writeFileSync(path2, `---
+agent: cursor
+session_id: gl-2
+project: proj-y
+started: 2026-10-15T00:00:00.000Z
+ended: 2026-10-15T00:01:00.000Z
+messages: 2
+content_hash: h2
+---
+
+## user
+${userLine}
+
+## assistant
+assistant-b`);
+    index.putSession({
+      session_id: sessionKey('cursor', 'gl-1'),
+      agent: 'cursor',
+      path: join(home, 'sessions', 'cursor', 'gl-1.md'),
+      content_hash: 'h1',
+      project_fp: 'proj-x',
+      msg_count: 2,
+      last_ts: d1.ended_ts,
+      processed_at: d1.ended_ts,
+    }, renderDialogue(d1));
+    index.putSession({
+      session_id: sessionKey('cursor', 'gl-2'),
+      agent: 'cursor',
+      path: path2,
+      content_hash: 'h2',
+      project_fp: 'proj-y',
+      msg_count: 2,
+      last_ts: d2.ended_ts,
+      processed_at: d2.ended_ts,
+    }, `## user\n${userLine}\n\n## assistant\nassistant-b`);
+
+    // cited gl-1, one corroboration from same project (via digest default 'unknown' maps to 'unknown')
+    // note: d1 digest has project_fp 'unknown' but we set project_fp:'proj-x' in putSession
+    const oneCorr = scoreEvidence(home, { content: 'deploy schedule', sessionId: 'gl-1', evidence: userLine }, index);
+    expect(oneCorr.confidence).toBe(0.65);
+    expect(oneCorr.tags).not.toContain('low-weight');
+
+    // add gl-3 with a third project via file+index
+    writeSessionFile(home, { ...d3, project_fp: 'proj-z' }, renderDialogue(d3), 'h3');
+    const path3 = join(home, 'sessions', 'cursor', 'gl-3.md');
+    writeFileSync(path3, `---
+agent: cursor
+session_id: gl-3
+project: proj-z
+started: 2026-10-15T00:00:00.000Z
+ended: 2026-10-15T00:01:00.000Z
+messages: 2
+content_hash: h3
+---
+
+## user
+${userLine}
+
+## assistant
+assistant-c`);
+    index.putSession({
+      session_id: sessionKey('cursor', 'gl-3'),
+      agent: 'cursor',
+      path: path3,
+      content_hash: 'h3',
+      project_fp: 'proj-z',
+      msg_count: 2,
+      last_ts: d3.ended_ts,
+      processed_at: d3.ended_ts,
+    }, `## user\n${userLine}\n\n## assistant\nassistant-c`);
+
+    // cited gl-1, two corroborating sessions across two projects
+    // bonus = 0.10 (1st) + 0.06 (2nd) + 0.03 (cross-project) = 0.19, base = 0.55 + 0.19 = 0.74
+    const twoCorr = scoreEvidence(home, { content: 'deploy schedule', sessionId: 'gl-1', evidence: userLine }, index);
+    expect(twoCorr.confidence).toBe(0.74);
+    expect(twoCorr.tags).not.toContain('low-weight');
+  });
+
+  it('imperative tone in content/evidence no longer halves confidence (INSTRUCTION_TONE removed)', () => {
+    const userLine = '必须一律用手写 SQL，永远不要用 ORM';
+    const d = digest('it-1', userLine, '随便助手说了一句');
+    writeSessionFile(home, d, renderDialogue(d), 'hit');
+    // whether evidence or content contains imperative words, score is purely anchor-based
+    const fromEvidence = scoreEvidence(home, { content: '普通结论', sessionId: 'it-1', evidence: userLine });
+    expect(fromEvidence.confidence).toBe(0.55);
+    expect(fromEvidence.tags).not.toContain('low-weight');
+    const fromContent = scoreEvidence(home, { content: '必须一律遵守这条规则', sessionId: 'it-1', evidence: userLine });
+    expect(fromContent.confidence).toBe(0.55);
+    expect(fromContent.tags).not.toContain('low-weight');
+  });
 });
 
 describe('session-store: api_state frontmatter (档 3 文档 §3.5)', () => {
