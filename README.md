@@ -178,7 +178,7 @@ omem topic policy noisy-topic never    # 永不进队列
 omem topic policy pool-tuning default  # 回到默认 always
 ```
 
-策略文件在 `~/.omem/review.toml`，随 git 备份。`once` 与 `never` 都有安全阀：置信度 ≤0.35 或带 `ungrounded` 的条目**始终**会回到队列，策略压不住它。被策略静默的条数会在 `omem review` 末尾报告，不会是无声消失。
+策略文件在 `~/.omem/review.toml`，随 git 备份。「审过」指该主题任一版本有过确认动作——`confirm` 与 `assent` 都算，两者都会累加 `confirmations`。`once` 与 `never` 都有安全阀：置信度 ≤0.35 或带 `ungrounded` 的条目**始终**会回到队列，策略压不住它。被策略静默的条数会在 `omem review` 末尾报告，不会是无声消失。
 
 **三种「看不见」的补救**：
 

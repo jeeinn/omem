@@ -191,7 +191,7 @@ stateDiagram-v2
 | 策略 | 行为 |
 | --- | --- |
 | `always`（默认） | 每次更新都进 review 队列 |
-| `once` | 该主题被人工审过（任一版本 `confirmations > 0`）后，后续版本自动 `assent`（提底 0.8、不设 verified），不进队列 |
+| `once` | 该主题被人工审过（任一版本 `confirmations > 0`；`confirm` 与 `assent` 都计入）后，后续版本自动 `assent`（提底 0.8、不设 verified），不进队列 |
 | `never` | 永不进队列，也不自动提分 |
 
 `once` / `never` 都受安全阀约束：置信度 ≤0.35 或带 `ungrounded` 的条目始终回到队列。自动 assent 发生在 `commitEntry` 写入时（不是读队列时），所以落盘状态与队列显示一致。
