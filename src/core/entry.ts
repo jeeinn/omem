@@ -182,6 +182,22 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
   };
 }
 
+/**
+ * 域名归一化。domain 是唯一进入文件路径的自由输入（id/created 由程序生成），
+ * 不校验就能用 `domain: "../../x"` 把文件写出知识库。规则：保留 a-z0-9 与
+ * 中日韩字符，其余折叠为 '-'；空值回落 'general'。
+ */
+export function normalizeDomain(raw: string | undefined): string {
+  if (!raw) return 'general';
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return normalized || 'general';
+}
+
 /** 标题 = 正文首行（截断）；用于检索摘要行与 MEMORY-INDEX。 */
 export function deriveTitle(body: string, max = 60): string {
   const first = body.split('\n').map((l) => l.trim()).find(Boolean) ?? '';

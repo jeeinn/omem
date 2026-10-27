@@ -4,7 +4,7 @@
 import type { OmemConfig } from './config.js';
 import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, MemoryType, Profile } from './entry.js';
-import { newFrontmatter } from './entry.js';
+import { newFrontmatter, normalizeDomain } from './entry.js';
 import { findById, writeEntry } from './store.js';
 import { contentHash, newId } from './util.js';
 import { redactSecrets } from './redact.js';
@@ -137,7 +137,7 @@ export function commitEntry(
     fm: newFrontmatter({
       id: newId(text + (input.session_id ?? '')),
       type: input.type,
-      domain: input.domain || inferDomain(text),
+      domain: normalizeDomain(input.domain || inferDomain(text)),
       profile,
       status: 'active',
       confidence: input.confidence,

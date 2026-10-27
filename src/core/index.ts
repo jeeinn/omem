@@ -170,8 +170,11 @@ export class OmemIndex {
 
   /** 该主题当前的 active 活文档。多条时取最近确认的一份。 */
   findActiveByTopic(topic: string): EntryRow | null {
+    // 按 created 而非 last_confirmed：版次由创建时间定义。用 last_confirmed 时，
+    // 对旧版跑一次 review --confirm 就会让它在 topic 检查里盖过真正的最新版，
+    // 下次写入 supersede 错对象，新版反被孤立。与 guide.ts 的 fillDocSlot 口径一致。
     return (this.db.prepare(
-      `SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY last_confirmed DESC LIMIT 1`,
+      `SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY created DESC LIMIT 1`,
     ).get(topic) as unknown as EntryRow) ?? null;
   }
 

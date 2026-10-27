@@ -4,7 +4,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync,
 import { join } from 'node:path';
 import { dirs } from './paths.js';
 import type { Entry, Frontmatter } from './entry.js';
-import { parseEntry, serializeEntry } from './entry.js';
+import { normalizeDomain, parseEntry, serializeEntry } from './entry.js';
 import { atomicWrite } from './util.js';
 
 export interface Located {
@@ -21,7 +21,9 @@ export interface WriteResult {
 export function entryPath(home: string, fm: Frontmatter, location: 'knowledge' | 'archive' = 'knowledge'): string {
   const root = location === 'archive' ? dirs.archive(home) : dirs.knowledge(home);
   const year = (fm.created || '').slice(0, 4) || String(new Date().getFullYear());
-  return join(root, fm.domain || 'general', year, `${fm.id}.md`);
+  // 在这里归一化而不是只在 commitEntry：updateEntry / moveToArchive 也走这条路径，
+  // 外部编辑过的脏 domain（`../../x`）否则会让文件被写出知识库。
+  return join(root, normalizeDomain(fm.domain), year, `${fm.id}.md`);
 }
 
 export function writeEntry(home: string, entry: Entry): WriteResult {
