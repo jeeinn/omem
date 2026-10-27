@@ -74,7 +74,8 @@ Windows 上若 MCP 起不来，把客户端配置改成用 node 直接启动：`
 ```bash
 omem install
 omem sync --since 30d
-omem review --confirm <id>
+omem review --ui                # 浏览器里勾选，一次提交
+omem review --confirm <id>      # 也可以命令行确认单条（支持 id1,id2 批量）
 omem add "部署时 docker 镜像构建失败，改用国内源后恢复" --type experience
 omem search "镜像拉取"
 omem backup remote git@github.com:you/omem-memory.git
@@ -117,7 +118,8 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 | `omem api status` | 查看 API 档的生效配置、队列和模型 |
 | `omem add <content>` | 手工添加，自动脱敏 |
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
-| `omem review [<id>]` | 待审默认最近 10 条。带 id 打开正文；`--confirm` / `--dismiss` 确认或归档 |
+| `omem review [<id>]` | 待审默认最近 10 条。带 id 打开正文；`--confirm <id\|id,id>` / `--dismiss` / `--stale` 确认、归档或冷却 |
+| `omem review --ui` | 起一个本地页面，勾选后一次提交。`--no-open` 只打印链接，`--port N` 指定端口，`--timeout SEC` 改超时（默认 600） |
 | `omem gc [--days N]` | 把长期未确认的条目标成 stale，不删除 |
 | `omem rebuild` | 从 Markdown 重建索引 |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 给不走 MCP 的客户端导出上下文 |
@@ -143,6 +145,32 @@ omem sync --tier api --model minicpm5-2b --limit 5
 $env:OMEM_API_KEY = 'sk-xxx'
 omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 ```
+
+## 图形化审阅（`review --ui`）
+
+积压几十条时逐条敲命令不现实。`omem review --ui` 起一个只绑 `127.0.0.1` 的页面：左边是队列，右边是正文、evidence 和来源会话标题，勾选后点一次 Apply 全部落盘。
+
+```bash
+omem review --ui                  # 提示后按 Enter 打开浏览器
+omem review --ui --no-open        # 只打印链接，自己开
+omem review --ui --topic fm-cmp --timeout 300
+```
+
+**分级落章**：批量勾选的天花板不是「确认」，而是「同意」。
+
+| 你的操作 | 结果 |
+| --- | --- |
+| 勾选，但没展开这条的正文 | `assent`：confidence 保底 0.8，`verified` 仍为 false |
+| 勾选，且展开过正文 | `confirm`：confidence 0.9，`verified: true` |
+
+「展开过」由服务端记录（`GET /api/detail/<id>`），前端改不了。这条门槛的目的很直接：`verified` 决定 `MEMORY-INDEX.md` 的排序，应该为它付出阅读成本。批量全选只能拿到 0.8。
+
+其它细节：
+
+- 终端里的 `Enter` 只是「授权打开浏览器」，提交的唯一入口是页面按钮
+- `Ctrl+C` 任何时刻都是关闭服务、零写入、退出码 0；超时（默认 10 分钟）同样零写入
+- 提交前自动打一次 `snapshot`，保留 7 份
+- 页面打开期间条目可能被 Agent 更新：提交时逐条重校验 status，已 superseded 的跳过而不是整批失败
 
 ## 定时采集
 

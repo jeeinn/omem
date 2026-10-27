@@ -1,6 +1,6 @@
 # omem review --ui 设计方案
 
-> 状态：**待实施**（2026-10-27 定稿，尚未写代码）
+> 状态：**已实施**（2026-10-27）。核心层 `b6d083a`，界面层紧随其后；实施中的两处接口调整见 §5 脚注。
 > 范围：V0.1 beta 期的 review 工作流优化
 > 关联文档：`docs/记忆可信度的人工核实与Agent协作手册.md`（§3.3 批量命令现状、§3.4 红线、§4.3 memory_feedback 的 P1 风险）
 >
@@ -250,8 +250,13 @@ interface ReviewOutcome {
 | 文件 | 改动 |
 | --- | --- |
 | `src/web/review-data.ts` | 新建：`buildReviewItem` / `buildReviewDetail` / `buildSessionIndex` / `resolveSessionTitles` |
-| `src/web/review-server.ts` | 新建：`startReviewServer()` → `{ url, token, waitForSubmit, close }` |
+| `src/web/review-server.ts` | 新建：`startReviewServer()` → `{ url, token, port, waitForResult, close }` |
 | `src/web/review-page.ts` | 新建：`renderReviewPage(params): string`，内联全部 CSS/JS |
+
+**实施时的两处接口调整**（与本文初稿不同，以代码为准）：
+
+1. `waitForSubmit()` 改为 `waitForResult(): Promise<SubmitResult | null>`。原设计让命令层在 `waitForSubmit` 返回后自己调 `applyReviewDecisions`，但页面就看不到逐条结果（设计 §4.4 要求提交后页面显示结果）。改为服务端接收一个 `onApply` 回调：命令层在回调里先 `runSnapshot` 再落盘，把 `ReviewOutcome[]` 返回给页面。写权限仍然在命令层，服务只做转发。
+2. 新增 `src/commands/review-ui.ts` 承担编排（等 Enter、开浏览器、超时、打印结果），`review.ts` 只保留分支判断。
 
 **会话标题解析策略**（性能关键）：先用 `index.listSessions()` 一次 SQL 建 `sessionId → 文件路径` 映射，再按需 `readStoredSession`，模块内加 LRU（上限 200）。禁止对每个 session 遍历 9 个 agent 目录。
 
@@ -345,14 +350,15 @@ interface ReviewOutcome {
 
 ## 9. 提交计划
 
-| # | message | 内容 | 可独立回滚 |
-| --- | --- | --- | --- |
-| 1 | `refactor(core): extract applyReviewDecisions for batch review` | 阶段 A + 测试 | 是 |
-| 2 | `feat(review): --ui browser review with read-gated verification` | 阶段 B + C + 测试 | 是（去掉 flag 即失效） |
-| 3 | `fix(core): unify topic ordering and normalize domain at entryPath` | 阶段 D（含 `entryPath` 内归一化 + `commitEntry` 净化 + `store.test.ts` 路径用例） | 是 |
-| 4 | `docs: document review --ui and batch confirm` | §7 全部 | 是 |
+| # | message | 内容 | 可独立回滚 | 状态 |
+| --- | --- | --- | --- | --- |
+| 0 | `docs: add review --ui design doc and correct a stale confidence rule` | 本文 + 手册铁律 1 | 是 | **已提交 5d630f2** |
+| 1 | `refactor(core): extract applyReviewDecisions for batch review` | 阶段 A + `--confirm` 批量 + 19 个用例 | 是 | **已提交 b6d083a** |
+| 2 | `feat(review): --ui browser review with read-gated verification` | 阶段 B + C + 23 个用例 | 是（去掉 flag 即失效） | 待提交 |
+| 3 | `fix(core): unify topic ordering and normalize domain at entryPath` | 阶段 D（含 `entryPath` 内归一化 + `commitEntry` 净化 + `store.test.ts` 路径用例） | 是 | 待办 |
+| 4 | `docs: document review --ui and batch confirm` | §7 全部 | 是 | 待办 |
 
-建议先验收 #1：在真实库上跑 `omem review --confirm id1,id2,id3`，确认无误再做 UI。
+验收顺序建议：先在真实库上跑 `omem review --confirm id1,id2`（已可用），再跑 `omem review --ui --no-open` 看页面与耗时埋点。
 
 ---
 
