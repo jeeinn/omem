@@ -245,10 +245,32 @@ export function deriveTitle(body: string, max = 60): string {
   return clean.length <= max ? clean : clean.slice(0, max - 1) + '…';
 }
 
-/** 摘要 = 前两句（中英句界均支持；无句界时按 code point 截断）。 */
+/**
+ * 摘要 = 前两句（中英句界均支持；无句界时按 code point 截断）。
+ *
+ * 句界判定不能对拉丁标点一视同仁：`sys_service.status != 0` 会被旧正则切成
+ * `sys_service.status !` —— 代码里的 `.` 与 `!=` 的 `!` 都被当成了句末。
+ * 规则：CJK 句末符（。！？）即时生效；拉丁 `.` `!` `?` 只有后接空白或行尾才算句界。
+ * 库里 coding 域占绝大多数，这个坑的覆盖面比看起来大。
+ */
 export function deriveSummary(body: string, max = 120): string {
   const flat = body.replace(/\s+/g, ' ').trim();
-  const m = flat.match(/^(?:[^。！？.!?]+[。！？.!?]){1,2}/);
-  const s = m ? m[0] : flat;
+  const s = firstSentences(flat, 2);
   return [...s].length <= max ? s : [...s].slice(0, max - 1).join('') + '…';
+}
+
+function firstSentences(text: string, count: number): string {
+  let out = '';
+  let taken = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    out += ch;
+    const cjk = ch === '。' || ch === '！' || ch === '？';
+    const latin = (ch === '.' || ch === '!' || ch === '?')
+      && (i + 1 >= text.length || /\s/.test(text[i + 1]));
+    if (!cjk && !latin) continue;
+    taken++;
+    if (taken >= count) break;
+  }
+  return out.trim();
 }

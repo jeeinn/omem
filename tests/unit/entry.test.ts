@@ -82,4 +82,17 @@ describe('entry: frontmatter contract', () => {
     expect(deriveSummary('第一句。第二句！第三句？')).toBe('第一句。第二句！');
     expect([...deriveSummary('没有标点的很长内容'.repeat(20))].length).toBe(120);
   });
+
+  it('summary does not treat code punctuation as a sentence boundary', () => {
+    // 核心用例：旧正则切成 "sys_service.status !"。coding 域占库里绝大多数。
+    const code = 'sys_service.status != 0 有两种情况：服务未注册、或注册已过期。前者要回到开通流程，后者只需续期。';
+    expect(deriveSummary(code)).toBe('sys_service.status != 0 有两种情况：服务未注册、或注册已过期。前者要回到开通流程，后者只需续期。');
+    expect(deriveSummary('版本 v1.2.3 发布了。第二句在这里。')).toBe('版本 v1.2.3 发布了。第二句在这里。');
+    // 已知限制：缩写点（e.g. / i.e.）后接空格仍被当作句界。
+    // 规则本身是「拉丁句末符只有后接空白才算句界」，缩写与真句号在字符层无法区分；
+    // 换来的是 != 、v1.2.3、路径里的点不再切断摘要，收益远大于这点残留。
+    expect(deriveSummary('调用 e.g. 这样写。然后结束。')).toBe('调用 e.g. 这样写。');
+    // 拉丁句末符后接空白仍算句界：英文正文不能被当成一句。
+    expect(deriveSummary('First sentence. Second sentence. Third.')).toBe('First sentence. Second sentence.');
+  });
 });
