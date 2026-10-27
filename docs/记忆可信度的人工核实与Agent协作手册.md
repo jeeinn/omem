@@ -18,7 +18,7 @@
 
 三条铁律：
 
-1. **`review --confirm` 只翻 `verified`，不动 `confidence`。** 一条规则抽出来的 `confidence: 0.4` 条目，确认后依然是 0.4。要提分必须走路径 C 改 md。
+1. **`review --confirm` 会把 `verified` 置 true，并把 `confidence` 提到 0.9。** 一条 `confidence: 0.55` 的 agent 条目确认后是 `0.9 / verified:true`（`reconfirm()` 的实现，同时 `confirmations+1`、刷新 `last_confirmed`）。旧版手册说「只翻 verified、不动 confidence」是 beta.1 规则抽取时代的描述，规则抽取已移除，不会再有 `confidence: 0.4` 的候选。要手动改分仍可走路径 C 改 md。
 2. **只有人才是高可信度的来源。** 让 Agent 自己给它自己刚写入的条目盖章（路径 B），等于取消整套防投毒设计。
 3. **`save_memory` 写出来的永远是 `verified: false`**（实测 `confidence: 0.6`）。它必须回到人工/半人工队列才升可信。
 
