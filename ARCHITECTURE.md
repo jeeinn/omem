@@ -174,9 +174,9 @@ stateDiagram-v2
 | --- | --- |
 | 新版本 | 新 id、新文件、新正文 |
 | 旧版本 | 置 `superseded` + 回填 `superseded_by`，**文件留在 `knowledge/` 原路径**，默认检索不再返回 |
-| `source_sessions` | 继承并累积（会话吸收历史不丢） |
-| `evidence` | **不继承**，只保留本次写入的 |
-| `confidence` | 重算 |
+| `source_sessions` | 继承并累积，保留最新 200 个 |
+| `evidence` | 继承并累积，去重后保留 8 条 / 2000 字符（本次的优先） |
+| `confidence` | 重算；若该主题策略为 `once` 且审过，提底 0.8 |
 | `verified` / `confirmations` | 重置（新内容需要重新核实） |
 
 **可见性**：`MEMORY-INDEX.md` 用 `topic:xxx` 标签、`omem search` 的命中行、`omem review` 的第三列、`omem topic list`。写入前 `PROCESS.md` 会附一份 `## Existing topics` 词表，让 Agent 复用已有名字而不是为同一主题再开一份。
@@ -186,11 +186,24 @@ stateDiagram-v2
 - 近似主题：新 topic 与既有 topic 互为前缀或去掉分隔符后相同 → 告警，但不拒绝（拒绝会打断 Agent 写回）。
 - 跨主题合并：`supersedes` 指向的旧文档属于别的主题 → 告警并列出将要消失的主题名。合并允许，但操作者必须知道后果：那些名字此后只能 `omem search --all` 才看得到。
 
+**主题级审阅策略**（`~/.omem/review.toml`，`omem topic policy` 写入）：
+
+| 策略 | 行为 |
+| --- | --- |
+| `always`（默认） | 每次更新都进 review 队列 |
+| `once` | 该主题被人工审过（任一版本 `confirmations > 0`）后，后续版本自动 `assent`（提底 0.8、不设 verified），不进队列 |
+| `never` | 永不进队列，也不自动提分 |
+
+`once` / `never` 都受安全阀约束：置信度 ≤0.35 或带 `ungrounded` 的条目始终回到队列。自动 assent 发生在 `commitEntry` 写入时（不是读队列时），所以落盘状态与队列显示一致。
+
+`review.toml` 独立于 `config.toml`：后者有文本级段合并的写入纪律，而 topic 策略是动态增长的高频写入，混在一起会破坏用户手写的注释与未知键。
+
 ## 目录
 
 ```text
 ~/.omem/                      # OMEM_HOME，本身是一个 git 仓库
 ├── config.toml
+├── review.toml               # 主题级审阅策略（可选，随仓备份）
 ├── sessions/<agent>/<id>.md  # 原文，入库
 ├── knowledge/<domain>/<YYYY>/<id>.md
 ├── archive/                  # 归档，仍在仓库里

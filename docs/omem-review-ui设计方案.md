@@ -390,16 +390,16 @@ interface ReviewOutcome {
 | --- | --- | --- | --- |
 | P1 | `findActiveByTopic` 与 `fillDocSlot` 排序口径不一致 | 统一为 `created DESC` | ✅ 阶段 D（`a253e36`） |
 | P1 | `domain` 未校验直接进路径 | `normalizeDomain()`，下沉到 `entryPath` | ✅ 阶段 D（`a253e36`） |
-| P1 | `evidence` 不继承，更新即证据清零 | 继承并加上限（8 条 / 2000 字符） | ❌ 未做 |
+| P1 | `evidence` 不继承，更新即证据清零 | 继承并加上限（8 条 / 2000 字符） | ✅ 已做 |
 | P2 | Agent 不知道有哪些既有 topic，容易造同义新主题 | `PROCESS.md` 追加 `## Existing topics` 词表 | ✅ 已做 |
 | P2 | `isNearDupTopic` 只在 API 档生效 | 下沉到 `commitEntry`，返回 `warnings[]` 不拒绝 | ✅ 已做 |
 | P2 | 跨主题合并静默丢掉旧主题名 | `commitEntry` 返回 `warnings` + `omem topic list --all` 给出归宿映射 | ✅ 已做 |
 | P2 | `omem search` 不显示 topic | 命中行补 `· topic:xxx`（CLI 与 MCP 同步） | ✅ 已做 |
-| P2 | 活文档每次更新重置 verified，主题反复回队列 | topic 级审阅策略（`review.toml` 的 `always/once/never`） | ❌ 待定 |
+| P2 | 活文档每次更新重置 verified，主题反复回队列 | topic 级审阅策略（`review.toml` 的 `always/once/never`） | ✅ 已做（自动 assent + 队列静默 + 安全阀） |
 | P3 | `omem topic list` 缺失 | 运维命令 | ✅ 已做（`merge` 仍未做，当前无近似对需要它） |
-| P3 | `source_sessions` 无限累积 | 软上限（保留最近 50 + 总数计数） | ❌ 未做 |
+| P3 | `source_sessions` 无限累积 | 软上限（保留最近 200） | ✅ 已做 |
 
-「topic 级审阅策略」是「确认完还会回来」的根治方案，排在 `--ui` 之后：先用真实队列跑一轮，判断 `assent` 档够不够用，再决定要不要引入 policy 文件。
+「topic 级审阅策略」落地时增加了一条原方案没有的约束：`once` 与 `never` 都必须让**低置信（≤0.35）或 `ungrounded`** 的条目回到队列，策略压不住安全阀。自动 assent 发生在写入时而不是读队列时，否则落盘状态与队列显示会不一致。
 
 ---
 

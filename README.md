@@ -120,7 +120,8 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
 | `omem review [<id>]` | 待审默认最近 10 条。带 id 打开正文；`--confirm <id\|id,id>` / `--dismiss` / `--stale` 确认、归档或冷却 |
 | `omem review --ui` | 起一个本地页面，勾选后一次提交。`--no-open` 只打印链接，`--port N` 指定端口，`--timeout SEC` 改超时（默认 600） |
-| `omem topic list [--all]` | 列活文档主题（文档数 / 最近更新 / 置信度 / 标题）。`--all` 额外列出已被合并掉的旧主题 → 现在归到哪个文档 |
+| `omem topic list [--all]` | 列活文档主题（文档数 / 最近更新 / 置信度 / 策略 / 标题）。`--all` 额外列出已被合并掉的旧主题 → 现在归到哪个文档 |
+| `omem topic policy <topic> always\|once\|never\|default` | 设置主题级审阅策略，写入 `~/.omem/review.toml` |
 | `omem gc [--days N]` | 把长期未确认的条目标成 stale，不删除 |
 | `omem rebuild` | 从 Markdown 重建索引 |
 | `omem context --for claude-code\|cursor\|codex\|plain` | 给不走 MCP 的客户端导出上下文 |
@@ -163,7 +164,21 @@ omem topic list --all    # 连已经合并掉的旧主题一起看
 omem add "连接池上限 20，超过排队（补充：不要盲调大）" --topic pool-tuning --supersedes <id>
 ```
 
-不传 `supersedes` 会被拒绝，`--force` 也不绕过。更新是整篇覆盖：旧版置 `superseded`、文件留在原目录、默认检索不再返回；`source_sessions` 会继承累积，`evidence` 和 `verified` 不继承。
+不传 `supersedes` 会被拒绝，`--force` 也不绕过。更新是整篇覆盖：旧版置 `superseded`、文件留在原目录、默认检索不再返回。
+
+继承规则：`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），`verified` 和 `confirmations` 重置——新内容需要重新核实。
+
+### 主题级审阅策略
+
+同一个主题反复更新会让它反复回到队列。`review.toml` 可以按主题关掉这种打扰：
+
+```bash
+omem topic policy pool-tuning once     # 审过一次后，后续版本自动 assent（0.8，不 verified），不再进队列
+omem topic policy noisy-topic never    # 永不进队列
+omem topic policy pool-tuning default  # 回到默认 always
+```
+
+策略文件在 `~/.omem/review.toml`，随 git 备份。`once` 与 `never` 都有安全阀：置信度 ≤0.35 或带 `ungrounded` 的条目**始终**会回到队列，策略压不住它。被策略静默的条数会在 `omem review` 末尾报告，不会是无声消失。
 
 **三种「看不见」的补救**：
 
