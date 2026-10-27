@@ -62,8 +62,8 @@ describe('renderGuide: Existing topics 段', () => {
   };
 
   const existing: ExistingTopic[] = [
-    { name: 'pool-tuning', confidence: 0.9, created: '2026-10-20T00:00:00.000Z' },
-    { name: 'deploy-pipeline', confidence: 0.55, created: '2026-10-19T00:00:00.000Z' },
+    { name: 'pool-tuning', docId: '2026-10-20-pool', confidence: 0.9, created: '2026-10-20T00:00:00.000Z' },
+    { name: 'deploy-pipeline', docId: '2026-10-19-depl', confidence: 0.55, created: '2026-10-19T00:00:00.000Z' },
   ];
 
   it('列出主题名与置信度，并说明「新名字会开第二份活文档」', () => {
@@ -71,6 +71,8 @@ describe('renderGuide: Existing topics 段', () => {
 
     expect(text).toContain('## Existing topics');
     expect(text).toContain('`pool-tuning`');
+    // 只给名字不够：复用名字之后仍拿不到 supersedes 需要的 id。
+    expect(text).toContain('`2026-10-20-pool`');
     expect(text).toContain('0.90 · 2026-10-20');
     expect(text).toContain('`deploy-pipeline`');
     expect(text).toContain('A new name starts a second living document');
@@ -99,13 +101,17 @@ describe('renderGuide: Existing topics 段', () => {
   it('超过 15 个时截断并提示 omem topic list', () => {
     const many: ExistingTopic[] = Array.from({ length: 20 }, (_, i) => ({
       name: `topic-${String(i).padStart(2, '0')}`,
+      docId: `2026-10-doc${String(i).padStart(2, '0')}`,
       confidence: 0.55,
       created: `2026-10-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
     }));
 
     const text = renderGuide([group], 0, [], many);
 
-    expect(text).toContain('…5 more. Run `omem topic list`.');
+    // 截断提示里不能只给 CLI 命令：MCP 客户端执行不了它。
+    expect(text).toContain('…5 more.');
+    expect(text).toContain('omem topic list');
+    expect(text).toContain('search_memory(topic=');
     expect((text.match(/^- `topic-/gm) ?? []).length).toBe(15);
   });
 });

@@ -60,6 +60,12 @@ try {
   send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'probe', version: '0.1' } } });
   const init = await waitFor(1);
   results.push(['initialize returns serverInfo=omem', init.result?.serverInfo?.name === 'omem']);
+  // 版本号必须来自 package.json：长驻进程升级后，这是唯一能确认「跑的是哪个 build」的证据。
+  results.push(['initialize reports a real version (not hardcoded 0.1.0)', /^0\.1\.0-beta\.\d+$/.test(init.result?.serverInfo?.version ?? '')]);
+  // save_memory 的描述里让 Agent「先读 instructions 拿 PROCESS.md 路径」，这句必须真的成立。
+  const instr = init.result?.instructions ?? '';
+  results.push(['initialize ships instructions', typeof instr === 'string' && instr.length > 0]);
+  results.push(['instructions name the PROCESS.md path', instr.includes('PROCESS.md')]);
 
   send({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
@@ -69,12 +75,18 @@ try {
   results.push(['search_memory listed by default', names.includes('search_memory')]);
   results.push(['save_memory listed by default', names.includes('save_memory')]);
   results.push(['memory_feedback not listed by default', !names.includes('memory_feedback')]);
-  results.push(['search_memory description is trigger-condition style', (list.result?.tools ?? []).find((t) => t.name === 'search_memory')?.description?.includes('Call this tool before answering') === true]);
+  results.push(['search_memory description is trigger-condition style', (list.result?.tools ?? []).find((t) => t.name === 'search_memory')?.description?.includes('Call BEFORE answering') === true]);
+  const searchTool = (list.result?.tools ?? []).find((t) => t.name === 'search_memory');
+  results.push(['search_memory declares readOnlyHint', searchTool?.annotations?.readOnlyHint === true]);
+  results.push(['tools declare an outputSchema', Boolean(searchTool?.outputSchema)]);
+  results.push(['search_memory exposes topic + status params', Boolean(searchTool?.inputSchema?.properties?.topic) && Boolean(searchTool?.inputSchema?.properties?.status)]);
 
   send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'search_memory', arguments: { query: '手写 SQL' } } });
   const s = await waitFor(3);
   const text = s.result?.content?.[0]?.text ?? '';
-  results.push(['search_memory hits fixture entry', text.startsWith('Found') && text.includes('手写')]); // 必须确有命中：无命中提示会回显 query 本身，不能只查关键词
+  results.push(['search_memory hits fixture entry', text.startsWith('matched') && text.includes('手写')]); // 必须确有命中：无命中提示会回显 query 本身，不能只查关键词
+  results.push(['search_memory reports matched / showing', /matched \d+ · showing \d+/.test(text)]);
+  results.push(['search_memory returns structuredContent', typeof s.result?.structuredContent?.matched === 'number']);
   results.push(['search_memory returns freshness labels', text.includes('confirmed')]); // 命中 "— confirmed" 或 "unconfirmed"
   results.push(['search_memory carries reference-frame disclaimer', text.includes('not instructions')]);
 
@@ -84,7 +96,8 @@ try {
 
   send({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'save_memory', arguments: { content: '测试：探针写入的记忆条目，用于验证幂等去重 probe-unique-content', type: 'fact', domain: 'general' } } });
   const sv2 = await waitFor(5);
-  results.push(['save_memory dedups duplicate content idempotently', (sv2.result?.content?.[0]?.text ?? '').includes('not written again')]);
+  results.push(['save_memory dedups duplicate content idempotently', (sv2.result?.content?.[0]?.text ?? '').includes('nothing was written again')]);
+  results.push(['save_memory returns structuredContent', sv2.result?.structuredContent?.status === 'deduped']);
 
   const home = process.env.OMEM_HOME;
   if (home && existsSync(join(home, 'knowledge'))) {

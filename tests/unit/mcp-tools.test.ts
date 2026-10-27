@@ -43,8 +43,26 @@ describe('mcp: buildTools tool surface', () => {
 
   it('search_memory description is trigger-condition style', () => {
     const t = buildTools({}).find((x) => x.name === 'search_memory')!;
-    expect(t.description).toContain('Call this tool before answering');
+    expect(t.description).toContain('Call BEFORE answering');
     expect(t.description).toContain('scope=sessions');
+  });
+
+  it('exposes title / annotations / outputSchema so clients can infer safe usage', () => {
+    const tools = buildTools({});
+    const search = tools.find((x) => x.name === 'search_memory')!;
+    expect(search.annotations?.readOnlyHint).toBe(true);
+    expect(search.outputSchema).toBeTruthy();
+    const save = tools.find((x) => x.name === 'save_memory')!;
+    expect(save.annotations?.readOnlyHint).toBe(false);
+    expect(save.outputSchema).toBeTruthy();
+    expect(save.title).toBeTruthy();
+  });
+
+  it('declares top_k bounds instead of leaving it unbounded', () => {
+    const t = buildTools({}).find((x) => x.name === 'search_memory')!;
+    const topK = (t.inputSchema as any).properties.top_k;
+    expect(topK.minimum).toBe(1);
+    expect(topK.maximum).toBe(20);
   });
 });
 
@@ -74,7 +92,9 @@ describe('mcp: handleTool', () => {
 
     const text = textOf(await handleTool('search_memory', { query: '连接池' }, ctx));
 
-    expect(text).toContain('topic:pool-tuning');
+    // topic 现在是结果行的标题本身（topic 才是文档名），不再以 topic: 前缀附在末尾。
+    expect(text).toContain('pool-tuning');
+    expect(text).toContain('2026-10-15-e2');
   });
 
   it('search_memory detail=true returns full text and file path', async () => {
@@ -103,7 +123,7 @@ describe('mcp: handleTool', () => {
     const r1 = await handleTool('save_memory', { content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
     expect(textOf(r1)).toContain('Saved');
     const r2 = await handleTool('save_memory', { content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
-    expect(textOf(r2)).toContain('not written again');
+    expect(textOf(r2)).toContain('nothing was written again');
     // 库里按 content-hash 只有一条
     expect(index.getByBodyHash(contentHash('探针唯一内容 probe-unique-xyz'))).not.toBeNull();
     const rows = index.db.prepare('SELECT id FROM entries').all() as unknown as { id: string }[];

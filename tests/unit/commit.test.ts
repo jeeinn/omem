@@ -294,7 +294,7 @@ describe('three write paths share one channel', () => {
       const r = await handleTool('save_memory', { content: '通道去重句子 channel-dedup-xyz' }, {
         home, config: defaultConfig(), index,
       });
-      expect(r.content.map((c) => c.text).join('\n')).toContain('not written again');
+      expect(r.content.map((c) => c.text).join('\n')).toContain('nothing was written again');
     } finally {
       console.log = orig;
       if (prev === undefined) delete process.env.OMEM_HOME;

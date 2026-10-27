@@ -1,6 +1,7 @@
 // omem search：检索（规格 §7）。输出附时效标注（规格 §4.4）。
 import { openCtx } from '../core/ctx.js';
-import { searchEntries, searchSessions } from '../core/search.js';
+import { searchEntriesPage, searchSessions } from '../core/search.js';
+import { formatNoHits } from '../core/search-format.js';
 import { readEntryFile } from '../core/store.js';
 import { formatStaleness } from '../core/lifecycle.js';
 import { truncate } from '../core/util.js';
@@ -37,29 +38,37 @@ async function searchBody(
     console.log(`Found ${hits.length} session(s):\n`);
     hits.forEach((row, i) => {
       console.log(`${i + 1}. ${row.session_key} · project ${row.project_fp || 'unknown'}`);
+      // 命中片段：CLI 与 MCP 保持同一口径，别让「要原文」这件事只有 MCP 才拿得到。
+      if (row.snippet) console.log(`   『${row.snippet.trim()}』`);
       console.log(`   ${row.path}`);
       console.log('');
     });
     return 0;
   }
 
-  const hits = searchEntries(index, {
+  const domain = flagStr(args.flags, 'domain');
+  const project = flagStr(args.flags, 'project');
+  const page = searchEntriesPage(index, {
     query,
-    domain: flagStr(args.flags, 'domain'),
-    project: flagStr(args.flags, 'project'),
+    domain,
+    project,
     all,
     limit: detail ? Math.max(3, config.search.top_k) : config.search.top_k,
     staleWeight: config.process.stale_weight,
   });
+  const hits = page.rows;
 
   if (hits.length === 0) {
-    console.log(`No memories found matching "${query}".`);
-    console.log('Tip: use at least 3 characters for Chinese keywords (FTS5 trigram limit; short terms automatically fall back to LIKE). Add --all to include archived and superseded entries.');
+    // 与 MCP 共用一份零结果文案：过滤器写错与真的没有，必须能分开说。
+    for (const line of formatNoHits({ query, domain, project }, { cli: true })) console.log(line);
     return 0;
   }
 
   const unit = hits.length === 1 ? 'memory' : 'memories';
   console.log(`Found ${hits.length} ${unit}${all ? ' (including archived and superseded)' : ''}:\n`);
+  if (page.matched > hits.length) {
+    console.log(`(showing ${hits.length} of ${page.matched} matches; raise search.top_k in config.toml to see more)\n`);
+  }
   hits.forEach((row, i) => {
     // 索引行不带 superseded_by（派生列未入表）；superseded 标注需要具体 id 时读文件补全
     // （只有 --all 才带回 superseded 行，量小；md 是事实源）。

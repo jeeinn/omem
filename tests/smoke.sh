@@ -4,10 +4,16 @@
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OMEM=(node "$ROOT/bin/omem.js")
-export OMEM_HOME="$ROOT/.omem-test/home"
-rm -rf "$ROOT/.omem-test"
-mkdir -p "$ROOT/.omem-test/empty-projects"
-EMPTY="$ROOT/.omem-test/empty-projects"
+# 每次运行用独立的 home：Windows 上 `rm -rf .omem-test` 会因为遗留的 omem.db 句柄
+# 静默失败（脚本没有 set -e），于是上一轮的 knowledge/ 会被 init 重新收进索引，
+# 下一步的写入就撞上 content-hash 去重，报成「save_memory first save ✗」这种
+# 与改动毫不相关的假失败。用 run-scoped 路径，残留就影响不到本轮。
+RUN_ID="$(date +%s)-$$"
+rm -rf "$ROOT/.omem-test" 2>/dev/null
+export OMEM_HOME="$ROOT/.omem-test/home-$RUN_ID"
+mkdir -p "$OMEM_HOME"
+EMPTY="$ROOT/.omem-test/empty-$RUN_ID"
+mkdir -p "$EMPTY"
 
 # ── 采集器隔离 ────────────────────────────────────────────────────────────
 # 隔离清单从采集器注册表派生（src/collect/registry.ts），不手写：手写清单每加一个

@@ -123,7 +123,11 @@ describe('pendingTopics', () => {
     const group = topics.find((t) => t.topic === 'proj-d')!;
     expect([older.id, newer.id]).toContain(group.docId);
     expect(group.otherDocs).toBe(1);
-    expect(renderGuide([group], 0, [])).toContain('1 more living document');
+    // 「还有 N 份」现在是 id 列表——只说数量等于死信息，调用方仍拿不到 supersedes 要的 id。
+    const guide = renderGuide([group], 0, []);
+    expect(guide).toContain('other living document(s) in this group');
+    const otherId = [older.id, newer.id].find((id) => id !== group.docId)!;
+    expect(guide).toContain(otherId);
   });
 
   it('renderGuide tells the agent to pass supersedes', () => {

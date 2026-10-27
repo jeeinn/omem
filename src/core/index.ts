@@ -35,6 +35,11 @@ export interface EntryRow {
   summary: string;
   size: number;
   mtime_ms: number;
+  /**
+   * 检索时由 SQL 附带的 bm25 分值（越负越相关）。只有 FTS 主路径有，LIKE 兜底路径为 null。
+   * 不落表，只存在于查询结果行上——给调用方判断「这条是强命中还是勉强命中」。
+   */
+  rank?: number | null;
 }
 
 export interface SessionRecord {
