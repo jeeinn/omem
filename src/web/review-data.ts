@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import type { OmemIndex } from '../core/index.js';
 import type { Located } from '../core/store.js';
-import { findById } from '../core/store.js';
+import { findById, findByIdIndexed } from '../core/store.js';
 import { deriveSummary, deriveTitle } from '../core/entry.js';
 import { readStoredSession, splitSessionKey, userSectionText } from '../collect/session-store.js';
 import { truncate } from '../core/util.js';
@@ -156,14 +156,16 @@ export function resolveSessionTitles(
 }
 
 /** 沿 supersedes 向上追溯版本链。visited 防脏数据自环，深度上限防病态长链。 */
-function versionChain(home: string, start: Located, limit = 20): string[] {
+function versionChain(home: string, index: OmemIndex | undefined, start: Located, limit = 20): string[] {
   const out: string[] = [];
   const seen = new Set<string>([start.entry.fm.id]);
   let current = start.entry.fm;
+  const lookup = (id: string): Located | null =>
+    index ? findByIdIndexed(home, index, id, { includeArchived: true }) : findById(home, id, { includeArchived: true });
   for (let i = 0; i < limit; i++) {
     const oldId = current.supersedes?.[0];
     if (!oldId || seen.has(oldId)) break;
-    const old = findById(home, oldId, { includeArchived: true });
+    const old = lookup(oldId);
     if (!old) break;
     out.push(oldId);
     seen.add(oldId);
@@ -172,7 +174,7 @@ function versionChain(home: string, start: Located, limit = 20): string[] {
   return out;
 }
 
-export function buildReviewItem(home: string, loc: Located): ReviewItem {
+export function buildReviewItem(home: string, loc: Located, index?: OmemIndex): ReviewItem {
   const fm = loc.entry.fm;
   const body = loc.entry.body;
   return {
@@ -190,7 +192,7 @@ export function buildReviewItem(home: string, loc: Located): ReviewItem {
     sessionCount: fm.source_sessions?.length ?? 0,
     supersedesCount: fm.supersedes?.length ?? 0,
     flags: fm.tags.filter((t) => t === 'ungrounded' || t === 'low-weight' || t === 'assent' || t === 'pending-session'),
-    versionChain: versionChain(home, loc),
+    versionChain: versionChain(home, index, loc),
   };
 }
 
@@ -199,9 +201,10 @@ export function buildReviewDetail(
   loc: Located,
   sessionIndex: SessionPathIndex,
   counter?: { hits: number; misses: number },
+  index?: OmemIndex,
 ): ReviewDetail {
   const fm = loc.entry.fm;
-  const item = buildReviewItem(home, loc);
+  const item = buildReviewItem(home, loc, index);
   const { sessions } = resolveSessionTitles(sessionIndex, fm.source_sessions ?? [], counter);
   return {
     ...item,

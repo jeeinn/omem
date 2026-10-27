@@ -89,11 +89,12 @@ function printOutcomes(outcomes: ReviewOutcome[]): void {
 }
 
 export async function runReviewUi(args: RunReviewUiArgs): Promise<number> {
-  const items = args.entries.map((loc) => buildReviewItem(args.home, loc));
+  const items = args.entries.map((loc) => buildReviewItem(args.home, loc, args.index));
   const sessionIndex = buildSessionIndex(args.index);
 
   const server = await startReviewServer({
     home: args.home,
+    index: args.index,
     items,
     sessionIndex,
     // 写盘前先打快照：批量确认一次能翻几十条 verified，留一个可回退点。
@@ -126,11 +127,20 @@ export async function runReviewUi(args: RunReviewUiArgs): Promise<number> {
   const minutes = Math.max(1, Math.round(args.timeoutMs / 60_000));
   console.log(`Waiting for your decisions in the browser… (timeout ${minutes}m)`);
 
+  // 等待阶段也要接住 Ctrl+C：默认行为是直接退出（退出码 130），虽然同样零写入，
+  // 但会让「任何时刻 Ctrl+C 都是干净退出」这句承诺只兑现一半。
+  let interrupted = false;
+  const onSigint = (): void => {
+    interrupted = true;
+    void server.close();
+  };
+  process.once('SIGINT', onSigint);
   const result = await server.waitForResult();
+  process.removeListener('SIGINT', onSigint);
   await server.close();
 
   if (!result) {
-    console.log('Timed out. Nothing was applied.');
+    console.log(interrupted ? 'Cancelled. Nothing was applied.' : 'Timed out. Nothing was applied.');
     return 0;
   }
 

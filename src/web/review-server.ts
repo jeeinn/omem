@@ -9,7 +9,8 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { findById } from '../core/store.js';
+import type { OmemIndex } from '../core/index.js';
+import { findByIdIndexed } from '../core/store.js';
 import { appendLog } from '../core/log.js';
 import { nowIso } from '../core/util.js';
 import type { ReviewAction, ReviewDecision, ReviewOutcome } from '../core/lifecycle.js';
@@ -38,6 +39,7 @@ export interface ReviewServerHandle {
 
 export interface StartReviewServerArgs {
   home: string;
+  index: OmemIndex;
   items: ReviewItem[];
   sessionIndex: SessionPathIndex;
   /** 收到提交后由命令层落盘（含 snapshot）。抛错会被回传成 500。 */
@@ -128,10 +130,10 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
           const id = decodeURIComponent(url.pathname.slice('/api/detail/'.length));
           if (!ID_RE.test(id)) return send(res, 400, 'Bad id');
           const started = performance.now();
-          const loc = findById(args.home, id, { includeArchived: true });
+          const loc = findByIdIndexed(args.home, args.index, id, { includeArchived: true });
           if (!loc) return sendJson(res, 404, { error: 'Entry not found' });
           const counter = { hits: 0, misses: 0 };
-          const detail = buildReviewDetail(args.home, loc, args.sessionIndex, counter);
+          const detail = buildReviewDetail(args.home, loc, args.sessionIndex, counter, args.index);
           readIds.add(id);
           const ms = Math.round(performance.now() - started);
           appendLog(args.home, 'review.ui.detail', {
@@ -200,6 +202,7 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
   timer = setTimeout(() => finish(null), timeoutMs);
 
   const url = `http://127.0.0.1:${port}/?token=${token}`;
+  let closed = false;
 
   return {
     url,
@@ -207,7 +210,12 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
     port,
     waitForResult: () => done,
     close: async () => {
+      if (closed) return;
+      closed = true;
       if (timer) clearTimeout(timer);
+      // 唤醒等待方：关闭服务意味着「不会再有提交」，调用方不必等满超时。
+      // 已提交成功时 finish 是 no-op（settled 已为 true）。
+      finish(null);
       await new Promise<void>((resolve) => {
         server.closeAllConnections();
         server.close(() => resolve());

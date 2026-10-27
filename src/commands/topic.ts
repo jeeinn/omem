@@ -7,7 +7,8 @@
 // 跨主题合并之后，旧名字不再出现在检索里，这条映射是唯一的线索。
 import { openCtx } from '../core/ctx.js';
 import { normalizeTopic } from '../core/commit.js';
-import { findById, listEntries } from '../core/store.js';
+import { findByIdIndexed, listEntries } from '../core/store.js';
+import type { OmemIndex } from '../core/index.js';
 import { deriveTitle } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
 import { flagBool } from '../cli-args.js';
@@ -33,14 +34,14 @@ function sortByCreatedDesc(entries: Located[]): Located[] {
 }
 
 /** 沿 superseded_by 链找到最终接盘的 active 文档；链断或无终态返回 null。 */
-function resolveOwner(home: string, start: Located, limit = 20): Located | null {
+function resolveOwner(home: string, index: OmemIndex, start: Located, limit = 20): Located | null {
   const seen = new Set<string>([start.entry.fm.id]);
   let current = start;
   for (let i = 0; i < limit; i++) {
     const nextId = current.entry.fm.superseded_by;
     if (!nextId || seen.has(nextId)) return null;
     seen.add(nextId);
-    const next = findById(home, nextId, { includeArchived: true });
+    const next = findByIdIndexed(home, index, nextId, { includeArchived: true });
     if (!next) return null;
     if (next.entry.fm.status === 'active') return next;
     current = next;
@@ -132,7 +133,10 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
       }
       console.log('');
       if (rows.some((r) => r.policy !== 'always')) {
-        console.log('Policy: once = auto-assent after the topic was reviewed; never = stay out of the queue. Set with `omem topic policy <topic> once`.');
+        console.log(
+          'Policy: once = auto-assent after the topic was reviewed (a confirm or an assent both count); ' +
+            'never = stay out of the queue. Set with `omem topic policy <topic> once`.',
+        );
         console.log('');
       }
     }
@@ -151,7 +155,7 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
     if (retiredByTopic.size > 0) {
       console.log('Retired topics (only superseded documents left):');
       for (const [name, loc] of [...retiredByTopic.entries()].sort()) {
-        const owner = resolveOwner(ctx.home, loc);
+        const owner = resolveOwner(ctx.home, ctx.index, loc);
         const where = owner
           ? `${owner.entry.fm.topic ?? '(no topic)'}  ${owner.entry.fm.id}`
           : '(no active successor)';

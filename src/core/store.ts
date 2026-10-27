@@ -1,11 +1,12 @@
 // 存储层：knowledge/archive 下 md 文件的 CRUD（规格 §2.1 目录布局）。
 // 全部原子写（临时文件 + rename）；外部编辑（Obsidian）是一等公民——store 不做缓存，永远读盘。
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { dirs } from './paths.js';
 import type { Entry, Frontmatter } from './entry.js';
 import { normalizeDomain, parseEntry, serializeEntry } from './entry.js';
 import { atomicWrite } from './util.js';
+import type { OmemIndex } from './index.js';
 
 export interface Located {
   entry: Entry;
@@ -78,6 +79,31 @@ export function findById(home: string, id: string, opts: { includeArchived?: boo
     }
   }
   return null;
+}
+
+/**
+ * 按 id 定位，优先走索引：先查一次 SQL 拿路径，只读那一份文件。
+ *
+ * `findById` 每次调用都会遍历并解析全部 md，适合低频场景；review 队列、批量确认、
+ * 版本链追溯这类「每个条目都要定位」的路径用它，千条库下差一个数量级。
+ * 索引可能陈旧（手工新增、外部移动），所以路径失效时回落全库扫描——正确性不打折。
+ */
+export function findByIdIndexed(
+  home: string,
+  index: OmemIndex,
+  id: string,
+  opts: { includeArchived?: boolean } = {},
+): Located | null {
+  const path = index.pathById(id);
+  if (path && existsSync(path)) {
+    const entry = readEntryFile(path);
+    if (entry) {
+      const location: 'knowledge' | 'archive' = path.startsWith(dirs.archive(home) + sep) ? 'archive' : 'knowledge';
+      if (location === 'archive' && !opts.includeArchived) return null;
+      return { entry, path, location };
+    }
+  }
+  return findById(home, id, opts);
 }
 
 /** 读-改-写。domain/created 变更时迁移文件位置。 */

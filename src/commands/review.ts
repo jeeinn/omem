@@ -2,7 +2,7 @@
 // 默认只收「近 14 天写下的」和「置信度 ≤0.35 或带 ungrounded」的未确认活文档。
 // --confirm / --dismiss / --stale 仍是原来的三个动作。
 import { openCtx } from '../core/ctx.js';
-import { findById, listEntries, moveToArchive, updateEntry } from '../core/store.js';
+import { findByIdIndexed, listEntries, moveToArchive, updateEntry } from '../core/store.js';
 import { applyReviewDecisions, applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
 import { loadTopicPolicies } from '../core/review-policy.js';
 import { serializeEntry } from '../core/entry.js';
@@ -65,7 +65,7 @@ async function reviewBody(
   if (confirmIds.length > 0) {
     if (supersedes.length > 0) {
       const confirmId = confirmIds[0];
-      const missing = supersedes.filter((id) => !findById(home, id, { includeArchived: true }));
+      const missing = supersedes.filter((id) => !findByIdIndexed(home, index, id, { includeArchived: true }));
       if (missing.length > 0) throw new UsageError(`Old entries not found: ${missing.join(', ')}`);
       const loc = reconfirm(home, index, confirmId);
       if (!loc) throw new UsageError(`Entry not found: ${confirmId}`);
@@ -95,7 +95,7 @@ async function reviewBody(
       throw new UsageError(`Entry not found: ${failed.map((f) => f.id).join(', ')}`);
     }
     for (const o of ok) {
-      const loc = findById(home, o.id, { includeArchived: true });
+      const loc = findByIdIndexed(home, index, o.id, { includeArchived: true });
       console.log(`Confirmed: ${o.id} (verified=true, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
     }
     if (confirmIds.length > 1) {
@@ -124,7 +124,7 @@ async function reviewBody(
   }
 
   const openId = args._[0]?.trim();
-  if (openId) return showEntry(home, openId);
+  if (openId) return showEntry(home, index, openId);
 
   const all = listEntries(home);
   const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
@@ -143,7 +143,9 @@ async function reviewBody(
   };
   const silencedCount = inbox.filter((l) => silenced(l.entry.fm)).length;
   let queue = inbox.filter((l) => !silenced(l.entry.fm));
-  const parked = unverified.length - queue.length;
+  // 只统计 14 天窗口外的旧条目。被策略静默的数量单独报告（printSilenced）：
+  // 把两者混进一个数字，会让「older」这个形容词变成错的。
+  const olderParked = unverified.length - inbox.length;
 
   const printSilenced = (): void => {
     if (silencedCount === 0) return;
@@ -164,8 +166,9 @@ async function reviewBody(
   if (uiMode) {
     if (queue.length === 0) {
       console.log('Queue is empty.');
-      if (!source && !topic && parked > 0) {
-        console.log(`${parked} older unverified entries stay in the library.`);
+      printSilenced();
+      if (!source && !topic && olderParked > 0) {
+        console.log(`${olderParked} older unverified ${olderParked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
       }
       return 0;
     }
@@ -186,8 +189,8 @@ async function reviewBody(
   if (shown.length === 0 && stale.length === 0) {
     console.log('Queue is empty.');
     printSilenced();
-    if (!source && !topic && parked > 0) {
-      console.log(`${parked} older unverified ${parked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
+    if (!source && !topic && olderParked > 0) {
+      console.log(`${olderParked} older unverified ${olderParked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
     }
     return 0;
   }
@@ -214,8 +217,8 @@ async function reviewBody(
   return 0;
 }
 
-function showEntry(home: string, id: string): number {
-  const loc = findById(home, id, { includeArchived: true });
+function showEntry(home: string, index: ReturnType<typeof openCtx>['index'], id: string): number {
+  const loc = findByIdIndexed(home, index, id, { includeArchived: true });
   if (!loc) throw new UsageError(`Entry not found: ${id}`);
   const fm = loc.entry.fm;
   console.log(`File: ${loc.path}`);

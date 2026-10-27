@@ -3,7 +3,7 @@
 import { files } from './paths.js';
 import type { OmemIndex } from './index.js';
 import type { Located } from './store.js';
-import { findById, listEntries, moveToArchive, updateEntry } from './store.js';
+import { findByIdIndexed, listEntries, moveToArchive, updateEntry } from './store.js';
 import type { Frontmatter } from './entry.js';
 import { deriveTitle, serializeEntry } from './entry.js';
 import { relTime, truncate, atomicWrite, nowIso } from './util.js';
@@ -176,7 +176,7 @@ export function applyReviewDecisions(
     if (seen.has(d.id)) return skip('skipped', 'duplicate id in the same batch');
     seen.add(d.id);
 
-    const loc = findById(home, d.id, { includeArchived: true });
+    const loc = findByIdIndexed(home, index, d.id, { includeArchived: true });
     if (!loc) return skip('missing', 'Entry not found');
     const fm = loc.entry.fm;
 
@@ -239,7 +239,7 @@ export function applyReviewDecisions(
         outcomes[at] = { id: d.id, requested: d.action, applied: 'skipped', status: 'missing', reason: 'Entry disappeared' };
         continue;
       }
-      const after = findById(home, d.id, { includeArchived: true });
+      const after = findByIdIndexed(home, index, d.id, { includeArchived: true });
       outcomes[at] = {
         id: d.id,
         requested: d.action,

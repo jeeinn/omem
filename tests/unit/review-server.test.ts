@@ -36,6 +36,7 @@ async function start(ids: string[], timeoutMs = 5000): Promise<Harness> {
   let applied: ReviewDecision[] = [];
   handle = await startReviewServer({
     home,
+    index,
     items,
     sessionIndex: new Map(),
     onApply: (decisions) => {
@@ -246,7 +247,7 @@ describe('review server: 提交与分级落章', () => {
   });
 });
 
-describe('review server: 超时', () => {
+describe('review server: 超时与取消', () => {
   it('未提交时超时返回 null，不写入任何东西', async () => {
     add('2026-10-27-d1', '结论', { confidence: 0.55 });
     const { server } = await start(['2026-10-27-d1'], 30);
@@ -255,5 +256,17 @@ describe('review server: 超时', () => {
 
     expect(result).toBeNull();
     expect(findById(home, '2026-10-27-d1')!.entry.fm.verified).toBe(false);
+  });
+
+  it('close() 立刻唤醒等待方，不必等满超时（Ctrl+C 路径）', async () => {
+    add('2026-10-27-d2', '结论');
+    const { server } = await start(['2026-10-27-d2'], 60_000);
+
+    const pending = server.waitForResult();
+    const started = Date.now();
+    await server.close();
+
+    await expect(pending).resolves.toBeNull();
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

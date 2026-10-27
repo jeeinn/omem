@@ -176,6 +176,12 @@ export class OmemIndex {
     ).all() as { topic: string }[]).map((r) => r.topic);
   }
 
+  /** 按 id 取文件路径（单次 SQL）。未索引时返回 null，调用方应回落到全库扫描。 */
+  pathById(id: string): string | null {
+    const row = this.db.prepare('SELECT path FROM entries WHERE id = ?').get(id) as { path: string } | undefined;
+    return row?.path ?? null;
+  }
+
   /** 该主题是否被人工审过（任一版本有 confirmations > 0）。供 `once` 策略判定。 */
   topicReviewedBefore(topic: string): boolean {
     const row = this.db.prepare(
