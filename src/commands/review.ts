@@ -4,6 +4,7 @@
 import { openCtx } from '../core/ctx.js';
 import { findById, listEntries, moveToArchive, updateEntry } from '../core/store.js';
 import { applyReviewDecisions, applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
+import { loadTopicPolicies } from '../core/review-policy.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
@@ -127,8 +128,29 @@ async function reviewBody(
 
   const all = listEntries(home);
   const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
-  let queue = unverified.filter((l) => inReviewInbox(l.entry.fm));
+  const inbox = unverified.filter((l) => inReviewInbox(l.entry.fm));
+
+  // 主题级策略（review.toml）。低置信 / 未锚定的条目不静默——那是安全阀，
+  // 无论策略怎么写都要人看一眼。
+  const policies = loadTopicPolicies(home);
+  const silenced = (fm: Frontmatter): boolean => {
+    if (!fm.topic) return false;
+    const policy = policies.get(fm.topic);
+    if (!policy || policy === 'always') return false;
+    if (fm.confidence <= 0.35 || fm.tags.includes('ungrounded')) return false;
+    if (policy === 'never') return true;
+    return index.topicReviewedBefore(fm.topic);
+  };
+  const silencedCount = inbox.filter((l) => silenced(l.entry.fm)).length;
+  let queue = inbox.filter((l) => !silenced(l.entry.fm));
   const parked = unverified.length - queue.length;
+
+  const printSilenced = (): void => {
+    if (silencedCount === 0) return;
+    console.log(
+      `${silencedCount} entr${silencedCount === 1 ? 'y' : 'ies'} silenced by review.toml policy (not a defect; check omem topic list).`,
+    );
+  };
   const source = flagStr(args.flags, 'source');
   const topic = flagStr(args.flags, 'topic');
   if (source) queue = queue.filter((l) => l.entry.fm.source === source);
@@ -163,8 +185,9 @@ async function reviewBody(
 
   if (shown.length === 0 && stale.length === 0) {
     console.log('Queue is empty.');
+    printSilenced();
     if (!source && !topic && parked > 0) {
-      console.log(`${parked} older unverified entries stay in the library.`);
+      console.log(`${parked} older unverified ${parked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
     }
     return 0;
   }
@@ -184,6 +207,9 @@ async function reviewBody(
   }
   if (stale.length > 0) {
     console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <id>.`);
+  }
+  if (silencedCount > 0) {
+    printSilenced();
   }
   return 0;
 }

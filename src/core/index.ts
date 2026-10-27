@@ -176,6 +176,14 @@ export class OmemIndex {
     ).all() as { topic: string }[]).map((r) => r.topic);
   }
 
+  /** 该主题是否被人工审过（任一版本有 confirmations > 0）。供 `once` 策略判定。 */
+  topicReviewedBefore(topic: string): boolean {
+    const row = this.db.prepare(
+      'SELECT COUNT(*) AS n FROM entries WHERE topic = ? AND confirmations > 0',
+    ).get(topic) as { n: number } | undefined;
+    return (row?.n ?? 0) > 0;
+  }
+
   findActiveByTopic(topic: string): EntryRow | null {
     // 按 created 而非 last_confirmed：版次由创建时间定义。用 last_confirmed 时，
     // 对旧版跑一次 review --confirm 就会让它在 topic 检查里盖过真正的最新版，

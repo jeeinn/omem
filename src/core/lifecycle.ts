@@ -79,7 +79,7 @@ export function reconfirm(home: string, index: OmemIndex, id: string): Located |
 }
 
 /** 自动产出上限。与 process/score.ts 的 SCORE_AUTO_CAP 同值同义；分开定义是为了避免 core ↔ process 循环依赖。 */
-const ASSENT_CAP = 0.8;
+export const ASSENT_CAP = 0.8;
 
 /**
  * 对话里的一次「同意」（assent）：分数提底到自动上限，verified 保持原样。

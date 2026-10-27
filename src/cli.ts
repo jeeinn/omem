@@ -65,8 +65,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdReview,
   },
   topic: {
-    desc: 'List living-document topics (retired ones with --all)',
-    usage: 'omem topic list [--all]',
+    desc: 'List living-document topics; set per-topic review policy',
+    usage: 'omem topic list [--all] | omem topic policy <topic> always|once|never|default',
     run: cmdTopic,
   },
   gc: {

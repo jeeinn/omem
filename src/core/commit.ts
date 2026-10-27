@@ -4,8 +4,11 @@
 import type { OmemConfig } from './config.js';
 import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, MemoryType, Profile } from './entry.js';
-import { isNearDupTopic, newFrontmatter, normalizeDomain } from './entry.js';
+import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain } from './entry.js';
+import { ASSENT_CAP } from './lifecycle.js';
+import { loadTopicPolicies } from './review-policy.js';
 import { findById, writeEntry } from './store.js';
+import type { Located } from './store.js';
 import { contentHash, newId } from './util.js';
 import { redactSecrets } from './redact.js';
 import { currentProfile, isCodeHeavy } from './profile.js';
@@ -116,13 +119,26 @@ export function commitEntry(
   }
 
   const supersedes = (input.supersedes ?? []).map((s) => s.trim()).filter(Boolean);
-  const missing = supersedes.filter((id) => !findById(home, id, { includeArchived: true }));
+  // 一次遍历同时完成「存在性校验」和「继承所需的数据」，避免对同一批 id 反复 findById。
+  const oldEntries: Located[] = [];
+  const missing: string[] = [];
+  for (const id of supersedes) {
+    const loc = findById(home, id, { includeArchived: true });
+    if (loc) oldEntries.push(loc);
+    else missing.push(id);
+  }
   if (missing.length > 0) {
     return finish(home, { status: 'excluded', redacted, reason: `Old entries not found: ${missing.join(', ')}` }, input, opts);
   }
 
   const topic = resolveTopic(input);
   const warnings: string[] = [];
+  // `once` 策略：该主题被人工审过之后，后续版本自动落 assent（提底 0.8、不设 verified），
+  // 于是不再回到 review 队列。低置信或未锚定的条目不参与——那是安全阀，必须留给人看。
+  const policy = topic ? loadTopicPolicies(home).get(topic) : undefined;
+  const lowTrust = input.confidence <= 0.35 || (input.tags ?? []).includes('ungrounded');
+  const autoAssent =
+    policy === 'once' && Boolean(topic) && !lowTrust && index.topicReviewedBefore(topic as string);
   if (topic) {
     const active = index.findActiveByTopic(topic);
     if (active && !supersedes.includes(active.id)) {
@@ -149,10 +165,9 @@ export function commitEntry(
   // （旧文件置 superseded，默认查询排除）。合并是合法操作，但必须让操作者知道。
   if (supersedes.length > 0) {
     const retired = new Map<string, string>();
-    for (const oldId of supersedes) {
-      const old = findById(home, oldId, { includeArchived: true });
-      const oldTopic = old?.entry.fm.topic;
-      if (oldTopic && oldTopic !== topic) retired.set(oldTopic, oldId);
+    for (const old of oldEntries) {
+      const oldTopic = old.entry.fm.topic;
+      if (oldTopic && oldTopic !== topic) retired.set(oldTopic, old.entry.fm.id);
     }
     if (retired.size > 0) {
       const names = [...retired.keys()].join(', ');
@@ -175,15 +190,15 @@ export function commitEntry(
       domain: normalizeDomain(input.domain || inferDomain(text)),
       profile,
       status: 'active',
-      confidence: input.confidence,
+      confidence: autoAssent ? Math.max(input.confidence, ASSENT_CAP) : input.confidence,
       verified: input.verified,
       source: input.source,
       session_id: input.session_id,
       project: input.project,
       topic,
-      source_sessions: collectSourceSessions(home, input, supersedes),
-      evidence: input.evidence ?? [],
-      tags: input.tags ?? [],
+      source_sessions: collectSourceSessions(input, oldEntries),
+      evidence: mergeEvidence(input.evidence ?? [], oldEntries.map((l) => l.entry.fm.evidence ?? [])),
+      tags: autoAssent ? [...new Set([...(input.tags ?? []), 'assent'])] : (input.tags ?? []),
       supersedes,
     }),
     body: text,
@@ -212,22 +227,31 @@ export function normalizeTopic(raw: string): string | undefined {
   return topic || undefined;
 }
 
-/** 新文档继承被取代文档的会话，并加上本次写回的会话。 */
-function collectSourceSessions(home: string, input: CommitInput, supersedes: string[]): string[] {
+/**
+ * frontmatter 里保留的会话 id 上限。长期活文档会累积几百个，frontmatter 跟着膨胀，
+ * 每次 listEntries 解析都变慢。
+ *
+ * 取 200 而不是 50：`absorbedSessionIds()`（process/guide.ts）靠遍历 frontmatter 判断
+ * 「这个会话是否已被吸收」，截断会让被截掉的 id 重新出现在 PROCESS.md 待办里。200 次更新
+ * 才会触发的场景在现实中不存在，所以这个副作用是可控的；真触发时重跑 `omem sync` 会
+ * 重新处理那几条会话，内容不丢，只是多一次加工成本。
+ */
+const MAX_SOURCE_SESSIONS = 200;
+
+/** 新文档继承被取代文档的会话，并加上本次写回的会话。新的排在前面，超出上限先丢最旧的。 */
+function collectSourceSessions(input: CommitInput, oldEntries: Located[]): string[] {
   const ids = new Set<string>();
-  const add = (id?: string) => {
+  const add = (id?: string): void => {
     const v = id?.trim();
     if (v) ids.add(v);
   };
   add(input.session_id);
   for (const id of input.source_sessions ?? []) add(id);
-  for (const oldId of supersedes) {
-    const old = findById(home, oldId, { includeArchived: true });
-    if (!old) continue;
+  for (const old of oldEntries) {
     add(old.entry.fm.session_id);
     for (const id of old.entry.fm.source_sessions) add(id);
   }
-  return [...ids];
+  return [...ids].slice(0, MAX_SOURCE_SESSIONS);
 }
 
 function finish(home: string, result: CommitResult, input: CommitInput, opts: CommitOpts): CommitResult {

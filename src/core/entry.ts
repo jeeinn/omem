@@ -183,6 +183,36 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
 }
 
 /**
+ * 证据链合并（活文档更新时用）：本次的优先，旧版按原顺序补，去重后截断。
+ *
+ * 为什么不能全量继承：evidence 是「从 `## user` 段摘出的原文」，每更新一代就多一条。
+ * 不设上限会让 frontmatter 无限膨胀，拖慢解析与索引。8 条 / 2000 字符足够覆盖
+ * 「这条结论由哪些原话支撑」，同时保证本次写入的证据一定留下。
+ */
+export function mergeEvidence(
+  fresh: string[],
+  inherited: string[][],
+  limit = 8,
+  maxChars = 2000,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let chars = 0;
+  const push = (raw: string): void => {
+    const value = raw.trim();
+    if (!value || seen.has(value)) return;
+    if (out.length >= limit) return;
+    if (chars + value.length > maxChars) return;
+    seen.add(value);
+    out.push(value);
+    chars += value.length;
+  };
+  for (const e of fresh) push(e);
+  for (const list of inherited) for (const e of list) push(e);
+  return out;
+}
+
+/**
  * 近似主题判据（规格 §7.4-3）：归一化后互为前缀、或去掉分隔符后相同，且不是同一个 topic。
  * 放在 core 是因为所有写入路径都要用它——API 档曾经是唯一检查点，Agent 路径没有护栏。
  */

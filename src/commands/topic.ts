@@ -6,14 +6,17 @@
 // `--all` 额外列出「只存在于 superseded 的旧主题 → 现在归到哪个 active 主题」：
 // 跨主题合并之后，旧名字不再出现在检索里，这条映射是唯一的线索。
 import { openCtx } from '../core/ctx.js';
+import { normalizeTopic } from '../core/commit.js';
 import { findById, listEntries } from '../core/store.js';
 import { deriveTitle } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
 import { flagBool } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { Located } from '../core/store.js';
+import { TOPIC_POLICIES, loadTopicPolicies, saveTopicPolicy } from '../core/review-policy.js';
+import type { TopicPolicy } from '../core/review-policy.js';
 
-const USAGE = 'Usage: omem topic list [--all]';
+const USAGE = 'Usage: omem topic list [--all] | omem topic policy <topic> always|once|never|default';
 const NAME_WIDTH = 44;
 
 interface TopicRow {
@@ -21,6 +24,7 @@ interface TopicRow {
   docs: number;
   last: string;
   confidence: number;
+  policy: TopicPolicy;
   title: string;
 }
 
@@ -46,7 +50,7 @@ function resolveOwner(home: string, start: Located, limit = 20): Located | null 
 
 export async function cmdTopic(args: ParsedArgs): Promise<number> {
   const sub = args._[0] ?? 'list';
-  if (sub !== 'list') throw new UsageError(USAGE);
+  if (sub !== 'list' && sub !== 'policy') throw new UsageError(USAGE);
 
   const ctx = openCtx();
   try {
@@ -54,6 +58,7 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
     const active = all.filter((l) => l.entry.fm.status === 'active');
     const withTopic = active.filter((l) => l.entry.fm.topic);
     const withoutTopic = active.filter((l) => !l.entry.fm.topic);
+    const policies = loadTopicPolicies(ctx.home);
 
     const groups = new Map<string, Located[]>();
     for (const loc of withTopic) {
@@ -71,10 +76,29 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
         docs: docs.length,
         last: (newest.entry.fm.created || '').slice(0, 10),
         confidence: newest.entry.fm.confidence,
+        policy: policies.get(name) ?? 'always',
         title: deriveTitle(newest.entry.body, 50),
       };
     });
     rows.sort((a, b) => (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+
+    if (sub === 'policy') {
+      const rawTopic = args._[1];
+      const rawValue = args._[2];
+      if (!rawTopic || !rawValue) throw new UsageError(USAGE);
+      const name = normalizeTopic(rawTopic);
+      if (!name) throw new UsageError('Topic must not be empty');
+      const value = rawValue === 'default' ? null : (rawValue as TopicPolicy);
+      if (value !== null && !TOPIC_POLICIES.includes(value)) {
+        throw new UsageError(`Unknown policy "${rawValue}". Use always / once / never / default.`);
+      }
+      saveTopicPolicy(ctx.home, name, value);
+      console.log(value ? `Policy for "${name}": ${value}` : `Policy for "${name}": default (always)`);
+      if (!rows.some((r) => r.name === name)) {
+        console.log('Note: no active document has this topic yet; the policy applies once one appears.');
+      }
+      return 0;
+    }
 
     // --all：只存在于 superseded 的主题。提前收集，因为「空库」的判定也要算上它们。
     const showAll = flagBool(args.flags, 'all');
@@ -99,14 +123,18 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
     console.log('');
 
     if (rows.length > 0) {
-      console.log(`${'TOPIC'.padEnd(NAME_WIDTH)}DOCS  LAST        CONF  TITLE`);
+      console.log(`${'TOPIC'.padEnd(NAME_WIDTH)}DOCS  LAST        CONF  POLICY   TITLE`);
       for (const r of rows) {
         const name = r.name.length > NAME_WIDTH - 1 ? `${r.name.slice(0, NAME_WIDTH - 2)}…` : r.name;
         console.log(
-          `${name.padEnd(NAME_WIDTH)}${String(r.docs).padEnd(6)}${r.last.padEnd(12)}${r.confidence.toFixed(2)}  ${r.title}`,
+          `${name.padEnd(NAME_WIDTH)}${String(r.docs).padEnd(6)}${r.last.padEnd(12)}${r.confidence.toFixed(2)}  ${r.policy.padEnd(9)}${r.title}`,
         );
       }
       console.log('');
+      if (rows.some((r) => r.policy !== 'always')) {
+        console.log('Policy: once = auto-assent after the topic was reviewed; never = stay out of the queue. Set with `omem topic policy <topic> once`.');
+        console.log('');
+      }
     }
 
     if (withoutTopic.length > 0) {
