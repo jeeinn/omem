@@ -16,6 +16,7 @@ Runtime data lives in `OMEM_HOME` (default `~/.omem`). Development, tests, and s
 - **Do not mix the two hashes.** The file content hash detects external edits; the normalized-body `contentHash` (`body_hash`) provides idempotent dedup across the three write paths.
 - **Automatically processed output is always `verified: false`.** Only an explicit `omem add` / `review --confirm` marks an entry confirmed (and raises confidence to 0.9). `save_memory` `confirm_ids` caps confidence at 0.8 and does not set verified. Imperative tone ("必须 / 一律 / 永远") halves confidence and adds the `low-weight` tag.
 - **Redact before writing.** All ingest paths must pass through `redactSecrets`. `exclude_paths` still skips paths. `exclude_keywords` is no longer applied. Rule extraction (`--tier rules`) is removed.
+- **Topic warnings are decided in `commitEntry` only.** Near-duplicate detection (`isNearDupTopic`) and cross-topic merge reporting both live there and are returned as `CommitResult.warnings` — never as rejections, because rejecting would stall an agent mid-write. `process/pipeline.ts` only renders those warnings; it must not re-implement the check.
 - **The work profile blocks sync and export by default** (`ProfileBlockedError`, exit code 2). Only `OMEM_ALLOW_WORK_EXPORT=1` allows it. `OMEM_PROFILE_LOCKED=1` locks the profile.
 - **MCP stdout carries protocol only.** Logs go to stderr or `logs/omem.log`. Default tools are only `search_memory` / `save_memory`; `memory_feedback` is enabled via `OMEM_MCP_TOOLS=feedback`. Do not expand the default tool surface.
 - **install's six write disciplines:** merge only `mcpServers.omem` (or that client's single corresponding key), back up first, write atomically, update idempotently, print a manual snippet instead of overwriting when parsing fails, and close with a restart-client reminder.
@@ -44,6 +45,8 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 frontmatter is a flat YAML subset (string / number / boolean / string array); field order is defined by `FM_ORDER` in `src/core/entry.ts`. Config is a TOML subset of `config.toml`, losslessly round-trippable only for files omem itself writes.
 
 Memory paths: `knowledge/<domain>/<YYYY>/<id>.md`, ids like `2026-10-15-a1b2c3`. Types are only `preference | fact | decision | experience`.
+
+`topic` is a frontmatter field only — it never appears in the path, and `coding` / `general` are domains, not topics. One `active` document per topic; updating one requires `supersedes` pointing at it. Any command that lists entries must print the topic, otherwise the naming space is invisible to the caller (that gap is what produced near-duplicate topics in practice).
 
 ## Commands
 
