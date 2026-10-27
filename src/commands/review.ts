@@ -3,7 +3,7 @@
 // --confirm / --dismiss / --stale 仍是原来的三个动作。
 import { openCtx } from '../core/ctx.js';
 import { findById, listEntries, moveToArchive, updateEntry } from '../core/store.js';
-import { applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
+import { applyReviewDecisions, applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
@@ -42,22 +42,26 @@ async function reviewBody(
   config: ReturnType<typeof openCtx>['config'],
   index: ReturnType<typeof openCtx>['index'],
 ): Promise<number> {
-  const confirmId = flagStr(args.flags, 'confirm');
+  const confirmIds = idList(flagStr(args.flags, 'confirm'));
   const dismissId = flagStr(args.flags, 'dismiss');
   const staleId = flagStr(args.flags, 'stale');
   const supersedes = idList(flagStr(args.flags, 'supersedes'));
-  if (supersedes.length > 0 && !confirmId) {
+  if (supersedes.length > 0 && confirmIds.length === 0) {
     throw new UsageError('Usage: omem review --confirm <id> --supersedes <old-id>');
   }
+  // 批量确认无法表达「哪个新文档取代哪个旧文档」：supersedes 是 N 个旧 id 对 1 个新文档，
+  // 天然只属于单条确认。这里拒绝而不是猜测归属。
+  if (supersedes.length > 0 && confirmIds.length > 1) {
+    throw new UsageError('--supersedes requires a single --confirm id');
+  }
 
-  if (confirmId) {
+  if (confirmIds.length > 0) {
     if (supersedes.length > 0) {
+      const confirmId = confirmIds[0];
       const missing = supersedes.filter((id) => !findById(home, id, { includeArchived: true }));
       if (missing.length > 0) throw new UsageError(`Old entries not found: ${missing.join(', ')}`);
-    }
-    const loc = reconfirm(home, index, confirmId);
-    if (!loc) throw new UsageError(`Entry not found: ${confirmId}`);
-    if (supersedes.length > 0) {
+      const loc = reconfirm(home, index, confirmId);
+      if (!loc) throw new UsageError(`Entry not found: ${confirmId}`);
       const updated = updateEntry(home, confirmId, (fm) => {
         fm.supersedes = supersedes;
       });
@@ -69,7 +73,30 @@ async function reviewBody(
       console.log(`Superseded ${n} entries: ${supersedes.join(', ')}`);
       return 0;
     }
-    console.log(`Confirmed: ${confirmId} (verified=true, confirmations=${loc.entry.fm.confirmations})`);
+
+    // 终端里敲 --confirm 是显式动作。没有「展开详情」的概念，所以不降级为 assent，
+    // 保持 verified=true / confidence=0.9 的既有语义。
+    const outcomes = applyReviewDecisions(
+      home,
+      index,
+      confirmIds.map((id) => ({ id, action: 'confirm' as const })),
+      { requireReadForVerified: false },
+    );
+    const ok = outcomes.filter((o) => o.status === 'ok');
+    const failed = outcomes.filter((o) => o.status !== 'ok');
+    if (ok.length === 0) {
+      throw new UsageError(`Entry not found: ${failed.map((f) => f.id).join(', ')}`);
+    }
+    for (const o of ok) {
+      const loc = findById(home, o.id, { includeArchived: true });
+      console.log(`Confirmed: ${o.id} (verified=true, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
+    }
+    if (confirmIds.length > 1) {
+      console.log(`Confirmed ${ok.length} of ${confirmIds.length} entries.`);
+    }
+    for (const f of failed) {
+      console.log(`Skipped: ${f.id} — ${f.reason ?? f.status}`);
+    }
     return 0;
   }
   if (dismissId) {

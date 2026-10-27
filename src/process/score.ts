@@ -3,10 +3,7 @@
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
 import { readSessionsById, readStoredSession, splitSessionKey, userSectionText } from '../collect/session-store.js';
 import { searchSessions } from '../core/search.js';
-import { updateEntry } from '../core/store.js';
-import { serializeEntry } from '../core/entry.js';
 import { normalizeForHash } from '../core/util.js';
-import { generateMemoryIndex } from '../core/lifecycle.js';
 import type { OmemIndex } from '../core/index.js';
 
 export const SCORE_GROUNDED = 0.55;
@@ -144,26 +141,7 @@ export function scoreApiDoc(
   return { confidence: Math.min(SCORE_API_CAP, base), tags };
 }
 
-/**
- * 对话里的一次确认：分数提到自动上限，verified 保持原样。
- * omem 看不到聊天记录，不能据此把条目标成已确认。
- */
-export function applyAssent(home: string, index: OmemIndex, ids: string[]): { updated: string[]; missing: string[] } {
-  const updated: string[] = [];
-  const missing: string[] = [];
-  for (const id of ids) {
-    const loc = updateEntry(home, id, (fm) => {
-      if (fm.confidence < SCORE_AUTO_CAP) fm.confidence = SCORE_AUTO_CAP;
-      if (!fm.tags.includes('assent')) fm.tags.push('assent');
-      fm.confirmations += 1;
-    });
-    if (!loc) {
-      missing.push(id);
-      continue;
-    }
-    index.upsert(loc.entry, loc.path, serializeEntry(loc.entry));
-    updated.push(id);
-  }
-  if (updated.length > 0) generateMemoryIndex(home, index);
-  return { updated, missing };
-}
+// applyAssent 已迁至 core/lifecycle.ts：它是「确认刷新」的一种，与 reconfirm 同属
+// 生命周期语义，放在 process 层会让 lifecycle ↔ score 成环。此处保持导出，
+// 调用方（mcp/tools.ts 与测试）无需改动。
+export { applyAssent } from '../core/lifecycle.js';

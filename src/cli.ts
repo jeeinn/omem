@@ -60,7 +60,7 @@ const COMMANDS: Record<string, Command> = {
   },
   review: {
     desc: 'Review a short queue; open one entry by id',
-    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id> [--supersedes <old-id>]] [--dismiss <id>] [--stale <id>]',
+    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>]',
     run: cmdReview,
   },
   gc: {
