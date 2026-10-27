@@ -37,6 +37,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/mcp/` | stdio MCP server and tool implementations |
 | `src/install/` | Client registry, config writing, TOML subset |
 | `src/sync/` | `SyncBackend`. V0.1 implements only `GitBackend`; `webdav` / `dir` throw "not yet delivered" |
+| `src/web/` | `omem review --ui` 的本地页面与 HTTP 服务（127.0.0.1 + 一次性 token）。页面模板内联为 TS 字符串——`tsc` 不复制非 TS 文件，独立 `.html` 在发布包里会丢 |
 | `src/context/export.ts` | Context export for non-MCP clients |
 | `tests/unit/` | Vitest. `tests/smoke.sh` and `tests/mcp-probe.mjs` are end-to-end |
 

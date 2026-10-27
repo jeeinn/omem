@@ -7,8 +7,9 @@ import { applyReviewDecisions, applySupersedes, formatStaleness, generateMemoryI
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
-import { flagBool, flagStr } from '../cli-args.js';
+import { flagBool, flagNum, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
+import { DEFAULT_UI_TIMEOUT_MS, runReviewUi } from './review-ui.js';
 
 const PAGE = 10;
 const RECENT_DAYS = 14;
@@ -53,6 +54,11 @@ async function reviewBody(
   // 天然只属于单条确认。这里拒绝而不是猜测归属。
   if (supersedes.length > 0 && confirmIds.length > 1) {
     throw new UsageError('--supersedes requires a single --confirm id');
+  }
+
+  const uiMode = flagBool(args.flags, 'ui');
+  if (uiMode && (confirmIds.length > 0 || dismissId || staleId || args._[0]?.trim())) {
+    throw new UsageError('--ui cannot be combined with --confirm / --dismiss / --stale / <id>');
   }
 
   if (confirmIds.length > 0) {
@@ -130,6 +136,28 @@ async function reviewBody(
   queue.sort((a, b) => (b.entry.fm.created || '').localeCompare(a.entry.fm.created || ''));
 
   const stale = all.filter((l) => l.entry.fm.status === 'stale');
+
+  // --ui 复用同一份队列（含 --source / --topic 过滤），但全量交给页面：
+  // 页面能滚动，PAGE=10 只是给终端输出省屏用的。
+  if (uiMode) {
+    if (queue.length === 0) {
+      console.log('Queue is empty.');
+      if (!source && !topic && parked > 0) {
+        console.log(`${parked} older unverified entries stay in the library.`);
+      }
+      return 0;
+    }
+    const timeoutSec = flagNum(args.flags, 'timeout');
+    return runReviewUi({
+      home,
+      index,
+      entries: queue,
+      noOpen: flagBool(args.flags, 'no-open'),
+      port: flagNum(args.flags, 'port') ?? 0,
+      timeoutMs: timeoutSec ? timeoutSec * 1000 : DEFAULT_UI_TIMEOUT_MS,
+    });
+  }
+
   const showAll = flagBool(args.flags, 'all');
   const shown = showAll ? queue : queue.slice(0, PAGE);
 

@@ -16,7 +16,7 @@ export const VALUE_FLAGS = new Set([
   // run
   'tier', 'since', 'session', 'collectors', 'base', 'model', 'limit',
   // review
-  'confirm', 'dismiss', 'stale',
+  'confirm', 'dismiss', 'stale', 'port', 'timeout',
   // redact
   'id', 'source',
   // install

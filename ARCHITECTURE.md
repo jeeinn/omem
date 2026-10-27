@@ -25,6 +25,7 @@ flowchart TB
     SYNC["omem sync<br/>采集"]
     BACKUP["omem backup<br/>git 备份"]
     INSTALL[omem install / serve]
+    WUI["omem review --ui<br/>本地页面"]
   end
 
   subgraph collect [采集 只读]
@@ -80,6 +81,7 @@ flowchart TB
 | 采集注册表 | `src/collect/registry.ts` | 采集器 id、config 字段、隔离 env 的唯一真相源 |
 | 加工 | `src/process/` | 默认只落原文并写 `PROCESS.md`；`--tier api` 才调用模型 |
 | 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、SQLite/FTS5 |
+| 审阅界面 | `src/web/` | `omem review --ui` 的本地页面与 HTTP 服务：只绑 127.0.0.1、一次性 token、已阅集合决定 `verified` |
 | 备份 | `src/sync/` | `SyncBackend`；本版只实现 GitBackend |
 | 安装 | `src/install/` | 只改客户端配置里的 omem 段，先备份、原子写 |
 

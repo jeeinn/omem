@@ -59,8 +59,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdSearch,
   },
   review: {
-    desc: 'Review a short queue; open one entry by id',
-    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>]',
+    desc: 'Review a short queue; open one entry by id, or review in the browser',
+    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
   gc: {
