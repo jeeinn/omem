@@ -11,6 +11,7 @@ import { cmdRun } from './commands/run.js';
 import { cmdAdd } from './commands/add.js';
 import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
+import { cmdTopic } from './commands/topic.js';
 import { cmdGc } from './commands/gc.js';
 import { cmdRebuild } from './commands/rebuild.js';
 import { cmdContext } from './commands/context.js';
@@ -62,6 +63,11 @@ const COMMANDS: Record<string, Command> = {
     desc: 'Review a short queue; open one entry by id, or review in the browser',
     usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
+  },
+  topic: {
+    desc: 'List living-document topics (retired ones with --all)',
+    usage: 'omem topic list [--all]',
+    run: cmdTopic,
   },
   gc: {
     desc: 'Mark stale (report only, never delete)',
