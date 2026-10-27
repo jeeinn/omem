@@ -217,10 +217,76 @@ describe('mcp: handleTool', () => {
     expect(r.isError).toBe(true);
   });
 
-  it('save_memory.supersedes appears in schema', () => {
+  it('save_memory exposes source_sessions + evidence as array fields', () => {
     const save = buildTools({}).find((t) => t.name === 'save_memory')!;
     const props = (save.inputSchema as { properties: Record<string, unknown> }).properties;
-    expect(props.supersedes).toBeTruthy();
+    expect(props.source_sessions).toBeDefined();
+    expect((props.source_sessions as any).type).toBe('array');
+    expect(props.evidence).toBeDefined();
+    expect((props.evidence as any).type).toBe('array');
+  });
+
+  it('save_memory absorbs multiple sessions + evidence in one write', async () => {
+    // Session D: pre-existing corroborator from an earlier conversation
+    const sessD = 'sess-prior-corroborator';
+    // Sessions A, B, C: being absorbed in THIS write call
+    const sessA = 'sess-multi-a';
+    const sessB = 'sess-multi-b';
+    const sessC = 'sess-multi-c';
+    const dir = join(home, 'sessions', 'cursor');
+    mkdirSync(dir, { recursive: true });
+    for (const [sid, proj] of [[sessD, 'proj-old'], [sessA, 'proj-X'], [sessB, 'proj-X'], [sessC, 'proj-Y']] as const) {
+      writeFileSync(
+        join(dir, `${sid}.md`),
+        [
+          '---',
+          'agent: cursor',
+          `session_id: ${sid}`,
+          `project: ${proj}`,
+          'started: 2026-10-16T00:00:00.000Z',
+          'ended: 2026-10-16T00:00:00.000Z',
+          'messages: 1',
+          `content_hash: ${sid}`,
+          '---',
+          '',
+          '## user',
+          '部署流程必须通过 CI/CD 验证',
+          '',
+        ].join('\n'),
+      );
+    }
+    // Rebuild FTS so searchSessions finds corroborating sessions
+    index.rebuild();
+
+    const r = await handleTool('save_memory', {
+      content: '部署流程结论汇总',
+      topic: 'deploy-flow',
+      session_id: sessA,
+      source_sessions: [sessB, sessC],
+      evidence: ['部署流程必须通过 CI/CD 验证'],
+    }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('Saved');
+    // Corroboration from pre-existing session D boosts confidence
+    expect(text).toMatch(/confidence 0\.[6-9]/);
+
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const entry = readEntryFile(row.path)!;
+    // Additional source sessions tracked
+    expect(entry.fm.source_sessions).toContain(sessB);
+    expect(entry.fm.source_sessions).toContain(sessC);
+    expect(entry.fm.session_id).toBe(sessA);
+    // Evidence actually persisted in frontmatter (not empty array)
+    expect(Array.isArray(entry.fm.evidence)).toBe(true);
+    expect((entry.fm.evidence as string[]).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('save_memory keeps an empty evidence array when none provided', async () => {
+    await handleTool('save_memory', { content: '无证据条目案例' }, ctx);
+    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const entry = readEntryFile(row.path)!;
+    expect(Array.isArray(entry.fm.evidence)).toBe(true);
+    expect((entry.fm.evidence as unknown[])).toHaveLength(0);
   });
 
   it('catch-up before tool calls sees external edits', async () => {

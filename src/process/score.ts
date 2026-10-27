@@ -20,7 +20,10 @@ export const MIN_EVIDENCE = 12;
 export interface ScoreInput {
   content: string;
   sessionId?: string;
-  evidence?: string;
+  /** 被本次写入吸收的多会话清单（不含 sessionId）；透传给 commitEntry 的 source_sessions。 */
+  sessionIds?: string[];
+  /** 证据锚定原文：单字符串（向后兼容）或多条 evidence（取最佳印证结果）。 */
+  evidence?: string | string[];
 }
 
 export interface ScoreResult {
@@ -49,15 +52,16 @@ export interface CorroborationInfo {
   uniqueProjects: number;
 }
 
-/** 用会话全文索引缩小范围，再对 user 段做归一化子串比对。 */
-function corroboratingSessions(index: OmemIndex, evidence: string, skipId?: string): CorroborationInfo {
+/** 用会话全文索引缩小范围，再对 user 段做归一化子串比对；跳过 source 会话避免自印证。 */
+function corroboratingSessions(index: OmemIndex, evidence: string, skipIds?: string | string[]): CorroborationInfo {
   const probe = [...evidence].slice(0, 24).join('');
   const hits = searchSessions(index, probe, 8);
+  const skipSet = new Set(Array.isArray(skipIds) ? skipIds : (skipIds ? [skipIds] : []));
   const seenSessions = new Set<string>();
   const seenProjects = new Set<string>();
   for (const hit of hits) {
     const id = splitSessionKey(hit.session_key).sessionId;
-    if (!id || id === skipId || seenSessions.has(id)) continue;
+    if (!id || skipSet.has(id) || seenSessions.has(id)) continue;
     const stored = readStoredSession(hit.path);
     if (!stored) continue;
     if (!evidenceIn(userSectionText(stored.body), evidence)) continue;
@@ -85,25 +89,52 @@ function corroborationBonus(info: CorroborationInfo): number {
   return Math.round(Math.min(bonus, 0.25) * 100) / 100;
 }
 
-/** 按依据给结论打分。自动分不超过 0.8。传入 index 时用 sessions_fts 找印证，不扫全部会话文件。 */
+/** 归一化证据输入为字符串数组：兼容 string（向后兼容）与 string[]（多证据）。 */
+function normalizeEvidence(ev: string | string[] | undefined): string[] {
+  if (!ev) return [];
+  const arr = Array.isArray(ev) ? ev : [ev];
+  return arr.map((e) => e.trim()).filter((e) => charLen(e) >= MIN_EVIDENCE);
+}
+
+/** 按依据给结论打分。自动分不超过 0.8。传入 index 时用 sessions_fts 找印证，不扫全部会话文件。
+ * 支持单证据（向后兼容）与多证据：多证据取最佳印证结果（与 scoreApiDoc 同口径，但 cap 0.8）。 */
 export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex): ScoreResult {
-  const evidence = (input.evidence ?? '').trim();
+  const evidences = normalizeEvidence(input.evidence);
+  const primary = evidences[0] ?? '';
   const tags: string[] = [];
-  const cited = input.sessionId ? readSessionsById(home, input.sessionId) : [];
-  const citedHit = cited.some((s) => evidenceIn(userSectionText(s.body), evidence));
-  const longEnough = charLen(evidence) >= MIN_EVIDENCE;
+  // 引用会话：主 sessionId + 新增吸收的 sessionIds 合并用于 cited 检查
+  const allSessionIds = [input.sessionId, ...(input.sessionIds ?? [])].filter((id): id is string => Boolean(id));
+  const cited = allSessionIds.length > 0
+    ? allSessionIds.flatMap((id) => readSessionsById(home, id))
+    : [];
+  const citedHit = evidences.length > 0 && evidences.some((e) => cited.some((s) => evidenceIn(userSectionText(s.body), e)));
   let base = SCORE_UNGROUNDED;
   let grounded = false;
 
-  if (!evidence && cited.length === 0) {
+  if (evidences.length === 0 && cited.length === 0) {
     base = SCORE_GROUNDED;
     tags.push('pending-session');
-  } else if (longEnough && citedHit) {
-    const others = index ? corroboratingSessions(index, evidence, input.sessionId) : { count: 0, uniqueProjects: 0 };
+  } else if (citedHit) {
+    // 多证据：对每条 evidence 独立查印证，取最佳（与 scoreApiDoc reduce 同口径）
+    const others = index
+      ? evidences.reduce<CorroborationInfo>((acc, e) => {
+          const info = corroboratingSessions(index, e, allSessionIds);
+          return {
+            count: Math.max(acc.count, info.count),
+            uniqueProjects: Math.max(acc.uniqueProjects, info.uniqueProjects),
+          };
+        }, { count: 0, uniqueProjects: 0 })
+      : { count: 0, uniqueProjects: 0 };
     base = SCORE_GROUNDED + corroborationBonus(others);
     grounded = true;
-  } else if (longEnough && !input.sessionId && index) {
-    const info = corroboratingSessions(index, evidence);
+  } else if (evidences.length > 0 && allSessionIds.length === 0 && index) {
+    const info = evidences.reduce<CorroborationInfo>((acc, e) => {
+      const cur = corroboratingSessions(index, e);
+      return {
+        count: Math.max(acc.count, cur.count),
+        uniqueProjects: Math.max(acc.uniqueProjects, cur.uniqueProjects),
+      };
+    }, { count: 0, uniqueProjects: 0 });
     if (info.count > 0) {
       base = SCORE_GROUNDED + corroborationBonus(info);
       grounded = true;

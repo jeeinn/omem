@@ -75,10 +75,16 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           tags: { type: 'array', items: { type: 'string' } },
           project: { type: 'string', description: 'Project fingerprint (optional)' },
           topic: { type: 'string', description: 'Living-document topic, e.g. "knee-rehab". Stored lowercase with hyphens. One active document per topic; a project may have several memories without a topic.' },
-          session_id: { type: 'string', description: 'Session id absorbed into this document, from PROCESS.md' },
+          session_id: { type: 'string', description: 'Primary session id absorbed into this document, from PROCESS.md' },
+          source_sessions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Additional session ids absorbed into this document (multi-session corroboration). The primary session_id is tracked separately.',
+          },
           evidence: {
-            type: 'string',
-            description: 'At least 12 characters copied from a ## user section of that session file. Assistant text does not count.',
+            type: 'array',
+            items: { type: 'string' },
+            description: 'At least 12 characters each, copied from a ## user section of the session files. Assistant text does not count. Multiple items strengthen corroboration scoring.',
           },
           supersedes: {
             type: 'array',
@@ -207,9 +213,19 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       : 'fact';
     const supersedes = idList(args.supersedes);
     const sessionId = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+    const sourceSessions = Array.isArray(args.source_sessions)
+      ? args.source_sessions.map(String).map((s) => s.trim()).filter(Boolean)
+      : (typeof args.source_sessions === 'string' && args.source_sessions ? [args.source_sessions.trim()] : undefined);
+    const evidenceList = Array.isArray(args.evidence)
+      ? args.evidence.filter((e) => typeof e === 'string')
+      : (typeof args.evidence === 'string' && args.evidence ? [args.evidence] : []);
     const topic = typeof args.topic === 'string' ? args.topic.trim() : '';
-    const evidence = typeof args.evidence === 'string' ? args.evidence : '';
-    const scored = scoreEvidence(ctx.home, { content, sessionId: sessionId || undefined, evidence }, ctx.index);
+    const scored = scoreEvidence(ctx.home, {
+      content,
+      sessionId: sessionId || undefined,
+      sessionIds: sourceSessions && sourceSessions.length > 0 ? sourceSessions : undefined,
+      evidence: evidenceList.length > 0 ? evidenceList : undefined,
+    }, ctx.index);
     const tags = [...(Array.isArray(args.tags) ? args.tags.map(String) : []), ...scored.tags];
     // project 决定这条结论归到哪个分组。没显式给就从被吸收的会话推断——
     // 缺了它，PROCESS.md 就无法把这条文档挂回对应的分组（docId 会变空）。
@@ -227,6 +243,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): string {
       topic: topic || undefined,
       tags,
       session_id: sessionId || undefined,
+      source_sessions: sourceSessions && sourceSessions.length > 0 ? sourceSessions : undefined,
+      evidence: evidenceList.length > 0 ? evidenceList : undefined,
       source: 'agent',
       confidence: scored.confidence,
       verified: false,
