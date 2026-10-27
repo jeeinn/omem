@@ -15,7 +15,16 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLi
 
 ## 状态
 
-V0.1，公开测试版 `0.1.0-beta.5`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。尚未用真实会话做完质量验证。
+V0.1，公开测试版 `0.1.0-beta.7`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。尚未用真实会话做完质量验证。
+
+从 beta.6 升级时：
+
+- 新增 `omem review --ui`：浏览器里勾选、右栏看正文与来源会话，一次提交（见「图形化审阅」）
+- `omem review --confirm` 支持逗号列表，一条命令确认一批
+- 新增 `omem topic list` / `omem topic policy`：主题可见性与主题级审阅策略
+- 活文档更新现在**继承证据链**：`evidence` 不再清零，与 `source_sessions` 一样累积（各有限额）
+- `domain` 会被归一化：以前写成 `Coding`、`My Project` 的条目，下次写入会落到 `coding`、`my-project` 目录
+- `omem review` 末尾会报告被 `review.toml` 策略静默的条数
 
 从 beta.4 升级时命令名变了：
 
