@@ -97,6 +97,12 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 
 接入后，会话里可以直接用 `search_memory` / `save_memory`。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
 
+MCP 侧三个容易踩空的点，现在都在协议里给出了：
+
+- `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径、四步写回循环、纠错通道），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖 `omem context` 的导出。
+- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的 active 文档及其 id，更新活文档不再靠「盲写 → 被拒 → 从错误消息里抠 id」。`status` 可读回 `superseded` 的历史版本。
+- `top_k` 声明并夹取在 1-20（省略时用 `config.toml` 的 `search.top_k`，它可配到 50）；响应固定给 `matched M · showing N`，能看出还有多少没返回。
+
 `add` 和 `sync` 不自动 commit。`omem backup` 在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
 
 ## 采集器支持列表
@@ -149,6 +155,8 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 
 置信度按证据打：对得上 user 原文从 0.55 起，两个会话印证到 0.75，对不上封顶 0.35。`confirm_ids` 最多到 0.8，不标已确认。`omem add` 或 `omem review --confirm` 才到 0.9 并标 `verified`。
 
+证据门槛是 12 个连续字符，且必须来自会话文件里的 `## user` 段（引模型自己的话不算）。`session_id` 用裸 id——`claude-code:probe-0001` 这种带前缀的写法会自动剥掉前缀再找，不会因此掉到 0.35。没给 `session_id` 只给 `evidence` 时，第一个命中的会话可能是证据的来源本身，因此不计入「独立印证」：指名与不指名同分，指名不会更亏。
+
 可选的 API 档：`omem sync --tier api`。本机回环端点免 key；云端必须 key，且必须 https。建议 key 放在 `OMEM_API_KEY`，不要写进 `config.toml`，否则 `omem backup` 会把它推进 git 仓库（写入时会警告）。`--limit` 默认 20，非本机的配置值最高 50，只有命令行 `--limit` 能再高。`--dry-run` 不发请求。
 
 ```bash
@@ -193,11 +201,11 @@ omem topic policy pool-tuning default  # 回到默认 always
 
 | 情况 | 现在会怎样 |
 | --- | --- |
-| 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 附一份 `## Existing topics` 词表 |
-| 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，但照常写入 |
+| 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 的 `## Existing topics` 每行给出主题名 **+ active 文档 id**；MCP 用 `search_memory(topic="<name>")` 直接取 |
+| 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，并说明「确属不同主题就保留新主题」，照常写入 |
 | 用新主题取代了别的主题的文档 | 写入时告警「Merged N topic(s) into "xxx"」，并列出消失的主题名 |
 
-最后一种不阻止、只提示：合并本身是合法操作，但那些主题名之后就搜不到了（`omem search --all` 才看得到）。`omem topic list --all` 会给出「旧主题 → 现在归到哪个文档」的映射。
+最后一种不阻止、只提示：合并本身是合法操作，但那些主题名之后就搜不到了（`omem search --all`，或 MCP 的 `status: ["superseded"]` 才看得到）。`omem topic list --all` 会给出「旧主题 → 现在归到哪个文档」的映射。
 
 ## 图形化审阅（`review --ui`）
 
