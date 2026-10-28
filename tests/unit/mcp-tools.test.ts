@@ -66,6 +66,81 @@ describe('mcp: buildTools tool surface', () => {
   });
 });
 
+// outputSchema 刻意宽松（不声明 required、允许附加字段），但「宽松」不等于「可以漏字段」：
+// 客户端按 schema 生成类型时，未声明的字段会凭空消失。这里把每次实跑的 structuredContent
+// 与 schema 对一遍，防止两处手写漂移（审查二-4 提的就是这个）。
+describe('mcp: structuredContent keys are all declared in outputSchema', () => {
+  function schemaOf(tool: 'search_memory' | 'save_memory'): any {
+    return buildTools({}).find((t) => t.name === tool)!.outputSchema;
+  }
+  function undeclared(schema: any, obj: Record<string, unknown> | undefined): string[] {
+    if (!obj) return [];
+    const declared = new Set(Object.keys(schema.properties ?? {}));
+    return Object.keys(obj).filter((k) => obj[k] !== undefined && !declared.has(k));
+  }
+  function undeclaredHits(schema: any, obj: Record<string, unknown> | undefined): string[] {
+    const items = schema?.properties?.hits?.items;
+    if (!items || !Array.isArray(obj?.hits)) return [];
+    const declared = new Set(Object.keys(items.properties ?? {}));
+    const bad = new Set<string>();
+    for (const h of obj.hits as Record<string, unknown>[]) {
+      for (const k of Object.keys(h)) if (h[k] !== undefined && !declared.has(k)) bad.add(k);
+    }
+    return [...bad];
+  }
+
+  function seedSession(id: string, project: string) {
+    const dir = join(home, 'sessions', 'claude-code');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${id}.md`),
+      [
+        '---', 'agent: claude-code', `session_id: ${id}`, `project: ${project}`,
+        'started: 2026-10-16T00:00:00.000Z', 'ended: 2026-10-16T00:00:00.000Z',
+        'messages: 1', `content_hash: ${id}`, '---', '',
+        '## user', '灰度发布先跑满二十四小时再全量', '',
+      ].join('\n'),
+    );
+    index.catchUp();
+  }
+
+  it('covers conclusions search, including bm25 rank', async () => {
+    const e = {
+      fm: newFrontmatter({ id: '2026-10-15-decl1', type: 'fact', domain: 'coding', topic: 'decl-topic' }),
+      body: '声明覆盖检查的内容 marker-decl',
+    };
+    const { path, content } = writeEntry(home, e);
+    index.upsert(e, path, content);
+    const r = await handleTool('search_memory', { query: 'marker-decl', detail: true }, ctx);
+    const schema = schemaOf('search_memory');
+    expect(undeclared(schema, r.structuredContent as any)).toEqual([]);
+    expect(undeclaredHits(schema, r.structuredContent as any)).toEqual([]);
+  });
+
+  it('covers sessions search, including snippet / absorbed / project', async () => {
+    seedSession('sess-decl-1', 'local:deadbeef');
+    const r = await handleTool('search_memory', { query: '灰度发布', scope: 'sessions' }, ctx);
+    const hits = (r.structuredContent as any).hits as Record<string, unknown>[];
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].snippet).toBeTruthy();
+    const schema = schemaOf('search_memory');
+    expect(undeclared(schema, r.structuredContent as any)).toEqual([]);
+    expect(undeclaredHits(schema, r.structuredContent as any)).toEqual([]);
+  });
+
+  it('covers a written save, a deduped save with drift, and a dry-run save with confirm', async () => {
+    const written = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-a' }, ctx);
+    const deduped = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-b' }, ctx);
+    const preview = await handleTool('save_memory', { content: '声明覆盖 beta', dry_run: true, confirm_ids: [(written.structuredContent as any).id] }, ctx);
+    const schema = schemaOf('save_memory');
+    for (const r of [written, deduped, preview]) {
+      expect(undeclared(schema, r.structuredContent as any)).toEqual([]);
+    }
+    expect((preview.structuredContent as any).dry_run).toBe(true);
+    expect((deduped.structuredContent as any).metadata_drift.length).toBeGreaterThan(0);
+  });
+});
+
 describe('mcp: handleTool', () => {
   it('search_memory hits with freshness labels and a disclaimer frame', async () => {
     const e = {

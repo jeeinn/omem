@@ -9,14 +9,14 @@
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import type { MemoryType } from '../core/entry.js';
-import { readEntryFile } from '../core/store.js';
+import { readEntryFile, findById } from '../core/store.js';
 import { truncate } from '../core/util.js';
 import { searchEntriesPage, searchSessions } from '../core/search.js';
 import type { SessionHit } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
-import { commitEntry, normalizeTopic } from '../core/commit.js';
+import { commitEntry, metadataDrift, normalizeTopic } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
 import { readSessionsById } from '../collect/session-store.js';
@@ -113,6 +113,9 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         },
         required: [],
       },
+      // outputSchema 刻意宽松：不声明 required、不设 additionalProperties:false，
+      // structuredContent 允许携带未声明的附加字段。两份对象靠 tests/unit/mcp-tools.test.ts 对齐——
+      // 若要收紧（加 required），先确认没有客户端按严格校验拒收。
       outputSchema: {
         type: 'object',
         properties: {
@@ -123,6 +126,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           showing: { type: 'number' },
           hits: {
             type: 'array',
+            description: 'scope=conclusions fills the entry fields; scope=sessions fills the session fields. One schema covers both because `hits` means different things per scope.',
             items: {
               type: 'object',
               properties: {
@@ -134,6 +138,12 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
                 verified: { type: 'boolean' },
                 status: { type: 'string' },
                 title: { type: 'string' },
+                rank: { type: 'number', description: 'bm25 score (more negative = closer). FTS-ranked results only; substring matches carry none.' },
+                session_key: { type: 'string', description: 'scope=sessions only: "<collector>:<id>"; pass the part after the colon as session_id.' },
+                path: { type: 'string', description: 'scope=sessions only: transcript file on disk.' },
+                project: { type: 'string', description: 'scope=sessions only: project fingerprint of the transcript.' },
+                absorbed: { type: 'boolean', description: 'scope=sessions only: whether a memory document already cites this session.' },
+                snippet: { type: 'string', description: 'scope=sessions only: text around the match; null when the index has no excerpt.' },
               },
             },
           },
@@ -218,7 +228,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       outputSchema: {
         type: 'object',
         properties: {
-          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty' },
+          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / noop (confirm-only call). Under dry_run nothing is written regardless of status.' },
           id: { type: 'string' },
           confidence: { type: 'number' },
           tags: { type: 'array', items: { type: 'string' } },
@@ -232,6 +242,14 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
               total: { type: 'number' },
               matched: { type: 'number' },
             },
+          },
+          dry_run: { type: 'boolean', description: 'true when this call only previewed; nothing was written or confirmed.' },
+          confirmed: { type: 'array', items: { type: 'string' }, description: 'confirm_ids actually applied (absent under dry_run).' },
+          confirm_missing: { type: 'array', items: { type: 'string' } },
+          metadata_drift: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Requested topic/type/tags the deduped-by-content entry does not carry. Empty when the metadata matches.',
           },
         },
       },
@@ -565,7 +583,25 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       verified: false,
       supersedes,
       caller: 'mcp',
-    }, { dryRun });
+    }, {
+      dryRun,
+      // 锚定归因进 commit 日志：审计链路要能回答「这条当时锚没锚上」，光看落盘的
+      // confidence 数值回答不了（0.55 可能是锚定成功，也可能是 pending-session）。
+      audit: {
+        confidence: scored.confidence,
+        tags: scored.tags,
+        session_found: scored.sessionFound,
+        anchors: { total: scored.anchors?.total ?? 0, matched: scored.anchors?.matched.length ?? 0 },
+      },
+    });
+
+    // 去重会连带丢掉 topic/type/tags：说清楚"哪些没写进去"以及两条真实出路。
+    // 比对口径与 CLI 共用 metadataDrift，避免两处手写漂移。
+    // type 只在调用方显式给对时才比对——没给时它回落成 fact，报漂移是误伤。
+    const requestedTags = (Array.isArray(args.tags) ? args.tags.map(String) : []).map((s) => s.trim()).filter(Boolean);
+    const drift = result.status === 'deduped'
+      ? metadataDrift(result.existing, { topic, type: type === requestedType ? type : undefined, tags: requestedTags })
+      : [];
 
     Object.assign(structured, {
       status: result.status,
@@ -577,23 +613,17 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       supersedes,
       session_found: scored.sessionFound,
       anchors: { total: scored.anchors?.total ?? 0, matched: scored.anchors?.matched.length ?? 0 },
+      metadata_drift: drift,
     });
 
     if (dryRun) {
       parts.push(`[dry-run] ${result.status}${result.reason ? ': ' + result.reason : ''}`);
       parts.push(`Confidence would be ${scored.confidence}.`);
+      if (drift.length > 0) parts.push(`Metadata that would be lost to content dedup: ${drift.join('; ')}.`);
       if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split the topic.`);
       for (const w of result.warnings ?? []) parts.push(w);
     } else if (result.status === 'deduped') {
-      // 去重会连带丢掉 topic/type/tags：说清楚"哪些没写进去"以及两条真实出路。
-      const existing = result.existing;
-      const wanted: string[] = [];
-      const normalizedWanted = topic ? normalizeTopic(topic) : undefined;
-      if (normalizedWanted && normalizedWanted !== existing?.topic) {
-        wanted.push(`topic "${normalizedWanted}" vs stored ${existing?.topic ? `"${existing.topic}"` : 'none'}`);
-      }
-      if (existing && existing.type !== type) wanted.push(`type "${type}" vs stored "${existing.type}"`);
-      const mismatch = wanted.length > 0 ? ` It kept the stored metadata (${wanted.join('; ')}).` : '';
+      const mismatch = drift.length > 0 ? ` It kept the stored metadata (${drift.join('; ')}).` : '';
       parts.push(
         `Deduped by content (id: ${result.id}); nothing was written again.${mismatch} ` +
         'Content-level dedup only blocks an identical body — change the body and resend with ' +
@@ -614,15 +644,19 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
         parts.push(`Grounded ${anchors.matched.length}/${anchors.total} quote(s) on the ## user section of ${where}.`);
       } else if (anchors && anchors.total > 0) {
         parts.push(`Evidence did not match any ## user section of the cited session; confidence ${scored.confidence}, tagged ungrounded.`);
+      } else if (evidenceList.length > 0) {
+        // 证据全被 <12 字符门槛过滤：说清为什么不算，别让它读起来像「忘了给证据」。
+        parts.push(`No valid evidence: every quote was shorter than 12 characters, so none could anchor; confidence ${scored.confidence}, tagged ungrounded.`);
       } else if (scored.sessionFound === false) {
         parts.push('No evidence given.');
       } else if (scored.sessionFound === true) {
-        parts.push('No evidence given; confidence rests on the session reference alone.');
+        parts.push(`No evidence given; stored as an ungrounded claim (confidence ${scored.confidence}). Add quotes from the session's ## user sections to raise it.`);
       } else {
         parts.push('No evidence and no session given; stored as a pending candidate.');
       }
       if (scored.sessionFound === false) {
-        parts.push(`session ${sessionId} is not in the collected set — check the id in PROCESS.md, or run omem sync.`);
+        // MCP 客户端执行不了 omem sync：把它交给用户，而不是给 Agent 一条跑不了的指令。
+        parts.push(`session ${sessionId} is not in the collected set — check the id in PROCESS.md, or ask the user to run omem sync.`);
       }
       if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split the topic.`);
       if (scored.tags.length > 0) parts.push(`Tags: ${scored.tags.join(', ')}.`);
@@ -631,13 +665,24 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
   }
 
   if (confirmIds.length > 0) {
-    const { updated, missing } = applyAssent(ctx.home, ctx.index, confirmIds);
-    if (updated.length > 0) parts.push(`Assent recorded for ${updated.join(', ')} (confidence up to 0.8, still unverified).`);
-    if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
-    Object.assign(structured, { confirmed: updated, confirm_missing: missing });
+    // dry_run 是"不落盘"契约：assent 是真实状态变更（confidence / confirmations / assent 标签），
+    // 预演时只预告会作用哪些 id，不执行。
+    if (dryRun) {
+      const would: string[] = [];
+      const missing: string[] = [];
+      for (const id of confirmIds) (findById(ctx.home, id, { includeArchived: true }) ? would : missing).push(id);
+      if (would.length > 0) parts.push(`[dry-run] Would record assent for ${would.join(', ')} (confidence up to 0.8, still unverified).`);
+      if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
+    } else {
+      const { updated, missing } = applyAssent(ctx.home, ctx.index, confirmIds);
+      if (updated.length > 0) parts.push(`Assent recorded for ${updated.join(', ')} (confidence up to 0.8, still unverified).`);
+      if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
+      Object.assign(structured, { confirmed: updated, confirm_missing: missing });
+    }
   }
 
   for (const n of notes) parts.push(n);
+  if (dryRun) structured.dry_run = true;
   return { text: parts.join('\n'), structured };
 }
 
