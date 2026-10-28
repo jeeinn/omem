@@ -163,9 +163,15 @@ export interface SessionHit {
   path: string;
   project_fp: string;
   last_ts: string;
-  /** 命中片段（FTS 路径由 snippet() 生成；LIKE 兜底路径为命中位置附近的手工截取）。 */
+  /**
+   * 命中片段。FTS 路径由 snippet() 生成，LIKE 兜底路径由 manualSnippet() 截取命中位置附近
+   * 的上下文——两条路径都不自带标记，『』由渲染层统一加（否则 FTS 路径会套两层）。
+   */
   snippet?: string;
-  /** 该会话是否已被某份记忆吸收（由调用方注入，见 guide.absorbedSessionIds）。 */
+  /**
+   * 该会话是否已被某份记忆吸收。searchSessions 不读 entries 表，自身填不了这个值——
+   * 必须由调用方注入（见 guide.absorbedSessionIds）；未注入时 undefined，渲染层当作「未吸收」。
+   */
   absorbed?: boolean;
 }
 
@@ -179,7 +185,7 @@ export function searchSessions(index: OmemIndex, query: string, limit = 3): Sess
     const ftsq = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
     return db.prepare(`
       SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts,
-             snippet(sessions_fts, 1, '『', '』', '…', 12) AS snippet
+             snippet(sessions_fts, 1, '', '', '…', 12) AS snippet
       FROM sessions s
       JOIN sessions_fts ON s.session_id = sessions_fts.session_key
       WHERE sessions_fts MATCH ?
@@ -188,11 +194,39 @@ export function searchSessions(index: OmemIndex, query: string, limit = 3): Sess
     `).all(ftsq, limit) as unknown as SessionHit[];
   }
   const pattern = `%${escapeLike(q)}%`;
-  return db.prepare(`
-    SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
+  const rows = db.prepare(`
+    SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts,
+           sessions_fts.content AS content
     FROM sessions s
     JOIN sessions_fts ON s.session_id = sessions_fts.session_key
     WHERE sessions_fts.content LIKE ? ESCAPE '\\'
     LIMIT ?
-  `).all(pattern, limit) as unknown as SessionHit[];
+  `).all(pattern, limit) as unknown as (SessionHit & { content?: string })[];
+  // LIKE 兜底路径用不上 snippet()（它只对 MATCH 生效），自己截一段命中附近的上下文，
+  // 否则 2 字中文查询就只剩路径可看，调用方拿不到原文。标记与 FTS 路径一致地交给渲染层。
+  //
+  // 内存取舍：命中行通常极少——含 <3 字符的词建不了 FTS 索引，LIKE 全表扫后被 LIMIT 截走；
+  // sessions 表规模预期有限，拉一列 content 回内存可接受。若未来 sessions 频繁落盘、规模增长，
+  // 再把 manualSnippet 的截取下沉到 SQL SUBSTR（届时需处理 code point 偏移）。
+  //
+  // 口径差异：FTS 路径 snippet() 以 token 为单位（半径 12），manualSnippet 以 code point 为单位
+  // （半径 40）——服务于不同消费方；且短词 LIKE 命中的 token 边界无意义，故各取适用。
+  return rows.map(({ content, ...hit }) => ({ ...hit, snippet: manualSnippet(content ?? '', q) }));
+}
+
+/**
+ * 命中位置附近的手工片段：code point 定位（中文不会被 UTF-16 截半）、
+ * 大小写不敏感（对齐 SQLite LIKE 的默认行为）、换行压成空格。
+ */
+export function manualSnippet(content: string, needle: string, radius = 40): string {
+  if (!content || !needle) return '';
+  const at = content.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return '';
+  const chars = [...content];
+  const start = [...content.slice(0, at)].length;
+  const len = [...needle].length;
+  const from = Math.max(0, start - radius);
+  const to = Math.min(chars.length, start + len + radius);
+  const body = chars.slice(from, to).join('').replace(/\s+/g, ' ').trim();
+  return (from > 0 ? '…' : '') + body + (to < chars.length ? '…' : '');
 }
