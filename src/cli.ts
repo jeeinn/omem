@@ -18,6 +18,7 @@ import { cmdSync } from './commands/sync.js';
 import { cmdProfile } from './commands/profile.js';
 import { cmdRedact } from './commands/redact.js';
 import { cmdSnapshot } from './commands/snapshot.js';
+import { cmdSkip } from './commands/skip.js';
 import { cmdServe } from './commands/serve.js';
 import { cmdAudit } from './commands/audit.js';
 import { cmdEval } from './commands/eval.js';
@@ -46,6 +47,11 @@ const COMMANDS: Record<string, Command> = {
     desc: 'Ingest session transcripts (conclusions are not extracted)',
     usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
     run: cmdRun,
+  },
+  skip: {
+    desc: 'Mark sessions as no-distill-value so they leave the PROCESS.md backlog',
+    usage: 'omem skip <session-id> [--reason noise|duplicate|no-value|agent-authored] | omem skip list | omem skip remove <id>',
+    run: cmdSkip,
   },
   add: {
     desc: 'Manually add a memory (verified)',

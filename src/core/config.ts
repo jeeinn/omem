@@ -25,7 +25,7 @@ export interface OmemConfig {
     codebuddy_cn_projects: string;
     exclude_paths: string[];
   };
-  process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number };
+  process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number; guide_batch: number };
   /** 档 3（API 加工）端点配置（文档 §3.1）。timeout_ms / max_input_chars 为 0 时按端点类型取默认。 */
   api: {
     base: string;
@@ -63,6 +63,7 @@ export function defaultConfig(): OmemConfig {
       stale_after_days: 180, // 规格 §11 开放问题 7：V0.1 保守值 180 天
       stale_weight: 0.5, // 规格 §4.2：L2 冷却降权 ×0.5
       max_content_chars: 2000,
+      guide_batch: 5, // PROCESS.md 每轮渲染的分组数（2026-10-28 前 hardcode 在 guide.ts）
     },
     api: {
       base: 'http://localhost:11434/v1', // ollama / llama-server 的 OpenAI 兼容端点
@@ -379,6 +380,7 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       stale_after_days: numIn(p?.process?.stale_after_days, 1, 3650, d.process.stale_after_days),
       stale_weight: numIn(p?.process?.stale_weight, 0, 1, d.process.stale_weight),
       max_content_chars: numIn(p?.process?.max_content_chars, 100, 100_000, d.process.max_content_chars),
+      guide_batch: numIn(p?.process?.guide_batch, 1, 100, d.process.guide_batch),
     },
     api: {
       base: typeof p?.api?.base === 'string' && p.api.base ? p.api.base : d.api.base,

@@ -40,8 +40,10 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
   }
   const topics = report.waitingTopics ?? 0;
   const unassigned = report.waitingUnassigned ?? 0;
+  const waitingSessions = report.waitingSessions ?? 0;
   lines.push(`  sessions ${report.sessions} (${report.skipped} unchanged) · messages ${report.messages}`);
-  const waiting = `${topics} topic group(s) waiting` + (unassigned > 0 ? ` · ${unassigned} unassigned` : '');
+  const waiting = `${topics} topic group(s) / ${waitingSessions} session(s) waiting`
+    + (unassigned > 0 ? ` · ${unassigned} unassigned` : '');
   lines.push(`  ${waiting}${dryRun ? '' : ' · PROCESS.md updated'}`);
   lines.push('');
   lines.push('Next');

@@ -127,9 +127,9 @@ function logOutcome(home: string, status: CommitStatus, extra: Record<string, un
  * 重写 PROCESS.md。清单是派生物，刷不动不该让已经落盘的记忆变成失败——
  * 记忆已经写好了，丢掉它才是真的损失。所以这里吞掉异常，只记日志。
  */
-function refreshGuide(home: string, index: OmemIndex): void {
+function refreshGuide(home: string, index: OmemIndex, config?: OmemConfig): void {
   try {
-    refreshProcessGuide(home, index);
+    refreshProcessGuide(home, index, config);
   } catch (err) {
     appendLog(home, 'commit', { status: 'written', guide_refresh_failed: (err as Error).message });
   }
@@ -277,7 +277,7 @@ export function commitEntry(
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
   // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过
   // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
-  if (opts.refreshGuide !== false) refreshGuide(home, index);
+  if (opts.refreshGuide !== false) refreshGuide(home, index, config);
   logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes, ...opts.audit });
   return { status: 'written', id: entry.fm.id, path: written.path, redacted, warnings };
 }

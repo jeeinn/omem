@@ -3,7 +3,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { dirs } from '../core/paths.js';
-import { atomicWrite, contentHash } from '../core/util.js';
+import { atomicWrite, contentHash, normalizeForHash, sha256hex } from '../core/util.js';
 import { redactSecrets } from '../core/redact.js';
 import type { SessionDigest } from './types.js';
 
@@ -17,6 +17,8 @@ export interface StoredSession {
   contentHash: string;
   /** API 档加工状态（文档 §3.5）：`ok|fail|skip : <prompt版本> : <content_hash> [: 计数]`；缺省=未加工。 */
   apiState?: string;
+  /** user 段归一化指纹（片段级去重用）；2026-10-28 起写入，旧文件缺省=未算。 */
+  userHash?: string;
   body: string;
 }
 
@@ -116,6 +118,7 @@ export function renderSessionFile(meta: StoredSession): string {
     `ended: ${meta.ended}`,
     `messages: ${meta.messages}`,
     `content_hash: ${meta.contentHash}`,
+    ...(meta.userHash ? [`user_hash: ${meta.userHash}`] : []),
   ];
   if (meta.apiState) lines.push(`api_state: ${meta.apiState}`);
   return [
@@ -146,6 +149,7 @@ export function parseStoredSession(text: string): StoredSession | null {
     ended: fm.ended || '',
     messages: Number.isFinite(messages) ? messages : 0,
     contentHash: fm.content_hash,
+    userHash: fm.user_hash || undefined,
     // 未知键天然忽略；api_state 是唯一被认领的加工字段（文档 §3.5）
     apiState: fm.api_state || undefined,
     body: m[2].trim(),
@@ -180,6 +184,11 @@ export function userSectionText(body: string): string {
   return parts.join('\n');
 }
 
+/** user 段归一化指纹：片段级去重的依据（同一段内容、不同 metadata 的会话同指纹）。 */
+export function sessionUserHash(body: string): string {
+  return sha256hex(normalizeForHash(userSectionText(body))).slice(0, 16);
+}
+
 /**
  * 整文件重写。哈希未变时保留原 `api_state`（文档 §3.5 规则 1）：
  * `--session` 点名在内容未变时也会走到这里，不保状态会把已有 `ok` 先抹掉，
@@ -197,6 +206,7 @@ export function writeSessionFile(home: string, digest: SessionDigest, body: stri
     ended: digest.ended_ts,
     messages: digest.messages.length,
     contentHash: hash,
+    userHash: sessionUserHash(body),
     apiState,
     body,
   };

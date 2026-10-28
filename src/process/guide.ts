@@ -3,18 +3,21 @@
 // 本模块负责「算待办 + 渲染 + 落盘」三件事，放在一起是为了让 core/commit.ts
 // 能在写入成功后直接刷新 PROCESS.md——core 不能依赖 process/pipeline.ts
 // （pipeline 依赖 core，会成环），但依赖 process/guide.ts 不会。
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';
 import { deriveTitle } from '../core/entry.js';
 import { listEntries } from '../core/store.js';
-import { splitSessionKey } from '../collect/session-store.js';
+import { readSessionsById, readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
+import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 
 export interface GuideSessionRef {
   path: string;
   sessionId: string;
   agent: string;
+  /** 同一 user 段指纹的副本数（片段级去重合并）；1 或缺省 = 无重复。 */
+  copies?: number;
 }
 
 export interface GuideTopic {
@@ -26,9 +29,35 @@ export interface GuideTopic {
   /** 这些活文档的 id。PROCESS.md 只说「还有 3 份」等于死信息——调用方仍拿不到 supersedes 要的 id。 */
   otherDocIds?: string[];
   sessions: GuideSessionRef[];
+  /** 组内最近活跃时间（排序用）：大组优先进渲染窗口。 */
+  lastTs?: string;
 }
 
 const BATCH = 5;
+
+export interface SkipRecord {
+  session_id: string;
+  agent?: string;
+  /** noise | duplicate | no-value | agent-authored */
+  reason: string;
+  decided_at: string;
+}
+
+/** 读 skip 台账；文件缺失/损坏时降级为空（不阻塞清单渲染），损坏留给 skip 命令修。 */
+/** skip 台账里的会话视同已处理：退出待吸收清单，但会话文件原样保留。 */
+export function skippedSessionIds(home: string): Set<string> {
+  return new Set(loadSkipLedger(home).map((r) => r.session_id));
+}
+
+export function loadSkipLedger(home: string): SkipRecord[] {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(files.skipLedger(home), 'utf8'));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((r): r is SkipRecord => !!r && typeof (r as SkipRecord).session_id === 'string');
+  } catch {
+    return [];
+  }
+}
 const LONG_BYTES = 100 * 1024;
 /** PROCESS.md 里列多少个既有主题。全量清单交给 `omem topic list`。 */
 const EXISTING_LIMIT = 15;
@@ -84,6 +113,7 @@ export function renderGuide(
   remaining: number,
   unassigned: GuideSessionRef[] = [],
   existing: ExistingTopic[] = [],
+  totals?: { sessions: number; shownSessions: number },
 ): string {
   const lines: string[] = [
     '# omem topics waiting for an update',
@@ -93,6 +123,8 @@ export function renderGuide(
     '- `evidence` must be at least 12 characters copied from a `## user` section. Do not quote `## assistant`.',
     '- Pass `session_id` as the bare id from the session line, without the collector name or any path: from a line reading `claude-code` / `probe-fixture-0001`, pass `probe-fixture-0001`.',
     '- Call `save_memory` with `topic`, `session_id`, and `evidence`. If a current document id is listed, `supersedes` must include it or the write is rejected.',
+    '- Sessions sharing one user-section fingerprint are collapsed into a single line with `(copies: N)`; distilling the listed one covers all copies.',
+    '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
     '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8 and does not set verified.',
     '- `verified: true` comes only from `omem add` or `omem review --confirm`.',
@@ -105,7 +137,14 @@ export function renderGuide(
     return lines.join('\n');
   }
   if (topics.length > 0) {
-    lines.push(`This batch: ${topics.length} topic(s). ${remaining} left for the next \`omem sync\`.`);
+    // 三个口径分开说：本轮渲染了什么、还有多少组/会话没吸收、以及分工——
+    // 提炼靠 Agent 调 save_memory，omem sync 只采集并重渲染这份清单（2026-10-28 文案纠正）。
+    const shownSessions = totals?.shownSessions
+      ?? topics.reduce((n, t) => n + t.sessions.reduce((m, s) => m + (s.copies ?? 1), 0), 0);
+    const leftSessions = totals ? Math.max(0, totals.sessions - shownSessions) : remaining;
+    lines.push(`This batch: ${topics.length} group(s) / ${shownSessions} session(s) shown. `);
+    lines.push(`${remaining} group(s) and ${leftSessions} session(s) still unabsorbed — `);
+    lines.push('the agent distills via save_memory; `omem sync` only collects and re-renders this list.');
     lines.push('');
   }
   for (const topic of topics) {
@@ -125,7 +164,8 @@ export function renderGuide(
       try {
         if (statSync(s.path).size > LONG_BYTES) note = ' (long; read in parts)';
       } catch { /* 刚写入时读不到长度就略过 */ }
-      lines.push(`  - \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\`${note}`);
+      const copies = s.copies && s.copies > 1 ? ` (copies: ${s.copies})` : '';
+      lines.push(`  - \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\`${note}${copies}`);
     }
     lines.push('');
   }
@@ -156,9 +196,15 @@ export function writeProcessGuide(home: string, text: string): string {
  * 本函数放在 guide.ts 而不是 pipeline.ts：core/commit.ts 要在写入成功后调用它，
  * 而 pipeline.ts 依赖 core，会成环。guide.ts 不依赖 core/commit.ts，安全。
  */
-export function refreshProcessGuide(home: string, index: OmemIndex): string {
-  const [topics, remaining, unassigned] = pendingTopics(home, index);
-  return writeProcessGuide(home, renderGuide(topics, remaining, unassigned, collectExistingTopics(home)));
+export function refreshProcessGuide(home: string, index: OmemIndex, config?: OmemConfig): string {
+  const [topics, remaining, unassigned, counts] = pendingTopics(home, index, config);
+  return writeProcessGuide(
+    home,
+    renderGuide(topics, remaining, unassigned, collectExistingTopics(home), {
+      sessions: counts.sessions,
+      shownSessions: counts.shownSessions,
+    }),
+  );
 }
 
 type EntryLoc = ReturnType<typeof listEntries>[number];
@@ -178,8 +224,22 @@ function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
   topic.otherDocIds = sorted.slice(1).map((d) => d.entry.fm.id);
 }
 
-export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], number, GuideSessionRef[], { topics: number; unassigned: number }] {
+export function pendingTopics(
+  home: string,
+  index: OmemIndex,
+  config?: OmemConfig,
+): [GuideTopic[], number, GuideSessionRef[], { topics: number; unassigned: number; sessions: number; shownSessions: number }] {
   const absorbed = absorbedSessionIds(home);
+  const skipped = skippedSessionIds(home);
+  const batch = Math.max(1, config?.process.guide_batch ?? BATCH);
+  // 片段级「已吸收指纹」：任何文档引用过的会话的 user_hash。同一段内容换个
+  // session_id 重新落盘（workbuddy 自动化的常态）也不再进待办——比逐个 skip 更根本。
+  const absorbedUserHashes = new Set<string>();
+  for (const id of absorbed) {
+    for (const s of readSessionsById(home, id)) {
+      absorbedUserHashes.add(s.userHash ?? sessionUserHash(s.body));
+    }
+  }
   const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
   // 反查表：会话 → 它产出的活文档。
   const docBySession = new Map<string, EntryLoc>();
@@ -202,15 +262,40 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
     docs.set(loc.entry.fm.id, loc);
   }
 
+  // user 段指纹按路径缓存（mtime 失效）；一轮渲染约千次 stat，重读只发生在文件变化后。
+  const uhCache = new Map<string, { mtime: number; hash: string }>();
+  const userHashOf = (path: string): string => {
+    try {
+      const st = statSync(path);
+      const cached = uhCache.get(path);
+      if (cached && cached.mtime === st.mtimeMs) return cached.hash;
+      const stored = readStoredSession(path);
+      const hash = stored ? (stored.userHash ?? sessionUserHash(stored.body)) : '';
+      uhCache.set(path, { mtime: st.mtimeMs, hash });
+      return hash;
+    } catch {
+      return '';
+    }
+  };
+
   const byTopic = new Map<string, GuideTopic>();
+  // 片段级去重：同组内同指纹的会话合并为一行 ref（copies 递增），不再逐条列出。
+  const seenHashByGroup = new Map<string, Map<string, GuideSessionRef>>();
   const groupDocs = new Map<string, Map<string, EntryLoc>>();
   const unassigned: GuideSessionRef[] = [];
+  const unassignedSeen = new Map<string, GuideSessionRef>();
+  let pendingSessionCount = 0;
+
   for (const rec of index.listSessions()) {
     const { agent, sessionId } = splitSessionKey(rec.session_id);
-    const absorbedAlready = absorbed.has(sessionId) || absorbed.has(rec.session_id);
     const project = rec.project_fp || 'unknown';
-    if (absorbedAlready) {
-      // 已吸收的会话不再是待办，但它可能是这一组与现实文档的连线：
+    const handled = absorbed.has(sessionId) || absorbed.has(rec.session_id)
+      || skipped.has(sessionId) || skipped.has(rec.session_id);
+    // 空指纹（读不到文件）永不匹配 absorbedUserHashes，走原有判定路径。
+    const uh = handled ? '' : userHashOf(rec.path);
+    const isPending = !handled && !absorbedUserHashes.has(uh);
+    if (!isPending) {
+      // 已处理（吸收 / skip / 同片段已吸收）的会话不再是待办，但它可能是这一组与现实文档的连线：
       // 优先看文档自己的 project 字段，缺失时才靠会话反查。
       const byProject = docsByProject.get(project);
       if (byProject && byProject.size > 0) {
@@ -227,13 +312,21 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
       }
       continue;
     }
+    pendingSessionCount++;
     const ref: GuideSessionRef = {
       path: rec.path,
       sessionId,
       agent: rec.agent || agent,
+      copies: 1,
     };
     if (!project || project === 'unknown') {
-      unassigned.push(ref);
+      const prev = uh ? unassignedSeen.get(uh) : undefined;
+      if (prev) {
+        prev.copies = (prev.copies ?? 1) + 1;
+      } else {
+        if (uh) unassignedSeen.set(uh, ref);
+        unassigned.push(ref);
+      }
       continue;
     }
     let topic = byTopic.get(project);
@@ -247,6 +340,18 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
       };
       byTopic.set(project, topic);
     }
+    if (!topic.lastTs || rec.last_ts > topic.lastTs) topic.lastTs = rec.last_ts;
+    if (uh) {
+      let seen = seenHashByGroup.get(project);
+      if (!seen) seenHashByGroup.set(project, (seen = new Map()));
+      const prev = seen.get(uh);
+      if (prev) {
+        // 同一段内容重复落盘：并进代表行，PROCESS.md 不再逐条列出。
+        prev.copies = (prev.copies ?? 1) + 1;
+        continue;
+      }
+      seen.set(uh, ref);
+    }
     topic.sessions.push(ref);
   }
   // 分两趟：先收齐全组的连线，再回填文档，避免受 listSessions() 的会话顺序影响。
@@ -256,11 +361,25 @@ export function pendingTopics(home: string, index: OmemIndex): [GuideTopic[], nu
     if (docs) fillDocSlot(topic, [...docs.values()]);
   }
   const all = [...byTopic.values()].filter((t) => t.sessions.length > 0);
+  // 大组先进窗口：未吸收会话数降序，其次按组内最近活跃时间。
+  // 旧行为按 listSessions() 自然序 slice(0, 5)，566 会话的大组永远露不了面。
+  all.sort((a, b) => (b.sessions.length - a.sessions.length)
+    || (b.lastTs || '').localeCompare(a.lastTs || ''));
+  const shown = all.slice(0, batch);
+  const shownSessions = shown.reduce(
+    (n, t) => n + t.sessions.reduce((m, s) => m + (s.copies ?? 1), 0),
+    0,
+  );
   return [
-    all.slice(0, BATCH),
-    Math.max(0, all.length - BATCH),
-    unassigned.slice(0, BATCH),
-    { topics: all.length, unassigned: unassigned.length },
+    shown,
+    Math.max(0, all.length - batch),
+    unassigned.slice(0, batch),
+    {
+      topics: all.length,
+      unassigned: unassigned.reduce((n, s) => n + (s.copies ?? 1), 0),
+      sessions: pendingSessionCount,
+      shownSessions,
+    },
   ];
 }
 

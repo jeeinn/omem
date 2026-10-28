@@ -71,6 +71,8 @@ export interface RunReport {
   /** PROCESS.md 里还有会话的主题组数（不含本批截断）。 */
   waitingTopics?: number;
   waitingUnassigned?: number;
+  /** 未吸收会话总数（含 unassigned、含同指纹副本）。 */
+  waitingSessions?: number;
   duplicateTopics?: number;
 }
 
@@ -87,7 +89,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
   ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
-  publishGuide(home, index, opts.dryRun ?? false, report);
+  publishGuide(home, index, config, opts.dryRun ?? false, report);
   finish(home, index, report, opts.dryRun ?? false);
   return report;
 }
@@ -247,7 +249,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     );
   }
   // 规则 9：同一次运行就把已吸收会话从 PROCESS.md 待办里去掉。中止前也刷新，已产出留在索引里。
-  publishGuide(home, index, false, report, true);
+  publishGuide(home, index, config, false, report, true);
   finish(home, index, report, false);
   if (stop) throw stop;
   if (fatal) throw fatal;
@@ -389,11 +391,15 @@ function ingest(
   }
 }
 
-function publishGuide(home: string, index: OmemIndex, dryRun: boolean, report: RunReport, silent = false): void {
-  const [topics, remaining, unassigned, counts] = pendingTopics(home, index);
+function publishGuide(home: string, index: OmemIndex, config: OmemConfig, dryRun: boolean, report: RunReport, silent = false): void {
+  const [topics, remaining, unassigned, counts] = pendingTopics(home, index, config);
   report.waitingTopics = counts.topics;
   report.waitingUnassigned = counts.unassigned;
-  const text = renderGuide(topics, remaining, unassigned, collectExistingTopics(home));
+  report.waitingSessions = counts.sessions;
+  const text = renderGuide(topics, remaining, unassigned, collectExistingTopics(home), {
+    sessions: counts.sessions,
+    shownSessions: counts.shownSessions,
+  });
   if (!dryRun) {
     const path = writeProcessGuide(home, text);
     report.notes.push(`Processing guide written to ${path}`);
