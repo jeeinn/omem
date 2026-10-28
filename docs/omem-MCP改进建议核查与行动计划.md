@@ -441,7 +441,43 @@ beta.11 WP6（结果可读性/结构化）── A3 与 C10 同批（都动 tool
 5. **`tests/smoke.sh` 改用 run-scoped home**：Windows 上 `rm -rf .omem-test` 会因残留的 `omem.db` 句柄静默失败，上一轮 `knowledge/` 被重新索引后，下一步写入撞上 content-hash 去重，报成与改动无关的假失败。属于测试基建缺陷，与本次功能改动无关但会持续干扰验证。
 6. **`AGENTS.md` 修正了过时描述**：原文仍写着「祈使语气减半置信度并打 `low-weight`」，但该逻辑已在 `ad6305f` 删除。这不是本次引入的问题，而是文档一致性测试没覆盖到的一处漂移。
 
+### 首轮未申报的偏离（由 2026-10-28 审查意见补记，处置见 §8）
+
+7. **WP4 步骤 5 的 CLI 半边没做**：计划要求 `omem add` 的 dedup 文案也比对元数据并指路 `omem topic set`，首轮只做了 MCP 侧；且 MCP 侧的比对漏掉了计划里写的 tags。
+8. **WP4 步骤 3 的「归因写进 commit 日志」没做**：`logOutcome('written')` 当时只有 id/source/redacted/supersedes，审计链路回答不了「这条当时锚没锚上」。
+9. **WP6 步骤 5 自己立的纪律被违反**：`outputSchema` 与 `structuredContent` 两处手写，且已经漂移（search 的 `rank`、sessions 命中项的 `snippet` / `absorbed` / `project`、save 的 `confirmed` / `confirm_missing` 都没进 schema）。
+10. **`dry_run` 与 `confirm_ids` 不互斥**：`a73f4d2` 引入 `dry_run` 时 `applyAssent` 不受门控，而描述却承诺「不落盘」——契约文案与行为直接矛盾（该洞早于本轮，但文案是本轮写进描述的）。
+
 ### 待办
 
 - WP1 发布（需要 OTP）：`0.1.0-beta.8` 只发已提交的 HEAD（截断提示、evidence 数组、corroboration ladder、`dry_run`、`omem topic set`），本次改动进 beta.9。
 - WP5 的方案 C（锚定固定 +0.10）仍待决策，需先跑 `SELECT confidence, COUNT(*) FROM entries GROUP BY confidence` 看既有分布。
+
+---
+
+## 8. 第二轮整改（2026-10-28，审查意见逐项）
+
+基线 HEAD `399c8be` + 工作区在途改动。验证：`npm test` 630 passed / 61 files，`npm run smoke` 67 passed / 0 failed，`npm run build` 通过。
+
+| 审查条 | 判定 | 本轮处置 |
+| --- | --- | --- |
+| 二-1（P2）`dry_run` + `confirm_ids` 真实写入 | 已在途改动中修复，本轮补测试钉住 | `dryRun` 分支改为只 `findById` 探测并输出 `[dry-run] Would record assent …`，不调用 `applyAssent`；`structuredContent.dry_run = true` 成为程序侧区分标记。`save-feedback.test.ts` 两条用例：预演前后 `confidence` 不变且 `confirmed` 缺省；去掉 `dry_run` 才升到 0.8 |
+| 二-2（P3）CLI dedup 文案未做 / MCP 漏 tags | 已做，并把口径收拢 | 新增 `core/commit.ts` 的 `metadataDrift(existing, {topic, type, tags})`，CLI 与 MCP 共用同一份比对（原先两处手写正是 tags 漏掉的原因）。`omem add` 命中去重时打印 `Metadata not applied: …` 与 `… or run: omem topic set <id> <topic>`。测试：`commit.test.ts` 一条（含 tags、含「没给旗标时不误报」反向断言） |
+| 二-3（P3）归因未进 commit 日志 | 已做 | `CommitOpts.audit` 原样并入 `commit` 事件；MCP 侧带出 `confidence / tags / session_found / anchors{total,matched}`。测试断言锚定成功与锚不上两种情形的日志值 |
+| 二-4（P3）schema 与 structured 双写漂移 | 已补齐 + 改为测试对齐 | 明确选择「schema 刻意宽松（无 `required`、无 `additionalProperties:false`）+ 靠测试对齐」而非单一来源生成：补声明 `rank`、`dry_run`、`confirmed`、`confirm_missing`、`metadata_drift`，并把 sessions 命中项的 `session_key/path/project/absorbed/snippet` 补进 `hits.items`（`hits` 的含义随 scope 变化，已在 description 里言明）。新增 `mcp-tools.test.ts` 的对齐用例：实跑三种调用形态，逐 key 比对声明集 |
+| 二-5①（P3）CLI 未用 `version.ts` | 按代码方向修正文档声明 | `src/cli.ts` 改 `import { OMEM_VERSION }`，删掉自行的 `readFileSync(package.json)`——现在 AGENTS.md 的「唯一来源」是真的 |
+| 二-5②（P3）不变式未限定范围 | 已限定，并把倒挂挂账 | AGENTS.md 的印证不变式改为「**given evidence**：同一条引文，点名会话不得比不点名低」，并显式声明「引会话但不给证据（0.35 ungrounded）< 什么都不给（0.55 pending-session）」这一倒挂是已知、未解、留给方案 C 的决策材料，禁止悄悄扩大不变式适用范围 |
+| 二-5④ / 二-6①②③（P4）文案与注释 | 已做 | 「证据全被 <12 字门槛过滤」单列一句 `No valid evidence: every quote was shorter than 12 characters…`（不再读起来像忘了给）；`sessionFound === true` 分支不再说「confidence rests on the session reference alone」而给出实际分数与补救动作；MCP 响应里的 `or run omem sync` 改为 `ask the user to run omem sync`（Agent 执行不了 CLI）；`search.ts` 的 `snippet` 注释此前超前于代码——LIKE 兜底路径本轮补上 `manualSnippet()` 实现（code point 定位、大小写不敏感对齐 SQLite LIKE、换行压平），注释与行为一致 |
+
+### 本轮新增的偏离与设计决定
+
+1. **`metadataDrift` 落在 `core/commit.ts`**：计划把它放在调用方。放这里的理由是它只需要 `CommitResult.existing` 的形态，且能顺带把「谁都不能手写第二份比对」写进 AGENTS.md 不变式。
+2. **type 漂移只在调用方显式给对时才比对**：`type` 缺省会回落成 `fact`，若照此比对，「给 experience 写的正文、再不带 type 地重放一次」会被误报成漂移。CLI 与 MCP 同口径。
+3. **FTS `snippet()` 不再自带 `『』` 标记**：标记由渲染层统一加，否则 FTS 路径套两层括号；`SessionHit.snippet` 的注释里写明了这条约定。
+4. **`dry_run` 预演命中去重时也算并展示 drift**（`Metadata that would be lost to content dedup: …`）：预演的价值就在于不写就能看见会丢什么。
+5. **`structuredContent.status` 在预演成功时仍是 `written`**：靠 `dry_run: true` 区分，而不是新增 `status` 取值——避免把「未写」的语义扩散到 `omem audit` 与既有断言里。
+
+### 待办（更新）
+
+- WP1 发布仍待执行：`beta.8` = 已提交的 HEAD；本轮改动（含 §7 补记的 4 条）进 `beta.9`。
+- 方案 C 决策材料追加一项：二-5② 的「无证据倒挂」与已修的「点名会话倒挂」同构，一起进分布评估。
