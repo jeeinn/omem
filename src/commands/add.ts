@@ -1,7 +1,7 @@
 // omem add：手动写入一条记忆（source: manual，verified: true——用户显式断言即确认）。
 // 过滤、去重、落盘走 commitEntry。--force 只绕过禁区与代码密度。
 import { openCtx } from '../core/ctx.js';
-import { commitEntry } from '../core/commit.js';
+import { commitEntry, metadataDrift } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
@@ -19,6 +19,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       ? (typeArg as MemoryType)
       : 'fact';
     const tags = (flagStr(args.flags, 'tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const topic = flagStr(args.flags, 'topic');
     const supersedes = (flagStr(args.flags, 'supersedes') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const result = commitEntry(ctx.home, ctx.config, ctx.index, {
       content,
@@ -26,7 +27,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       domain: flagStr(args.flags, 'domain'),
       tags,
       project: flagStr(args.flags, 'project'),
-      topic: flagStr(args.flags, 'topic'),
+      topic,
       source: 'manual',
       confidence: 0.9,
       verified: true,
@@ -38,6 +39,14 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     }
     if (result.status === 'deduped') {
       console.log(`Content already exists (id: ${result.id}); not written again.`);
+      // 去重只挡正文：请求的 topic/type/tags 若与既有文档不同，差异要能看出来并给出路，
+      // 否则用户会以为 --topic 生效了。比对口径与 MCP 共用 metadataDrift；
+      // type 只在显式给了合法值时才比对（没给或给错时它回落成 fact，报漂移是误伤）。
+      const diffs = metadataDrift(result.existing, { topic, type: typeArg === type ? typeArg : undefined, tags });
+      if (diffs.length > 0) {
+        console.log(`Metadata not applied: ${diffs.join('; ')}.`);
+        console.log(`Change the body and re-run with --supersedes ${result.id}, or run: omem topic set ${result.id} <topic>`);
+      }
       return 0;
     }
     if (result.status === 'excluded' || result.status === 'redacted-empty') {

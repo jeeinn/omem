@@ -52,6 +52,12 @@ export interface CommitOpts {
   refreshGuide?: boolean;
   /** 只跳过禁区关键词与代码密度。 */
   force?: boolean;
+  /**
+   * 调用方附加的审计字段，原样并入 commit 日志事件。
+   * MCP 侧用它带出锚定归因（confidence / tags / session_found / anchors）——
+   * 审计链路要能回答「这条当时锚没锚上」，光看落盘的 confidence 数值回答不了。
+   */
+  audit?: Record<string, unknown>;
 }
 
 export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty';
@@ -75,6 +81,33 @@ export interface CommitResult {
    * 否则元数据被静默丢弃，响应还读起来像成功。
    */
   existing?: { topic?: string; type: string; tags: string[] };
+}
+
+/**
+ * 请求的元数据与既有（去重命中的）文档之间的差异，供 CLI 与 MCP 共用。
+ * 两边各自手写一遍比对逻辑必然漂移（同一处此前就漏了 tags），所以口径收在这里：
+ * 返回人类可读的差异片段，调用方只负责按自己的受众拼句子。
+ */
+export function metadataDrift(
+  existing: CommitResult['existing'],
+  requested: { topic?: string; type?: string; tags?: string[] },
+): string[] {
+  if (!existing) return [];
+  const diffs: string[] = [];
+  const wantedTopic = requested.topic?.trim() ? normalizeTopic(requested.topic) : undefined;
+  if (wantedTopic && wantedTopic !== existing.topic) {
+    diffs.push(`topic "${wantedTopic}" vs stored ${existing.topic ? `"${existing.topic}"` : 'none'}`);
+  }
+  if (requested.type && existing.type !== requested.type) {
+    diffs.push(`type "${requested.type}" vs stored "${existing.type}"`);
+  }
+  const wantedTags = (requested.tags ?? []).map((s) => String(s).trim()).filter(Boolean);
+  if (wantedTags.length > 0) {
+    const stored = new Set(existing.tags);
+    const missing = wantedTags.filter((t) => !stored.has(t));
+    if (missing.length > 0) diffs.push(`tags [${missing.join(', ')}] not on the stored entry`);
+  }
+  return diffs;
 }
 
 /** 脱敏后只剩下供应商前缀和占位符，视为整条都是密钥。 */
@@ -245,7 +278,7 @@ export function commitEntry(
   // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过
   // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
   if (opts.refreshGuide !== false) refreshGuide(home, index);
-  logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes });
+  logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes, ...opts.audit });
   return { status: 'written', id: entry.fm.id, path: written.path, redacted, warnings };
 }
 
@@ -305,7 +338,7 @@ function collectSourceSessions(input: CommitInput, oldEntries: Located[]): strin
 
 function finish(home: string, result: CommitResult, input: CommitInput, opts: CommitOpts): CommitResult {
   if (!opts.dryRun) {
-    logOutcome(home, result.status, { id: result.id, source: input.source, redacted: result.redacted ?? 0, reason: result.reason });
+    logOutcome(home, result.status, { id: result.id, source: input.source, redacted: result.redacted ?? 0, reason: result.reason, ...opts.audit });
   }
   return result;
 }

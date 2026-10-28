@@ -302,6 +302,34 @@ describe('three write paths share one channel', () => {
     }
   });
 
+  it('omem add 命中去重时说明元数据没写进去，并指路 topic set', async () => {
+    // 审查二-2：CLI 侧此前只说 "already exists"，用户会以为 --topic 生效了。
+    const prev = process.env.OMEM_HOME;
+    process.env.OMEM_HOME = home;
+    const logs: string[] = [];
+    const orig = console.log;
+    console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+    try {
+      await cmdAdd({ _: ['CLI 漂移句子 cli-drift-xyz'], flags: {} });
+      logs.length = 0;
+      const code = await cmdAdd({ _: ['CLI 漂移句子 cli-drift-xyz'], flags: { topic: 'cli-wanted', tags: 'tag-wanted' } });
+      expect(code).toBe(0);
+      const out = logs.join('\n');
+      expect(out).toContain('Metadata not applied');
+      expect(out).toContain('cli-wanted');
+      expect(out).toContain('tag-wanted');
+      expect(out).toContain('omem topic set');
+      // 没给 --topic / --tags 时不该误报
+      logs.length = 0;
+      await cmdAdd({ _: ['CLI 漂移句子 cli-drift-xyz'], flags: {} });
+      expect(logs.join('\n')).not.toContain('Metadata not applied');
+    } finally {
+      console.log = orig;
+      if (prev === undefined) delete process.env.OMEM_HOME;
+      else process.env.OMEM_HOME = prev;
+    }
+  });
+
   it('save_memory.supersedes 与 review --confirm --supersedes', async () => {
     const prev = process.env.OMEM_HOME;
     process.env.OMEM_HOME = home;
