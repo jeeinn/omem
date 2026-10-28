@@ -1,7 +1,6 @@
 // omem CLI 入口：命令分发、帮助、退出码（规格 §7：0 成功 / 1 用法错误 / 2 后端不可用或策略拒绝）。
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { parseArgs } from './cli-args.js';
 import type { ParsedArgs } from './cli-args.js';
 import { UsageError, BackendUnavailableError, ProfileBlockedError } from './core/util.js';
@@ -23,9 +22,8 @@ import { cmdServe } from './commands/serve.js';
 import { cmdAudit } from './commands/audit.js';
 import { cmdEval } from './commands/eval.js';
 import { cmdApi } from './commands/api.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { version: string };
+// 版本号唯一来源（规格 §7）：CLI 与 MCP serverInfo 共用，不再各自 readFileSync。
+import { OMEM_VERSION } from './core/version.js';
 
 interface Command {
   desc: string;
@@ -127,7 +125,7 @@ const COMMANDS: Record<string, Command> = {
 };
 
 function printHelp(): void {
-  console.log(`omem v${pkg.version} — a git-native personal AI memory layer (Markdown source of truth + MCP + FTS5)\n`);
+  console.log(`omem v${OMEM_VERSION} — a git-native personal AI memory layer (Markdown source of truth + MCP + FTS5)\n`);
   console.log('Usage: omem <command> [options]\n');
   console.log('Commands:');
   for (const [name, c] of Object.entries(COMMANDS)) {
@@ -148,7 +146,7 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (args.flags.version || args.flags.v) {
-      console.log(pkg.version);
+      console.log(OMEM_VERSION);
       return 0;
     }
     printHelp();
@@ -159,7 +157,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (cmd === 'version') {
-    console.log(pkg.version);
+    console.log(OMEM_VERSION);
     return 0;
   }
   const entry = COMMANDS[cmd];
