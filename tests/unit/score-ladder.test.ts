@@ -119,4 +119,40 @@ describe('score ladder: 证据与引用的组合', () => {
     expect(r.anchors?.total).toBe(2);
     expect(r.anchors?.matched).toHaveLength(1);
   });
+
+  it('user 段内嵌 ## 小节标题后，深处原文仍可锚定（workbuddy 富文本场景）', () => {
+    const deepQuote = '老板要求每小时填时报这件事像一面镜子';
+    const body = [
+      '## user',
+      'Write a dream diary entry from these memory fragments:',
+      '',
+      '## 核心洞察',
+      'AI 提效像一阵风，只覆盖编码那 20%。',
+      '',
+      '## 八、结语',
+      deepQuote,
+      '',
+      '## assistant',
+      ASSISTANT_LINE,
+    ].join('\n');
+    writeSessionFile(
+      home,
+      {
+        session_id: 'embed-0001', agent: 'workbuddy', project_fp: 'local:abcd1234',
+        started_ts: '2026-10-27T00:00:00.000Z', ended_ts: '2026-10-27T00:10:00.000Z',
+        cwd: 'X:/x',
+        messages: [{
+          session_id: 'embed-0001', agent: 'workbuddy', ts: '2026-10-27T00:00:00.000Z',
+          project_fp: 'local:abcd1234', role: 'user', content: deepQuote,
+        }],
+      },
+      body,
+      'hash-embed-0001',
+    );
+    index.catchUp();
+    const r = score({ content: 'x', sessionId: 'embed-0001', evidence: [deepQuote] });
+    expect(r.confidence).toBe(0.55);
+    expect(r.tags).toEqual([]);
+    expect(r.anchors?.matched).toHaveLength(1);
+  });
 });

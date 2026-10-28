@@ -152,15 +152,31 @@ export function parseStoredSession(text: string): StoredSession | null {
   };
 }
 
-/** 取出所有 `## user` 段，供依据核对。助手段不返回。 */
+/** 取出所有 `## user` 段，供依据核对。助手段不返回。
+ * 切段只认 `## user` / `## assistant` 精确标记：正文内部自带的小节标题
+ * （如 workbuddy 富文本输出的 `## Core Truths`、`## 八、结语`）属于内容，
+ * 按 `^## ` 松散切分会把它们之后的真人话语整体踢出核对范围（2026-10-28 实测缺陷）。 */
 export function userSectionText(body: string): string {
   const parts: string[] = [];
-  for (const block of body.split(/^## /m).slice(1)) {
-    const nl = block.indexOf('\n');
-    const head = (nl === -1 ? block : block.slice(0, nl)).trim();
-    if (head !== 'user') continue;
-    parts.push((nl === -1 ? '' : block.slice(nl + 1)).trim());
+  let collecting = false;
+  let buf: string[] = [];
+  const flush = (): void => {
+    if (collecting) {
+      const text = buf.join('\n').trim();
+      if (text) parts.push(text);
+    }
+    buf = [];
+  };
+  for (const line of body.split(/\r?\n/)) {
+    const marker = line.match(/^##\s*(user|assistant)\s*$/);
+    if (marker) {
+      flush();
+      collecting = marker[1] === 'user';
+      continue;
+    }
+    if (collecting) buf.push(line);
   }
+  flush();
   return parts.join('\n');
 }
 
