@@ -17,6 +17,7 @@ function report(over: Partial<RunReport> = {}): RunReport {
     notes: [],
     waitingTopics: 2,
     waitingUnassigned: 1,
+    waitingSessions: 5,
     ...over,
   };
 }
@@ -26,7 +27,7 @@ describe('omem sync summary', () => {
     const text = runSummaryLines(report(), false).join('\n');
     expect(text).toContain('Summary');
     expect(text).toContain('sessions 4 (3 unchanged)');
-    expect(text).toContain('2 topic group(s) waiting');
+    expect(text).toContain('2 topic group(s) / 5 session(s) waiting');
     expect(text).toContain('1 unassigned');
     expect(text).toContain('Next');
     expect(text).toContain('PROCESS.md');
