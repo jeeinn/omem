@@ -11,6 +11,7 @@ import { makeHome, cleanupHome, withConfig } from './helpers.js';
 import { cmdAdd } from '../../src/commands/add.js';
 import { cmdReview } from '../../src/commands/review.js';
 import { handleTool } from '../../src/mcp/tools.js';
+import { writeSessionFile } from '../../src/collect/session-store.js';
 import type { OmemConfig } from '../../src/core/config.js';
 
 let home: string;
@@ -559,5 +560,57 @@ describe('commitEntry: 近似主题告警（Agent 路径同样有护栏）', () 
 
     expect(r.status).toBe('written');
     expect(r.warnings ?? []).toEqual([]);
+  });
+});
+
+describe('save_memory 回执与落盘一致（2026-10-28 实测回归）', () => {
+  // 背景：驻留的旧 MCP 构建曾出现回执 0.4717/0.70 vs 落盘 0.35/0.55、
+  // 全角标点证据静默 ungrounded、INSTRUCTION_TONE 减半三类症状。
+  // 当前代码已无 tone 罚则（ad6305f），这里钉住新契约防止回归。
+  const QUOTE_COMMA = '媳妇说想要大一点的车，六座或者七座的';
+
+  function addCommaSession(sessionId: string): void {
+    const body = `## user\n${QUOTE_COMMA}\n\n## assistant\n这是助手的回答。`;
+    writeSessionFile(home, {
+      session_id: sessionId, agent: 'workbuddy', project_fp: 'local:abcd1234',
+      started_ts: '2026-10-27T00:00:00.000Z', ended_ts: '2026-10-27T00:10:00.000Z',
+      cwd: 'X:/x',
+      messages: [{
+        session_id: sessionId, agent: 'workbuddy', ts: '2026-10-27T00:00:00.000Z',
+        project_fp: 'local:abcd1234', role: 'user', content: QUOTE_COMMA,
+      }],
+    }, body, `hash-${sessionId}`);
+    index.catchUp();
+  }
+
+  it('evidence 含全角标点仍锚定成功，回执与 frontmatter 同为 0.55', async () => {
+    addCommaSession('punct-0001');
+    const r = await handleTool('save_memory', {
+      content: '全角标点证据回归测试 punctuation-regression-marker',
+      session_id: 'punct-0001',
+      evidence: QUOTE_COMMA,
+    }, { home, config: defaultConfig(), index });
+    const sc = r.structuredContent as Record<string, any>;
+    expect(sc.status).toBe('written');
+    expect(sc.confidence).toBe(0.55);
+    expect(sc.tags).not.toContain('ungrounded');
+    const fm = findById(home, sc.id)!.entry.fm;
+    expect(fm.confidence).toBe(sc.confidence);
+    expect(fm.tags).not.toContain('ungrounded');
+  });
+
+  it('锚定失败分支：回执 0.35 与 frontmatter 一致并带 ungrounded', async () => {
+    addCommaSession('punct-0002');
+    const r = await handleTool('save_memory', {
+      content: '锚定失败分支回归测试 ungrounded-branch-marker',
+      session_id: 'punct-0002',
+      evidence: '这句话在会话里根本不存在 fake-evidence-xyz',
+    }, { home, config: defaultConfig(), index });
+    const sc = r.structuredContent as Record<string, any>;
+    expect(sc.confidence).toBe(0.35);
+    expect(sc.tags).toContain('ungrounded');
+    const fm = findById(home, sc.id)!.entry.fm;
+    expect(fm.confidence).toBe(0.35);
+    expect(fm.tags).toContain('ungrounded');
   });
 });
