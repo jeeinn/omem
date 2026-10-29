@@ -160,6 +160,8 @@ export interface VcsResult {
   status: 'committed' | 'skipped' | 'off';
   sha?: string;
   reason?: string;
+  /** 提交后工作区里仍然脏的路径（不是本次写过的）。空 = 干净。 */
+  residue?: string[];
 }
 
 /**
@@ -170,18 +172,22 @@ export interface VcsResult {
  *
  * 非 git 仓库：静默跳过（不抛、不写 stdout），由调用方在回执里说一句。
  */
-export function autoCommit(home: string, config: OmemConfig, message: string): VcsResult {
+export function autoCommit(home: string, config: OmemConfig, message: string, paths: string[] = []): VcsResult {
   if (config.process.auto_commit !== 'session') return { status: 'off' };
-  const r = commitLocal(home, message);
-  if (r.committed) return { status: 'committed', sha: r.sha };
-  appendLog(home, 'commit', { status: 'vcs-skipped', reason: r.reason });
-  return { status: 'skipped', reason: r.reason };
+  const r = commitLocal(home, message, paths);
+  if (r.committed) return { status: 'committed', sha: r.sha, residue: r.residue ?? [] };
+  appendLog(home, 'commit', { status: 'vcs-skipped', reason: r.reason, paths: paths.length });
+  return { status: 'skipped', reason: r.reason, residue: r.residue ?? [] };
 }
 
 /** 自动提交结果的一句话回执。CLI 与 MCP 只差「你能做什么」那半句。 */
 export function vcsNotice(vcs: VcsResult, caller: 'cli' | 'mcp' = 'cli'): string {
   if (vcs.status === 'committed') {
-    return `Version control: committed${vcs.sha ? ` as ${vcs.sha}` : ''} (one commit per write).`;
+    const left = vcs.residue ?? [];
+    const tail = left.length > 0
+      ? ` ${left.length} path(s) outside this write are still uncommitted: ${left.slice(0, 3).join(', ')}${left.length > 3 ? ' …' : ''}.`
+      : ' Working tree is clean.';
+    return `Version control: committed${vcs.sha ? ` as ${vcs.sha}` : ''} (one commit per write).${tail}`;
   }
   if (vcs.status === 'off') return 'Version control: auto_commit is off; nothing was committed.';
   const why = vcs.reason ?? 'unknown reason';

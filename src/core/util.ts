@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, renameSync, readdirSync, statSync, copyFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { recordWrite } from './write-journal.js';
 
 export function sha256hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex');
@@ -53,6 +54,9 @@ export function atomicWrite(path: string, content: string): void {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, path);
+  // 写入台账（beta.9.1 / P1-B）：这里是所有持久化写入的唯一落点，记一笔即可让写入路径
+  // 精确提交「本次真正改过的文件」，不必退回 `git add -A` 把上千份会话一起扫进来。
+  recordWrite(path);
 }
 
 /** 递归复制目录（不依赖 fs.cp，避免稳定性差异）。 */

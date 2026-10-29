@@ -13,7 +13,8 @@ import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { defaultConfig, loadConfig, saveConfig } from '../../src/core/config.js';
 import type { OmemConfig } from '../../src/core/config.js';
-import { commitEntry } from '../../src/core/commit.js';
+import { autoCommit, commitEntry } from '../../src/core/commit.js';
+import { beginWriteJournal, endWriteJournal } from '../../src/core/write-journal.js';
 import { listEntries } from '../../src/core/store.js';
 import { handleTool } from '../../src/mcp/tools.js';
 import { makeHome, cleanupHome } from './helpers.js';
@@ -177,5 +178,60 @@ describe('commit 的 pathspec 收窄（beta.9.1 / P1-1）', () => {
     // 会话文件仍是未跟踪状态（等 omem backup 统一入版本）
     // 未跟踪目录在 porcelain 里会被折叠成 `?? sessions/`
     expect(git(['status', '--porcelain', '--', 'sessions'])).toContain('?? sessions/');
+  });
+});
+
+describe('P1-B 写入台账：写过的都提交、没写过的不碰', () => {
+  /** 真实数据仓的历史遗留：PROCESS.md 先被 track，后来才加进 .gitignore。 */
+  function initRepoWithTrackedGuide(): void {
+    git(['init']);
+    git(['config', 'user.name', 'omem-test']);
+    git(['config', 'user.email', 'omem-test@localhost']);
+    writeFileSync(join(home, '.gitignore'), 'index/\nsnapshots/\nlogs/\nPROCESS.md\n', 'utf8');
+    writeFileSync(join(home, 'PROCESS.md'), 'stale guide\n', 'utf8');
+    git(['add', '-A']);
+    git(['add', '-f', 'PROCESS.md']);
+    git(['commit', '-q', '-m', 'chore: omem init']);
+  }
+
+  it('PROCESS.md（已跟踪但被 ignore）+ 结论 + 热层索引全部提交，提交后工作区为空', () => {
+    initRepoWithTrackedGuide();
+    beginWriteJournal();
+    const r = commitEntry(home, defaultConfig(), index, {
+      content: '台账测试：写入的每个文件都要进提交 journal-marker-1',
+      type: 'fact', topic: 'journal-topic', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
+    });
+    const touched = endWriteJournal();
+    // 台账必须覆盖：结论文件 + MEMORY-INDEX.md + PROCESS.md
+    expect(touched.some((f) => f.includes('knowledge'))).toBe(true);
+    expect(touched.some((f) => f.endsWith('MEMORY-INDEX.md'))).toBe(true);
+    expect(touched.some((f) => f.endsWith('PROCESS.md'))).toBe(true);
+
+    const vcs = autoCommit(home, defaultConfig(), 'omem: save test', touched);
+    expect(vcs.status).toBe('committed');
+    expect(vcs.residue).toEqual([]);
+    expect(git(['status', '--porcelain'])).toBe('');
+
+    // PROCESS.md 的内容确实进了这笔提交（已跟踪文件 → 照旧提交，不做 git rm --cached）
+    const guideInCommit = git(['show', 'HEAD:PROCESS.md']);
+    expect(guideInCommit).toContain('journal-topic');
+    expect(r.status).toBe('written');
+  });
+
+  it('别人留下的脏文件不会被卷进这次提交，而是列进 residue', () => {
+    initRepoWithTrackedGuide();
+    writeFileSync(join(home, 'notes.txt'), "someone else's work\n", 'utf8');
+
+    beginWriteJournal();
+    commitEntry(home, defaultConfig(), index, {
+      content: '台账测试：只提交自己写过的 journal-marker-2',
+      type: 'fact', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
+    });
+    const vcs = autoCommit(home, defaultConfig(), 'omem: save test 2', endWriteJournal());
+
+    expect(vcs.status).toBe('committed');
+    expect(vcs.residue).toContain('notes.txt');
+    const committed = git(['show', '--name-only', '--pretty=format:', 'HEAD']).split('\n').filter(Boolean);
+    expect(committed).not.toContain('notes.txt');
   });
 });

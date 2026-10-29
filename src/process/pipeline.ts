@@ -7,6 +7,7 @@ import { nowIso, parseSince, BackendUnavailableError } from '../core/util.js';
 import { deriveTitle, isNearDupTopic } from '../core/entry.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
+import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
 import { autoCommit, commitEntry } from '../core/commit.js';
 import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
@@ -85,6 +86,7 @@ export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier }
 export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): RunReport {
   const { tier } = resolveTier(config, opts.tier);
   const report = emptyReport(tier);
+  if (!opts.dryRun) beginWriteJournal();
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (!noteMissingRoots(report, scan)) return report;
@@ -101,6 +103,7 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   if (tier !== 'api') return runPipeline(home, config, index, opts);
 
   const report = emptyReport('api');
+  if (!opts.dryRun) beginWriteJournal();
   // §6.2：策略/配置错误抛 UsageError（exit 1），不再用裸 Error
   const cfg = resolveApiConfig(config, process.env, {
     base: opts.apiBase,
@@ -260,10 +263,14 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
 
 /** 一轮 run 一次提交（不是每个会话一次）：run 是用户视角的一个动作。 */
 function commitRun(home: string, config: OmemConfig, report: RunReport): void {
+  // 一轮 run 写过的全部文件（sessions/*.md、knowledge/*.md、PROCESS.md、MEMORY-INDEX.md…）
+  // 在 run 开始时开始记账，这里一次性取走并提交：一轮一个 commit。
+  const touched = endWriteJournal();
   const vcs = autoCommit(
     home,
     config,
     `omem: sync ${report.sessions} session(s), ${report.written.length} document(s)`,
+    touched,
   );
   if (vcs.status === 'skipped') report.notes.push(`git: ${vcs.reason} (auto_commit=session, nothing committed)`);
 }

@@ -4,6 +4,7 @@ import { openCtx } from '../core/ctx.js';
 import { autoCommit, commitEntry, metadataDrift, overCapNotice, vcsNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagStr } from '../cli-args.js';
+import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { MemoryType } from '../core/entry.js';
 
@@ -23,6 +24,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     const topic = flagStr(args.flags, 'topic');
     const supersedes = (flagStr(args.flags, 'supersedes') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const force = flagBool(args.flags, 'force');
+    beginWriteJournal();
     const result = commitEntry(ctx.home, ctx.config, ctx.index, {
       content,
       type,
@@ -80,7 +82,8 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       console.log(`Note: previous verified status (${old.confidence}) was dropped; ${old.id} is now a superseded version.`);
     }
     // 写入即有版本历史（T05）：一次命令一次提交，非 git 仓只说明不报错。
-    console.log(vcsNotice(autoCommit(ctx.home, ctx.config, `omem: add ${result.id ?? ''}`.trim()), 'cli'));
+    const touched = endWriteJournal();
+    console.log(vcsNotice(autoCommit(ctx.home, ctx.config, `omem: add ${result.id ?? ''}`.trim(), touched), 'cli'));
     for (const w of result.warnings ?? []) console.log(`Note: ${w}`);
     return 0;
   } finally {

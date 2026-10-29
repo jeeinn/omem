@@ -5,7 +5,7 @@
 //       冲突只报告——另存 .conflict.md，本地版保留。
 import { execFileSync } from 'node:child_process';
 import { existsSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { BackendUnavailableError } from '../core/util.js';
 import { runSnapshot } from '../core/snapshot.js';
 import type { SyncReport, SyncStatus } from './backend.js';
@@ -19,7 +19,9 @@ function gitTry(args: string[], cwd: string): { ok: boolean; out: string; err: s
   try {
     return { ok: true, out: git(args, cwd), err: '' };
   } catch (e: any) {
-    return { ok: false, out: '', err: String(e.stderr ?? e.message ?? e) };
+    // 失败也要保留 stdout：`git add -v` 会以非零退出（点名的路径被 .gitignore 忽略），
+    // 但它已经打印了真正收进索引的那些 —— 丢掉 stdout 就分不清「什么都没加」与「加了但报了警告」。
+    return { ok: false, out: String(e.stdout ?? '').trim(), err: String(e.stderr ?? e.message ?? e) };
   }
 }
 
@@ -255,46 +257,91 @@ export class GitBackend {
  * 会话原文由 `omem sync` 采集、由 `omem backup` 统一入版本。把 pathspec 收窄到这三处，
  * 写入延迟的增量就只与「本次改了几个结论文件」有关。
  */
-const COMMIT_PATHS = ['knowledge', 'MEMORY-INDEX.md'];
-
 /**
- * 只本地提交，不碰远端、不建快照（beta.9 / T05 / R3）。
+ * 只本地提交，不碰远端、不建快照（beta.9 / T05 / R3；beta.9.1 改为按「本次写过的文件」提交）。
  *
- * 为什么要独立于 `push()`：`save_memory` 一次写入只该产生一笔本地提交，
- * 快照与远端推送是 `omem backup` 的职责。把两者混在一起会让每次写入都想联网。
+ * 为什么不 back 到 `git add -A`：真实仓 1,101 份会话 / 22 MB，全仓扫描要逐文件重算 hash
+ * （QA 实测稳态 +456 ms、冷启 +4.1 s），而且会把无关改动一起卷进「这次写入」的提交里。
+ * 也**不猜**固定路径白名单：`PROCESS.md`、`review.toml`、`config.toml`、被改写 frontmatter 的
+ * `sessions/**.md`、`archive/**.md` 都属于「这次真的写过」，白名单一猜就漏（QA 实测提交后
+ * 工作区还脏 23–25 项）。所以由写入台账（`core/write-journal.ts`）给出精确清单。
  *
- * 非 git 仓库 / 未配置身份 / 没有改动 一律返回结构化原因，**不抛**：
- * 记忆已经落盘了，提交失败不该让一次成功的写入变成失败（清单与正文都还在）。
+ * 非 git 仓库 / 未配置身份 / 没有改动 一律返回结构化原因，**不抛**：记忆已经落盘了，
+ * 提交失败不该让一次成功的写入变成失败（清单与正文都还在）。
  */
 export interface LocalCommitResult {
   committed: boolean;
   sha?: string;
   /** committed=false 的原因（人话，直接进回执）。 */
   reason?: string;
+  /** 提交后工作区里仍然脏的路径（不是本次写过的，或写不进去的）。空数组 = 干净。 */
+  residue?: string[];
 }
 
-export function commitLocal(home: string, message: string, paths: string[] = COMMIT_PATHS): LocalCommitResult {
+/** 把绝对路径转成仓库相对路径（posix 分隔符）；不在 home 内的丢弃。 */
+function repoRelative(home: string, paths: string[]): string[] {
+  const out: string[] = [];
+  for (const p of paths) {
+    const rel = relative(home, p).replace(/\\/g, '/');
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) continue;
+    out.push(rel);
+  }
+  return [...new Set(out)];
+}
+
+/** `git status --porcelain` 的残留路径（提交后自检用）。 */
+function pendingPaths(home: string): string[] {
+  const r = gitTry(['status', '--porcelain'], home);
+  if (!r.ok) return [];
+  return r.out
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => line.slice(3).trim().replace(/^"|"$/g, ''))
+    .map((line) => (line.includes(' -> ') ? line.split(' -> ').pop() as string : line));
+}
+
+export function commitLocal(home: string, message: string, paths: string[]): LocalCommitResult {
   if (!existsSync(join(home, '.git'))) {
     return { committed: false, reason: 'not a git repository' };
   }
   if (!GitBackend.available()) {
     return { committed: false, reason: 'git command not found' };
   }
-  // 每次 git 调用在 Windows 上 ≈40–80 ms 的进程启动，写入路径要克制调用次数：
-  // add → commit 两步，`git status` 省掉（「没有改动」由 commit 的退出码回答）。
-  const added = gitTry(['add', '-A', '--', ...paths], home);
-  if (!added.ok) {
-    return { committed: false, reason: `git add failed (${added.err.split('\n')[0]})` };
+  const rel = repoRelative(home, paths);
+  if (rel.length === 0) return { committed: false, reason: 'nothing to commit' };
+
+  // `--ignore-errors`：台账里可能包含 .gitignore 覆盖且未跟踪的路径（如 `index/`），
+  // 显式点名被忽略的路径会让 `git add` 整体失败；这里让它跳过而不是炸掉整次提交。
+  // `--verbose` 的输出还解决了另一个坑：`git commit -- <pathspec>` 遇到「点名的路径 git
+  // 根本不认识」（被忽略且未跟踪的 PROCESS.md）会整笔失败 —— 只提交 add 真正收进去的那些。
+  const added = gitTry(['add', '--ignore-errors', '-A', '--verbose', '--', ...rel], home);
+  const staged = added.out
+    .split('\n')
+    .map((line) => /^(?:add|remove) '(.*)'$/.exec(line.trim())?.[1])
+    .filter((v): v is string => Boolean(v));
+  if (staged.length === 0) {
+    // 「点名的路径被 .gitignore 忽略」会让 add 以 1 退出但确实是良性结果（`--ignore-errors`
+    // 只是把它降级成提示）；只有真失败才把原因带回去。没有 staged 就是没有新内容可提交。
+    const benign = added.ok || /ignored by one of your \.gitignore|did not match any files/i.test(added.err);
+    return {
+      committed: false,
+      reason: benign ? 'nothing to commit' : `git add failed (${added.err.split('\n')[0]})`,
+      residue: pendingPaths(home),
+    };
   }
+  // 只提交 add 真正收进去的路径：被忽略且未跟踪的文件（例如尚未 track 的 PROCESS.md）
+  // 一旦出现在 `git commit -- <pathspec>` 里，整笔提交会失败。
+  const commitPaths = staged;
   // `-q` 只影响输出量；`--` pathspec 保证不把用户自己暂存的其它改动带进这笔提交。
-  const c = gitTry(['commit', '-q', '-m', message, '--', ...paths], home);
+  const c = gitTry(['commit', '-q', '-m', message, '--', ...commitPaths], home);
+  const residue = pendingPaths(home);
   if (!c.ok) {
     const why = c.err.trim().split('\n')[0];
     if (/nothing to commit|no changes added|nothing added to commit/i.test(c.err)) {
-      return { committed: false, reason: 'nothing to commit' };
+      return { committed: false, reason: 'nothing to commit', residue };
     }
-    return { committed: false, reason: `git commit failed (${why})` };
+    return { committed: false, reason: `git commit failed (${why})`, residue };
   }
   const sha = gitTry(['rev-parse', '--short', 'HEAD'], home);
-  return { committed: true, sha: sha.ok ? sha.out : undefined };
+  return { committed: true, sha: sha.ok ? sha.out : undefined, residue };
 }

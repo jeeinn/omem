@@ -16,6 +16,7 @@ import type { SessionHit } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
+import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
 import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, vcsNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
@@ -667,6 +668,10 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
   const structured: Record<string, unknown> = { status: 'noop' };
   /** 本次调用是否真的改了磁盘（决定要不要提交、要不要说 vcs）。 */
   let wroteSomething = false;
+  // 写入台账：`atomicWrite` 会把本次真正写过的文件都记下来，提交时按精确清单 add，
+  // 既不漏（PROCESS.md / review.toml / config.toml / sessions 的 frontmatter 改写）
+  // 也不多（不把上千份无关会话卷进这次提交）。
+  if (!dryRun) beginWriteJournal();
 
   if (content) {
     // 上限不再在这里裁（beta.9 / T02）：cap 的唯一裁决点在 commitEntry，三条写路径共用。
@@ -844,10 +849,18 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
 
   // 一次工具调用 = 一次提交（beta.9 / T05）：把「这次调用改了什么」固化成可回溯的一步。
   // 落在这里而不是 commitEntry 里，是因为同一次调用还可能包含 confirm_ids 的改动。
-  if (!dryRun && wroteSomething) {
-    const vcs = autoCommit(ctx.home, ctx.config, `omem: ${structured.status === 'deduped' ? 'dedup' : 'save'} ${String(structured.id ?? '')}`.trim());
-    structured.vcs = vcs;
-    parts.push(vcsNotice(vcs, 'mcp'));
+  if (!dryRun) {
+    const touched = endWriteJournal();
+    if (wroteSomething) {
+      const vcs = autoCommit(
+        ctx.home,
+        ctx.config,
+        `omem: ${structured.status === 'deduped' ? 'dedup' : 'save'} ${String(structured.id ?? '')}`.trim(),
+        touched,
+      );
+      structured.vcs = vcs;
+      parts.push(vcsNotice(vcs, 'mcp'));
+    }
   }
   for (const n of notes) parts.push(n);
   if (dryRun) structured.dry_run = true;
