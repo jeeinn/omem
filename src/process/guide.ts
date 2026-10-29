@@ -122,18 +122,32 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
  *
  * 此前只列 15 条 + `…N more`，而这一段只占全文 1.6%——让 Agent 回 CLI 跑 `omem topic list`
  * 发现名字，比直接把 43 条全列出来贵得多，且分页会让它看不到全量词表 → 新造 topic 名 →
- * 加剧碎片化。预算超限时降级的第一级才是「只留名字、去掉 id 列」。
+ * 加剧碎片化。
+ *
+ * 超预算时按「信息价值」降级，不是按「列宽」降级：**id 是最有价值的列**（supersedes 直接要它），
+ * 所以先丢 `confidence · created` 这两列装饰，最后才丢 id。反过来（先丢 id）会把一次写入
+ * 变成「再来一次 search_memory 查 id」——省字节但费往返，与 T04 的目标相反。
  */
-function renderExistingTopics(lines: string[], existing: ExistingTopic[], withIds = true): void {
+type TopicColumnMode = 'full' | 'compact' | 'names';
+
+function renderExistingTopics(lines: string[], existing: ExistingTopic[], mode: TopicColumnMode = 'full'): void {
   if (existing.length === 0) return;
   lines.push('## Existing topics');
   lines.push('');
   lines.push('Reuse one of these names when the sessions belong to it. A new name starts a second living document for the same subject.');
   lines.push('');
   for (const t of existing) {
-    lines.push(withIds
-      ? `- \`${t.name}\`  \`${t.docId}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`
-      : `- \`${t.name}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
+    if (mode === 'full') {
+      lines.push(`- ${BT}${t.name}${BT}  ${BT}${t.docId}${BT}  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
+    } else if (mode === 'compact') {
+      lines.push(`- ${BT}${t.name}${BT}  ${BT}${t.docId}${BT}`);
+    } else {
+      lines.push(`- ${BT}${t.name}${BT}`);
+    }
+  }
+  if (mode === 'names') {
+    lines.push('');
+    lines.push('The active document id for a topic is what `supersedes` needs: get it with search_memory(topic="<name>").');
   }
   lines.push('');
 }
@@ -148,10 +162,12 @@ export interface GuideRenderOpts {
 
 /** 一次渲染的形态参数：由预算决定，不由调用方决定。 */
 interface RenderShape {
-  /** 0 = 全量；1 = 既有主题去掉 id 列；2 = 再加上组内会话上限。 */
+  /** 0 = 全量；1 = 主题行紧凑；2 = 紧凑 + 组内上限；3 = 主题只剩名字 + 组内上限。 */
   level: number;
-  /** level<2 时无上限。 */
+  /** level<3 时无上限。 */
   groupCap: number | null;
+  /** 主题行的列集合，随 level 递减。 */
+  columns: TopicColumnMode;
 }
 
 /** 头部指令段：规则句只从 `context/instructions.ts` 取，不再手写第二份（AGENTS.md:23）。 */
@@ -162,8 +178,7 @@ function renderHeader(): string[] {
     'Each topic has one living document. A new session updates that document; pass supersedes so the previous version stays on disk but drops out of search.',
     '- Read the session files. Keep short facts, drop the process. Do not invent anything that was not said.',
     `- ${RULE_EVIDENCE}.`,
-    '- Sessions are listed as `agent` / `session_id` (no paths — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets.',
-    '- Call `save_memory` with `topic`, `session_id`, `evidence`, and `supersedes` (the current document id, when one is listed).',
+    '- Sessions are listed by bare `session_id` (no paths, no collector prefix — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets. Pass the same bare id as `session_id` when you save, and the current document id as `supersedes` when one is listed.',
     '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
@@ -185,7 +200,7 @@ function buildGuide(
   if (topics.length === 0 && unassigned.length === 0) {
     lines.push('No topics are waiting.');
     lines.push('');
-    renderExistingTopics(lines, existing, shape.level < 1);
+    renderExistingTopics(lines, existing, shape.columns);
     return lines.join(NL);
   }
   if (topics.length > 0) {
@@ -219,7 +234,9 @@ function buildGuide(
       } catch { /* 刚写入时读不到长度就略过 */ }
       const copies = s.copies && s.copies > 1 ? ` (same-user-text: ${s.copies})` : '';
       // 不再带绝对路径：它占旧体积 50.7%，而且会话正文要按 session_id 取（读取通道）。
-      lines.push(`  - ${BT}${s.agent}${BT} / ${BT}${s.sessionId}${BT}${note}${copies}`);
+      // 只列裸 session_id：采集器名不参与任何后续调用（readSessionsById 扫全部采集器目录），
+      // 却要占 10B/行 ≈ 5.7KB/572 行——正是这点体积让预算护栏开始隐藏会话。
+      lines.push(`  - ${BT}${s.sessionId}${BT}${note}${copies}`);
     }
     const hidden = topic.sessions.length - visible.length;
     if (hidden > 0) {
@@ -233,14 +250,14 @@ function buildGuide(
     lines.push('## Unassigned sessions');
     lines.push('These have no project fingerprint. Name a topic when you save, and pass `session_id`.');
     const visibleUnassigned = shape.groupCap === null ? unassigned : unassigned.slice(0, shape.groupCap);
-    for (const s of visibleUnassigned) lines.push(`- ${BT}${s.agent}${BT} / ${BT}${s.sessionId}${BT}`);
+    for (const s of visibleUnassigned) lines.push(`- ${BT}${s.sessionId}${BT}`);
     const hiddenUnassigned = unassigned.length - visibleUnassigned.length;
     if (hiddenUnassigned > 0) {
       lines.push(`- …${hiddenUnassigned} more here — hidden by the size budget.`);
     }
     lines.push('');
   }
-  renderExistingTopics(lines, existing, shape.level < 1);
+  renderExistingTopics(lines, existing, shape.columns);
   return lines.join(NL);
 }
 
@@ -265,21 +282,50 @@ export function renderGuide(
   opts: GuideRenderOpts = {},
 ): string {
   const budget = opts.maxBytes && opts.maxBytes > 0 ? opts.maxBytes : GUIDE_MAX_BYTES;
-  let shape: RenderShape = { level: 0, groupCap: null };
-  let text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+  const full = (shape: RenderShape): string => buildGuide(shape, topics, remaining, unassigned, existing, totals);
 
+  let shape: RenderShape = { level: 0, groupCap: null, columns: 'full' };
+  let text = full(shape);
+
+  // 第一级：主题行紧凑（丢 confidence · created，保留 id）
   if (byteLength(text) > budget) {
-    shape = { level: 1, groupCap: null };
-    text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+    shape = { level: 1, groupCap: null, columns: 'compact' };
+    text = full(shape);
   }
+  // 第二级：组内会话上限。用二分找「装得下的最大上限」——固定阶梯只降不升会白白浪费
+  // 剩下的预算（实测里曾出现「还剩 9KB 却把 478 行的组砍到 200 行」）。
   if (byteLength(text) > budget) {
-    let cap = GROUP_SESSION_CAP;
-    shape = { level: 2, groupCap: cap };
-    text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
-    while (byteLength(text) > budget && cap > 1) {
-      cap = Math.max(1, Math.floor(cap / 2));
-      shape = { level: 2, groupCap: cap };
-      text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+    const maxGroup = Math.max(1, ...topics.map((t) => t.sessions.length));
+    const bisect = (columns: TopicColumnMode, level: number): { text: string; cap: number } | undefined => {
+      let lo = 1;
+      let hi = maxGroup;
+      let best: { text: string; cap: number } | undefined;
+      while (lo <= hi) {
+        const mid = Math.floor((lo + hi) / 2);
+        const candidate = full({ level, groupCap: mid, columns });
+        if (byteLength(candidate) <= budget) {
+          best = { text: candidate, cap: mid };
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      return best;
+    };
+    const compact = bisect('compact', 2);
+    if (compact) {
+      text = compact.text;
+      shape = { level: 2, groupCap: compact.cap, columns: 'compact' };
+    } else {
+      // 第三级：主题只剩名字，仍然尽量多留会话行；连每组 1 行都装不下时头部也永不删。
+      const names = bisect('names', 3);
+      if (names) {
+        text = names.text;
+        shape = { level: 3, groupCap: names.cap, columns: 'names' };
+      } else {
+        shape = { level: 3, groupCap: 1, columns: 'names' };
+        text = full(shape);
+      }
     }
   }
   if (shape.level > 0) {

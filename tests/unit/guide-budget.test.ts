@@ -42,8 +42,9 @@ describe('无损瘦身：会话行不再拼绝对路径', () => {
     // 判据与 QA 的 `grep -c 'C:\Users'` 一致
     expect(text).not.toMatch(/[A-Za-z]:\\\\Users/);
     expect(text).not.toContain('sessions\\workbuddy');
-    // 但 id 与 agent 必须在——读取通道靠它们
-    expect(text).toContain('`workbuddy` / `sess-0000-');
+    // 但裸 id 必须在——读取通道靠它（agent 名不参与任何调用，去掉它才装得进 30KB）
+    expect(text).toContain('  - `sess-0000-');
+    expect(text).not.toContain('`workbuddy` /');
   });
 
   it('会话行数不减：显示行数 == 输入会话数（无预算压力时）', () => {
@@ -119,5 +120,48 @@ describe('消灭手写副本：规则句只从 instructions.ts 取', () => {
     const text = renderGuide([group('local:ccc', refs(1))], 0, []);
     expect(text).toContain('copied from a `## user` section');
     expect(text).toContain('comes only from `omem add` or `omem review --confirm`');
+  });
+});
+
+describe('真实 shape 的验收：572 行 + 58 topic 同时满足 ≤30KB 与行数不减', () => {
+  const uuid = (i: number): string => `${(0x7578434e + i).toString(16).padStart(8, '0')}-1a2b-4c3d-8e9f-${String(i).padStart(12, '0')}`;
+
+  function realRefs(count: number): GuideSessionRef[] {
+    return Array.from({ length: count }, (_, i) => ({ path: 'x', sessionId: uuid(i), agent: 'local' }));
+  }
+
+  it('478 行巨组 + 94 行其余组 + 58 个 topic → 29KB 左右、0 隐藏、0 盘符路径', () => {
+    const topics = [
+      group('local:7578434e', realRefs(478)),
+      group('workbuddy:66a01cd3', realRefs(40)),
+      group('local:35651ad7', realRefs(30)),
+      group('catpaw:9f1c02aa', realRefs(24)),
+    ];
+    const existing = Array.from({ length: 58 }, (_, i) => ({
+      name: `topic-${String(i).padStart(2, '0')}`,
+      docId: `2026-10-28-${(i + 100).toString(16).padStart(6, '0')}`,
+      confidence: 0.55,
+      created: '2026-10-28T00:00:00.000Z',
+    }));
+    const degradations: unknown[] = [];
+    const text = renderGuide(topics, 60, [], existing, { sessions: 1101, shownSessions: 572 }, {
+      onDegrade: (info) => degradations.push(info),
+    });
+
+    // ① 宿主 Read 的硬门槛（≤30,000 B）
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+    // ② 会话行数不减：572 行一行不少，也没有靠隐藏来换体积
+    expect(sessionLineCount(text)).toBe(572);
+    expect(text).not.toContain('hidden by the size budget');
+    // 降级最多到「主题行紧凑」，id 必须还在（supersedes 要的就是它）
+    if (degradations.length > 0) {
+      expect(degradations).toHaveLength(1);
+      expect((degradations[0] as { level: number }).level).toBe(1);
+    }
+    expect(text).toContain('`2026-10-28-00006d`');
+    // ③ topic 行数 == active 数（58）
+    expect((text.match(/^- `topic-/gm) ?? []).length).toBe(58);
+    // ④ 没有盘符路径
+    expect(text).not.toMatch(/[A-Za-z]:[\\/]/);
   });
 });
