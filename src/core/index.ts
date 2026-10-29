@@ -56,13 +56,53 @@ export interface SessionRecord {
   processed_at: string;
 }
 
+/**
+ * SQLITE_BUSY 的可读化与重试（beta.9.1 / P0-3）。
+ *
+ * 现场：3 个进程并发写同一个数据仓，2 个在 `openCtx → catchUp → putSession` 抛
+ * `SQLITE_ERROR: database is locked` 未捕获、进程直接退出，6 次写入只落地 2 次。
+ * 「多个客户端共享同一记忆库」是产品承诺，所以这里做两件事：
+ *   1. 连接上设 `PRAGMA busy_timeout`（默认 5000ms）——SQLite 自己会等锁，而不是立刻报错；
+ *   2. 剩余仍报 BUSY 的场景做有限次退避重试；再失败则抛可读错误（调用方按 exit 2 / isError 呈现），
+ *      绝不把裸栈扔给用户。
+ * 不做「加锁文件把客户端串行化」：那会让第二个客户端卡死，而 SQLite 本身已经有锁。
+ */
+export function isSqliteBusy(err: unknown): boolean {
+  const msg = String((err as { message?: unknown })?.message ?? err ?? '');
+  return /SQLITE_BUSY|database is locked|database table is locked/i.test(msg);
+}
+
+/** 有限次退避重试；只对 BUSY 重试，其它错误原样抛。 */
+export function withBusyRetry<T>(fn: () => T, attempts = 4): T {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return fn();
+    } catch (err) {
+      if (!isSqliteBusy(err)) throw err;
+      lastErr = err;
+      const wait = 25 * 2 ** i;
+      const until = Date.now() + wait;
+      while (Date.now() < until) { /* 同步退避：CLI/MCP 路径都是同步 IO，不引定时器 */ }
+    }
+  }
+  throw lastErr;
+}
+
 export class OmemIndex {
   readonly db: DatabaseSync;
+  /** 连接级的锁等待上限（毫秒）。由 `[process] busy_timeout_ms` 决定，默认 5000。 */
+  readonly busyTimeoutMs: number;
 
-  constructor(readonly home: string) {
+  constructor(readonly home: string, opts: { busyTimeoutMs?: number } = {}) {
     mkdirSync(dirs.index(home), { recursive: true });
     this.db = new DatabaseSync(files.db(home));
+    this.busyTimeoutMs = Number.isFinite(opts.busyTimeoutMs) && (opts.busyTimeoutMs ?? 0) > 0
+      ? Math.floor(opts.busyTimeoutMs as number)
+      : 5000;
+    // WAL 让读不阻塞写；busy_timeout 让并发写在锁上等待而不是立刻 SQLITE_BUSY。
     this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec(`PRAGMA busy_timeout = ${this.busyTimeoutMs};`);
     this.initSchema();
   }
 
@@ -125,6 +165,11 @@ export class OmemIndex {
   // ── 条目读写 ──
 
   upsert(entry: Entry, path: string, content: string): void {
+    // 并发写入时 SQLITE_BUSY 不该让一次已经落盘的记忆变成失败：退避重试有限次。
+    return withBusyRetry(() => this.upsertInner(entry, path, content));
+  }
+
+  private upsertInner(entry: Entry, path: string, content: string): void {
     const fm = entry.fm;
     // hash = 文件内容哈希（一致性协议：catch-up 检出外部编辑）
     // body_hash = 归一化正文 content-hash（幂等去重：add/save/pipeline 三处共用）
@@ -216,6 +261,12 @@ export class OmemIndex {
 
   /** connect-time catch-up（规格 §2.3）：(size, mtime) 快路径 + content-hash 慢路径。 */
   catchUp(): { scanned: number; reindexed: number; removed: number } {
+    // 现场（QA P0-3）：三个进程并发写，两个在 catchUp → putSession 上抛 SQLITE_BUSY 直接退进程。
+    // 对账是幂等的，重试安全。
+    return withBusyRetry(() => this.catchUpInner());
+  }
+
+  private catchUpInner(): { scanned: number; reindexed: number; removed: number } {
     let scanned = 0;
     let reindexed = 0;
     let removed = 0;
@@ -304,6 +355,11 @@ export class OmemIndex {
   }
 
   putSession(rec: SessionRecord, body = ''): void {
+    return withBusyRetry(() => this.putSessionInner(rec, body));
+  }
+
+
+  private putSessionInner(rec: SessionRecord, body = ''): void {
     this.db.prepare(`INSERT INTO sessions
       (session_id, project_fp, msg_count, last_ts, processed_at, agent, path, content_hash, api_state)
       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
@@ -321,12 +377,22 @@ export class OmemIndex {
   }
 
   removeSession(sessionId: string): void {
+    return withBusyRetry(() => this.removeSessionInner(sessionId));
+  }
+
+
+  private removeSessionInner(sessionId: string): void {
     this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
     this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(sessionId);
   }
 
   /** 只更新 api_state 镜像列（写序：先改 session 文件，再调这里，文档 §3.5 规则 5）。 */
   setSessionApiState(sessionId: string, apiState: string | null): void {
+    return withBusyRetry(() => this.setSessionApiStateInner(sessionId, apiState));
+  }
+
+
+  private setSessionApiStateInner(sessionId: string, apiState: string | null): void {
     this.db.prepare('UPDATE sessions SET api_state = ? WHERE session_id = ?').run(apiState, sessionId);
   }
 
