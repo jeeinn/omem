@@ -1,6 +1,6 @@
 {
   "name": "@jeeinn/omem",
-  "version": "0.1.0-beta.8",
+  "version": "0.1.0-beta.9",
   "description": "A git-native personal AI memory layer: Markdown source of truth + MCP + FTS5 trigram search",
   "keywords": [
     "memory",
@@ -35,13 +35,14 @@
     "NOTICE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-info.mjs",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
     "test": "vitest run",
     "test:live": "npm run build && node tests/live/verify-local.mjs",
     "test:watch": "vitest",
     "smoke": "npm run build && bash tests/smoke.sh",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm test && node scripts/release-check.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "engines": {
     "node": ">=22.5.0"
