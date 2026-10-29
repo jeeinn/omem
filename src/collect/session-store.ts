@@ -190,82 +190,80 @@ export function sessionUserHash(body: string): string {
 }
 
 /**
- * `## user` 段开头的元数据围栏标记。真实 workbuddy / claude 会话长这样：
+ * 元数据围栏标记（真实 workbuddy / claude 会话的形状）：
  *
  * ```
- * ## user
  * Conversation info (untrusted metadata):
  * ```json
  * { "message_id": "…", "timestamp": "…" }
  * ```
- *
- * 用户真正说的话
  * ```
+ *
+ * **不必在段首**：真实仓 6 份带围栏的会话里，22 个 `## user` 段的段首是
+ * `System: [ts] …`，围栏在段中间。上一版只剥段首，于是这些围栏里的 JSON 仍能当证据（QA 实测 0.55）。
  */
 const METADATA_HEAD = /^(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:?\s*$/;
 
 /**
- * 剥掉一段 user 文本开头的元数据围栏块。
- *
- * 只处理**段首**：段首是 metadata 标记时，跳过其后直到围栏闭合或首个非围栏非空行；
- * 段首不是标记就原样返回——用户自己粘贴的 JSON（"这段日志里 message_id 是 xxx"）
- * 是用户的真实表达，全文清洗会把它也吃掉。
+ * 元数据键白名单。两个判据缺一不可：
+ *   1. 前置行是 `… (untrusted metadata):` 标记（最强信号，不看内容）；
+ *   2. 或者围栏里是**只含这些键**的 JSON 对象，且至少含一个强键。
+ * 第二条的价值：抓「标记行缺失但内容是元数据」的变体；风险是误伤用户粘贴的 JSON，
+ * 所以键表刻意收窄到会话元数据，且要求值都是标量（出现嵌套结构 / 自由文本字段即视为用户内容）。
  */
-function stripLeadingMetadataFence(section: string): string {
-  const lines = section.split(/\r?\n/);
-  const first = lines.findIndex((l) => l.trim() !== '');
-  if (first < 0) return section;
-  if (!METADATA_HEAD.test(lines[first].trim())) return section;
-  let i = first + 1;
-  let inFence = false;
-  for (; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (inFence) {
-      if (t.startsWith('```')) inFence = false;
-      continue;
-    }
-    if (t === '') continue;
-    if (t.startsWith('```')) {
-      inFence = true;
-      continue;
-    }
-    break; // 首个非围栏、非空行 = 用户真正说的话的起点
+const METADATA_KEYS = new Set([
+  'message_id', 'message_type', 'conversation_id', 'conversation_type', 'chat_id', 'chat_type',
+  'channel', 'room_id', 'guild_id', 'thread_id', 'timestamp', 'ts', 'created_at',
+  'sender', 'sender_id', 'sender_name', 'sender_type', 'user_id', 'bot_id', 'trace_id', 'request_id',
+]);
+/** 出现其中之一才认定「这是元数据」——只有 `{"id": 1}` 这种通用键不算。 */
+const METADATA_STRONG_KEYS = ['message_id', 'conversation_id', 'timestamp', 'sender', 'sender_id'];
+
+/** 围栏内容是否为「纯元数据 JSON」：对象、键全在白名单、值都是标量、至少一个强键。 */
+function isMetadataJson(body: string): boolean {
+  const trimmed = body.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
   }
-  // 围栏没闭合（文件被截断）：整段都是元数据，返回空
-  return lines.slice(i).join('\n').trim();
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+  const entries = Object.entries(parsed as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  const scalar = (v: unknown): boolean => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+  if (!entries.every(([k, v]) => METADATA_KEYS.has(k) && scalar(v))) return false;
+  return entries.some(([k]) => METADATA_STRONG_KEYS.includes(k));
 }
 
 /**
- * 证据域文本（beta.9 / T03 / P0-2）。
+ * 标出要丢掉的行号（`## user` 段内，行相对下标）。
  *
- * 与 `userSectionText` 的唯一区别：逐段剥掉段首的元数据围栏块。
- * 为什么必须是**新函数**而不是改 `userSectionText`：后者是 `sessionUserHash` 的输入，
- * 改它会让全体 `user_hash` 漂移，而 `guide.ts` 优先用落盘旧值 → 新旧两套指纹并行
- * 且没有任何报错（折叠数、copies 口径、`same-user-text` 会静默错一半）。
- * 证据核对走这里，指纹仍然走 `userSectionText`，两条路互不影响。
+ * 规则（三条一起才成立，缺一条就会误伤或漏网）：
+ *   ① 围栏块**前面**的非空行是 `… (untrusted metadata):` → 整块 + 该标记行一起丢；
+ *   ② 否则围栏内容满足 `isMetadataJson` → 只丢围栏块；
+ *   ③ 其余一律保留（用户自己粘的代码 / JSON 必须留在证据域里）。
+ * 围栏未闭合（文件被截断）时按「到段尾」处理。
  */
-export function evidenceUserText(body: string): string {
-  const parts: string[] = [];
-  let collecting = false;
-  let buf: string[] = [];
-  const flush = (): void => {
-    if (collecting) {
-      const text = stripLeadingMetadataFence(buf.join('\n').trim());
-      if (text) parts.push(text);
+function metadataFenceLines(lines: string[]): Set<number> {
+  const dropped = new Set<number>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].trim().startsWith('```')) continue;
+    let close = i + 1;
+    while (close < lines.length && !lines[close].trim().startsWith('```')) close++;
+    const body = lines.slice(i + 1, close).join('\n');
+    let before = i - 1;
+    while (before >= 0 && lines[before].trim() === '') before--;
+    const markerBefore = before >= 0 && METADATA_HEAD.test(lines[before].trim());
+    if (markerBefore || isMetadataJson(body)) {
+      const last = Math.min(close, lines.length - 1);
+      for (let x = i; x <= last; x++) dropped.add(x);
+      if (markerBefore) dropped.add(before);
     }
-    buf = [];
-  };
-  for (const line of body.split(/\r?\n/)) {
-    const marker = line.match(/^##\s*(user|assistant)\s*$/);
-    if (marker) {
-      flush();
-      collecting = marker[1] === 'user';
-      continue;
-    }
-    if (collecting) buf.push(line);
+    i = close; // 整块已处理，块内不再扫（避免把用户代码里的 ``` 当新块）
   }
-  flush();
-  return parts.join('\n');
+  return dropped;
 }
 
 /** 一段可复制的 `## user` 原文及其在会话文件里的字符范围（code point 偏移）。 */
@@ -279,61 +277,104 @@ export interface SessionUserSegment {
   text: string;
 }
 
+/** 一段连续的正文区间（文件内的 code point 范围 + 文本）。 */
+interface TextRun {
+  start: number;
+  end: number;
+  text: string;
+}
+
 /**
- * 按 `## user` 切出可引用的段落 + assistant 段计数（beta.9 / T04，读取通道）。
+ * 按 `## user` / `## assistant` 切段，再在 user 段内剥掉元数据围栏，**返回连续的文本区间**。
  *
- * 为什么需要它：清单不再带绝对路径，Agent 拿到的只有 `agent` / `session_id`。
- * 而 `scope=sessions` 的关键词检索给的是"命中附近的一小段"——摘录越可读越可能是
- * assistant 段（QA A3），既不能当证据、也不够长。按 id 直取段落 + 给出字符范围，
- * 才能让调用方拿到「可直接粘贴进 evidence 的原文」。
+ * 为什么返回「区间」而不是「段」：围栏可以出现在段中间，剥掉之后一段用户话会裂成两段。
+ * 若仍按「整段 + 一段 text」返回，`chars` 就无法再指回文件原文（区间里含被剥掉的行）。
+ * 裂成多个区间后，每个区间的 `[start,end)` 与 `text` 严格对应，调用方能直接切片复制。
  *
  * 偏移口径：整份会话正文的 code point 偏移，从 0 起。用 code point 而不是 UTF-16 单位，
- * 是因为 evidence 门槛（12 字符）与截断都按 code point 数——两处口径不一致会让同一段
- * 文本在两个地方长度不同。
+ * 是因为 evidence 门槛（12 字符）与截断都按 code point 数。
  */
-export function userSegments(body: string): { segments: SessionUserSegment[]; assistantSegments: number } {
-  const segments: SessionUserSegment[] = [];
-  let assistantSegments = 0;
-  let role: 'user' | 'assistant' | null = null;
-  let buf: string[] = [];
-  let sectionStart = 0;
+function sectionRuns(body: string): { runs: TextRun[]; assistantSections: number } {
+  const lines = body.split(/\r?\n/);
+  const starts: number[] = [];
   let cp = 0;
+  for (const line of lines) {
+    starts.push(cp);
+    cp += [...line].length + 1; // +1 = 换行
+  }
 
-  const flush = (): void => {
-    if (!role) {
-      buf = [];
+  const runs: TextRun[] = [];
+  let assistantSections = 0;
+  let role: 'user' | 'assistant' | null = null;
+  let sectionFrom = 0;
+
+  const flush = (toExclusive: number): void => {
+    if (!role) return;
+    const slice = lines.slice(sectionFrom, toExclusive);
+    if (role === 'assistant') {
+      if (slice.join('').trim()) assistantSections++;
       return;
     }
-    const raw = buf.join('\n');
-    if (role === 'assistant') {
-      if (raw.trim()) assistantSegments++;
-    } else {
-      const stripped = stripLeadingMetadataFence(raw.trim());
-      if (stripped) {
-        // 段内起点：剥掉前缀后原文在 raw 里的位置（找不到就退回段首）。
-        const at = raw.indexOf(stripped);
-        const lead = at >= 0 ? [...raw.slice(0, at)].length : 0;
-        const start = sectionStart + lead;
-        segments.push({ role: 'user', start, end: start + [...stripped].length, text: stripped });
+    const dropped = metadataFenceLines(slice);
+    let from = -1;
+    const emit = (toInclusive: number): void => {
+      if (from < 0) return;
+      const raw = slice.slice(from, toInclusive + 1).join('\n');
+      const text = raw.trim();
+      if (text) {
+        const lead = [...raw.slice(0, raw.length - raw.trimStart().length)].length;
+        const start = starts[sectionFrom + from] + lead;
+        runs.push({ start, end: start + [...text].length, text });
+      }
+      from = -1;
+    };
+    for (let i = 0; i < slice.length; i++) {
+      if (dropped.has(i)) {
+        emit(i - 1);
+      } else if (from < 0) {
+        from = i;
       }
     }
-    buf = [];
+    emit(slice.length - 1);
   };
 
-  for (const line of body.split(/\r?\n/)) {
-    const lineCp = [...line].length;
-    const marker = line.match(/^##\s*(user|assistant)\s*$/);
+  for (let i = 0; i < lines.length; i++) {
+    const marker = lines[i].match(/^##\s*(user|assistant)\s*$/);
     if (marker) {
-      flush();
+      flush(i);
       role = marker[1] as 'user' | 'assistant';
-      sectionStart = cp + lineCp + 1; // 下一行的第一个字符
-    } else if (role) {
-      buf.push(line);
+      sectionFrom = i + 1;
     }
-    cp += lineCp + 1;
   }
-  flush();
-  return { segments, assistantSegments };
+  flush(lines.length);
+  return { runs, assistantSections };
+}
+
+/**
+ * 证据域文本（beta.9 / T03 / P0-2）。
+ *
+ * 与 `userSectionText` 的唯一区别：剥掉 `## user` 段内**任意位置**的元数据围栏块。
+ * 为什么必须是**新函数**而不是改 `userSectionText`：后者是 `sessionUserHash` 的输入，
+ * 改它会让全体 `user_hash` 漂移，而 `guide.ts` 优先用落盘旧值 → 新旧两套指纹并行
+ * 且没有任何报错（折叠数、copies 口径、`same-user-text` 会静默错一半）。
+ * 证据核对走这里，指纹仍然走 `userSectionText`，两条路互不影响。
+ */
+export function evidenceUserText(body: string): string {
+  return sectionRuns(body).runs.map((r) => r.text).join('\n');
+}
+
+/**
+ * 按 `## user` 出可引用的段落 + assistant 段计数（beta.9 / T04 读取通道）。
+ *
+ * 与 `evidenceUserText` **同一个实现**（`sectionRuns`）：否则「检索里没有 Conversation info、
+ * 保存时却有」这种两侧口径不一致会再次出现（QA 实测 session_id 通道 19 段里 2 段漏剥）。
+ */
+export function userSegments(body: string): { segments: SessionUserSegment[]; assistantSegments: number } {
+  const { runs, assistantSections } = sectionRuns(body);
+  return {
+    segments: runs.map((r) => ({ role: 'user' as const, start: r.start, end: r.end, text: r.text })),
+    assistantSegments: assistantSections,
+  };
 }
 
 /**

@@ -166,3 +166,128 @@ describe('sessions snippet 同源：摘录只从 ## user 取（QA A3）', () => 
     expect(hits[0].snippet).not.toContain('Conversation info');
   });
 });
+
+
+// ── P0-2（beta.9.1）：围栏不必在段首，整段任意位置的元数据块都要剥掉 ──
+describe('P0-2：段中围栏也会被剥（真实仓 22 个非段首围栏）', () => {
+  const SYSTEM_LINE = 'System: [2026-04-08 23:49 GMT+8] Exec completed (rapid-fox, code 0) :: build ok';
+  /** 真实形状：段首是 System 行，元数据围栏在段中间，真人话在最后。 */
+  const MID_FENCED = [
+    '## user',
+    SYSTEM_LINE,
+    '',
+    'Conversation info (untrusted metadata):',
+    '```json',
+    METADATA_JSON,
+    '```',
+    '',
+    '这台车落地价大概多少钱呢',
+  ].join('\n');
+
+  it('段中围栏剥掉，两侧真人话都保留', () => {
+    const text = evidenceUserText(MID_FENCED);
+    expect(text).toContain(SYSTEM_LINE);
+    expect(text).toContain('这台车落地价大概多少钱呢');
+    expect(text).not.toContain('Conversation info');
+    expect(text).not.toContain('message_id');
+    expect(text).not.toContain('untrusted metadata');
+  });
+
+  it('段中围栏的 JSON 当 evidence → 0.35（上一版这里仍是 0.55）', async () => {
+    addSession('p02-mid', MID_FENCED);
+    const { text, sc } = await save('段中围栏不能当证据 p02-mid-marker', 'p02-mid', METADATA_JSON);
+    expect(sc.confidence).toBe(0.35);
+    expect(sc.tags).toContain('ungrounded');
+    expect(text).toContain('Evidence did not match any ## user section');
+  });
+
+  it('段中围栏之后的真人话仍能锚定 0.55（不误伤）', async () => {
+    addSession('p02-mid-ok', MID_FENCED);
+    const { sc } = await save('段中围栏之后的真话仍可锚定 p02-ok-marker', 'p02-mid-ok', '这台车落地价大概多少钱呢');
+    expect(sc.confidence).toBe(0.55);
+    expect(sc.tags).not.toContain('ungrounded');
+  });
+
+  it('没有标记行、但围栏里是纯元数据 JSON → 也剥', () => {
+    const noMarker = ['## user', '```json', METADATA_JSON, '```', '', '这条才是用户说的'].join('\n');
+    const text = evidenceUserText(noMarker);
+    expect(text).toBe('这条才是用户说的');
+    expect(text).not.toContain('untrusted metadata');
+  });
+
+  it('用户自己粘的代码/JSON 一律保留（键不在元数据白名单，或有自由文本字段）', () => {
+    const userCode = ['## user', '```json', '{ "topic": "车", "budget": 200000, "note": "想要七座" }', '```', '按上面这个存一下'].join('\n');
+    const text = evidenceUserText(userCode);
+    expect(text).toContain('"budget": 200000');
+    expect(text).toContain('按上面这个存一下');
+
+    const userCode2 = ['## user', '```bash', 'git log --oneline -5', '```'].join('\n');
+    expect(evidenceUserText(userCode2)).toContain('git log --oneline -5');
+
+    // 只有通用键（没有 message_id/timestamp/sender 这类强键）→ 保留
+    const genericJson = ['## user', '```json', '{ "id": 1, "name": "wei" }', '```'].join('\n');
+    expect(evidenceUserText(genericJson)).toContain('"name": "wei"');
+  });
+});
+
+describe('P0-2：session_id 通道与 evidence 用同一实现，逐段不得留 metadata 字样', () => {
+  const MID = [
+    '## user',
+    'System: [2026-04-08 23:49 GMT+8] Exec completed (rapid-fox, code 0) :: build ok',
+    '',
+    'Conversation info (untrusted metadata):',
+    '```json',
+    METADATA_JSON,
+    '```',
+    '',
+    '那第二排座椅能放平吗',
+  ].join('\n');
+
+  it('19 段式的逐段断言：任何一段都不含 untrusted metadata / Conversation info', async () => {
+    writeSessionFile(home, {
+      session_id: 'p02-segments',
+      agent: 'workbuddy', project_fp: 'local:aaa',
+      started_ts: '2026-10-28T00:00:00.000Z', ended_ts: '2026-10-28T00:10:00.000Z', cwd: 'X:/x',
+      messages: [{ session_id: 'p02-segments', agent: 'workbuddy', ts: '2026-10-28T00:00:00.000Z', project_fp: 'local:aaa', role: 'user', content: 'x' }],
+    }, MID, 'hash-p02');
+    index.catchUp();
+
+    const r = await handleTool('search_memory', { session_id: 'p02-segments' }, { home, config: defaultConfig(), index });
+    const sc = r.structuredContent as Record<string, any>;
+    expect(sc.segments.length).toBeGreaterThan(0);
+    for (const seg of sc.segments) {
+      expect(seg.text).not.toContain('untrusted metadata');
+      expect(seg.text).not.toContain('Conversation info');
+      expect(seg.text).not.toContain('message_id');
+    }
+  });
+
+  it('段中围栏会把一段裂成两个区间，且每段 chars 仍能切回原文', async () => {
+    writeSessionFile(home, {
+      session_id: 'p02-split',
+      agent: 'workbuddy', project_fp: 'local:aaa',
+      started_ts: '2026-10-28T00:00:00.000Z', ended_ts: '2026-10-28T00:10:00.000Z', cwd: 'X:/x',
+      messages: [{ session_id: 'p02-split', agent: 'workbuddy', ts: '2026-10-28T00:00:00.000Z', project_fp: 'local:aaa', role: 'user', content: 'x' }],
+    }, MID, 'hash-p02b');
+    index.catchUp();
+
+    const r = await handleTool('search_memory', { session_id: 'p02-split' }, { home, config: defaultConfig(), index });
+    const sc = r.structuredContent as Record<string, any>;
+    expect(sc.segments).toHaveLength(2);
+    const chars = [...MID];
+    for (const seg of sc.segments) {
+      const [start, end] = seg.chars as [number, number];
+      expect(chars.slice(start, end).join('')).toBe(seg.text);
+    }
+  });
+
+  it('剥离前后的输出里不含 untrusted metadata（逐段硬断言，替代「成功率下降 ≤5%」）', () => {
+    const samples = [MID, FENCED_BODY];
+    for (const sample of samples) {
+      const out = evidenceUserText(sample);
+      expect(out).not.toContain('untrusted metadata');
+      expect(out).not.toContain('Conversation info');
+      expect(out).not.toContain('message_id');
+    }
+  });
+});
