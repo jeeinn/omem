@@ -1,6 +1,6 @@
 // PROCESS.md 待办清单：片段级去重、skip 台账、大组优先、可配 batch（2026-10-28 实操反馈）。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry } from '../../src/core/commit.js';
@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 describe('片段级去重（user_hash）', () => {
-  it('同一段内容不同 metadata 的两个会话 → 合并一行 copies:2，counts.sessions 仍为 2', () => {
+  it('同一段内容不同 metadata 的两个会话 → 合并一行 same-user-text:2，counts.sessions 仍为 2', () => {
     addSession('dup-a', 'local:aaa', QUOTE_A);
     addSession('dup-b', 'local:aaa', QUOTE_A); // 同 user 段，仅 session_id 不同
     addSession('solo-c', 'local:aaa', QUOTE_B);
@@ -56,10 +56,10 @@ describe('片段级去重（user_hash）', () => {
     expect(dup?.copies).toBe(2);
     expect(counts.sessions).toBe(3);
     const text = renderGuide(topics, 0, [], [], { sessions: counts.sessions, shownSessions: counts.shownSessions });
-    expect(text).toContain('(copies: 2)');
+    expect(text).toContain('(same-user-text: 2)');
   });
 
-  it('吸收同片段的一个会话后，另一个同指纹会话也退出待办', () => {
+  it('吸收同指纹的 1 份后，其余同指纹会话**仍在待办**（账本不许用指纹代账）', () => {
     addSession('dup-a', 'local:aaa', QUOTE_A);
     addSession('dup-b', 'local:aaa', QUOTE_A);
     index.catchUp();
@@ -75,8 +75,14 @@ describe('片段级去重（user_hash）', () => {
     index.catchUp();
     const [topics, , , counts] = pendingTopics(home, index);
     const group = topics.find((t) => t.topic === 'local:aaa');
-    expect(group?.sessions.find((s) => s.sessionId === 'dup-b')).toBeUndefined();
-    expect(counts.sessions).toBe(0);
+    // 反例（beta.8 的行为）：吸收 1 份 → 同指纹的其余会话一起退出待办，最多静默丢单 24 份。
+    const survivor = group?.sessions.find((s) => s.sessionId === 'dup-b');
+    expect(survivor).toBeTruthy();
+    expect(counts.sessions).toBe(1);
+    // 但它折进已有的那一行：不新增行，只让 same-user-text 变诚实
+    const text = renderGuide(topics, 0, [], [], { sessions: counts.sessions, shownSessions: counts.shownSessions });
+    const sessionLines = text.split('\n').filter((l) => l.trim().startsWith('- `'));
+    expect(sessionLines.filter((l) => l.includes('dup-'))).toHaveLength(1);
   });
 });
 
@@ -145,5 +151,90 @@ describe('排序与可配 batch', () => {
     expect(text).toContain('2 group(s) and 3 session(s) still unabsorbed');
     expect(text).toContain('the agent distills via save_memory');
     expect(text).not.toContain('left for the next');
+  });
+});
+
+// ── T13（P0-5 / P0-6）：copies 的等价承诺是错的，账本不许用指纹代账 ──
+describe('T13: same-user-text 只说「用户原话相同」', () => {
+  const SHARED_QUOTE = '同一个提问：这个月新车里哪台适合家用？';
+
+  /** 三兄弟：user 段逐字相同，assistant 各回答不同（QA H5 的真实形状）。 */
+  function addSibling(sessionId: string, answer: string): void {
+    const body = `## user\n${SHARED_QUOTE}\n\n## assistant\n${answer}`;
+    writeSessionFile(home, {
+      session_id: sessionId,
+      agent: 'workbuddy',
+      project_fp: 'local:siblings',
+      started_ts: '2026-10-28T00:00:00.000Z',
+      ended_ts: '2026-10-28T00:10:00.000Z',
+      cwd: 'X:/x',
+      messages: [{
+        session_id: sessionId, agent: 'workbuddy', ts: '2026-10-28T00:00:00.000Z',
+        project_fp: 'local:siblings', role: 'user', content: SHARED_QUOTE,
+      }],
+    }, body, `hash-${sessionId}`);
+  }
+
+  /** 会话行固定是组内两格缩进的 `  - \`agent\` / \`id\` ...`；头部 bullet 也是 `- \`` 开头，不能用 trim 后的前缀判。 */
+  function sessionRows(text: string): string[] {
+    return text.split('\n').filter((l) => /^ {2}- `/.test(l));
+  }
+
+  it('折成 1 行标 same-user-text: 3，但三份都算待办', () => {
+    addSibling('sib-1', '回答一：推荐瑞虎7L，落地 12 万。');
+    addSibling('sib-2', '回答二：更推荐二手的 CR-V，保值率高。');
+    addSibling('sib-3', '回答三：这个预算建议看插混，省油优先。');
+    index.catchUp();
+    const [topics, , , counts] = pendingTopics(home, index);
+    const group = topics.find((t) => t.topic === 'local:siblings');
+    expect(group?.sessions).toHaveLength(1); // 显示层折叠
+    expect(group?.sessions[0].copies).toBe(3);
+    expect(counts.sessions).toBe(3); // 账本仍是三份
+    const text = renderGuide(topics, 0, [], [], { sessions: counts.sessions, shownSessions: counts.shownSessions });
+    expect(text).toContain('(same-user-text: 3)');
+    expect(text).not.toContain('covers all copies');
+    expect(sessionRows(text)).toHaveLength(1);
+  });
+
+  it('吸收 1 份后其余 2 份仍在待办，且仍折进同一行（不新增行）', () => {
+    addSibling('sib-1', '回答一：推荐瑞虎7L，落地 12 万。');
+    addSibling('sib-2', '回答二：更推荐二手的 CR-V，保值率高。');
+    addSibling('sib-3', '回答三：这个预算建议看插混，省油优先。');
+    index.catchUp();
+    const before = renderGuide(
+      ...(() => {
+        const [t, r, u, c] = pendingTopics(home, index);
+        return [t, r, u, [], { sessions: c.sessions, shownSessions: c.shownSessions }] as const;
+      })(),
+    );
+
+    commitEntry(home, defaultConfig(), index, {
+      content: '吸收了第一份兄弟会话的结论 sibling-absorbed-marker',
+      type: 'fact',
+      source: 'agent',
+      session_id: 'sib-1',
+      project: 'local:siblings',
+      confidence: 0.55,
+      verified: false,
+    });
+    index.catchUp();
+
+    const [topics, , , counts] = pendingTopics(home, index);
+    const group = topics.find((t) => t.topic === 'local:siblings');
+    expect(group?.sessions).toHaveLength(1);
+    // 另外两份必须还在（否则就是账本级静默丢单）
+    expect(counts.sessions).toBe(2);
+    const text = renderGuide(topics, 0, [], [], { sessions: counts.sessions, shownSessions: counts.shownSessions });
+    expect(text).toContain('(same-user-text: 2)');
+    // 行数不增加：兄弟折进已有行
+    expect(sessionRows(text)).toHaveLength(1);
+    expect(sessionRows(text).length).toBeLessThanOrEqual(sessionRows(before).length || 1);
+  });
+
+  it('源码与渲染产物里都不再出现错误承诺 "covers all copies"', () => {
+    const src = readFileSync(join(process.cwd(), 'src/process/guide.ts'), 'utf8')
+      + readFileSync(join(process.cwd(), 'src/mcp/tools.ts'), 'utf8');
+    expect(src).not.toContain('covers all copies');
+    expect(src).not.toMatch(/\(copies: /);
   });
 });

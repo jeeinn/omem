@@ -8,7 +8,7 @@ import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';
 import { deriveTitle } from '../core/entry.js';
 import { listEntries } from '../core/store.js';
-import { readSessionsById, readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
+import { readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 
@@ -16,7 +16,13 @@ export interface GuideSessionRef {
   path: string;
   sessionId: string;
   agent: string;
-  /** 同一 user 段指纹的副本数（片段级去重合并）；1 或缺省 = 无重复。 */
+  /**
+   * 同一 `## user` 文本的会话数（显示层折叠用）；1 或缺省 = 无重复。
+   *
+   * 它**只**说明「这 N 份的用户原话相同」——assistant 的回答各不相同（实测 25/26 组
+   * 实质不同），所以不能当成「读一份就够」。字段名保留 `copies` 是为了不动折叠逻辑，
+   * 渲染出来的标记才是给 Agent 看的那句话。
+   */
   copies?: number;
 }
 
@@ -123,7 +129,7 @@ export function renderGuide(
     '- `evidence` must be at least 12 characters copied from a `## user` section. Do not quote `## assistant`.',
     '- Pass `session_id` as the bare id from the session line, without the collector name or any path: from a line reading `claude-code` / `probe-fixture-0001`, pass `probe-fixture-0001`.',
     '- Call `save_memory` with `topic`, `session_id`, and `evidence`. If a current document id is listed, `supersedes` must include it or the write is rejected.',
-    '- Sessions sharing one user-section fingerprint are collapsed into a single line with `(copies: N)`; distilling the listed one covers all copies.',
+    '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
     '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8 and does not set verified.',
@@ -164,7 +170,7 @@ export function renderGuide(
       try {
         if (statSync(s.path).size > LONG_BYTES) note = ' (long; read in parts)';
       } catch { /* 刚写入时读不到长度就略过 */ }
-      const copies = s.copies && s.copies > 1 ? ` (copies: ${s.copies})` : '';
+      const copies = s.copies && s.copies > 1 ? ` (same-user-text: ${s.copies})` : '';
       lines.push(`  - \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\`${note}${copies}`);
     }
     lines.push('');
@@ -232,14 +238,11 @@ export function pendingTopics(
   const absorbed = absorbedSessionIds(home);
   const skipped = skippedSessionIds(home);
   const batch = Math.max(1, config?.process.guide_batch ?? BATCH);
-  // 片段级「已吸收指纹」：任何文档引用过的会话的 user_hash。同一段内容换个
-  // session_id 重新落盘（workbuddy 自动化的常态）也不再进待办——比逐个 skip 更根本。
-  const absorbedUserHashes = new Set<string>();
-  for (const id of absorbed) {
-    for (const s of readSessionsById(home, id)) {
-      absorbedUserHashes.add(s.userHash ?? sessionUserHash(s.body));
-    }
-  }
+  // 曾经这里维护一个「已吸收指纹集」，用 `user_hash` 代替账本判待办。
+  // 2026-10-28 证伪：吸收兄弟组的 1 份，同指纹的其余 N−1 份一起退出待办，
+  // 而它们的 assistant 段各不相同（25/26 组实质不同）→ 最多 24 份独立结论
+  // 从未被读取就被标记为已处理。**账本只能用 session_id 记账**：
+  // 指纹只用于显示层折叠（下面的 seenHashByGroup），不用于判「处理过没有」。
   const active = listEntries(home).filter((l) => l.entry.fm.status === 'active');
   // 反查表：会话 → 它产出的活文档。
   const docBySession = new Map<string, EntryLoc>();
@@ -291,9 +294,9 @@ export function pendingTopics(
     const project = rec.project_fp || 'unknown';
     const handled = absorbed.has(sessionId) || absorbed.has(rec.session_id)
       || skipped.has(sessionId) || skipped.has(rec.session_id);
-    // 空指纹（读不到文件）永不匹配 absorbedUserHashes，走原有判定路径。
     const uh = handled ? '' : userHashOf(rec.path);
-    const isPending = !handled && !absorbedUserHashes.has(uh);
+    // 待办的唯一判据是「这个 session_id 有没有被某份文档引用 / 有没有被 skip」。
+    const isPending = !handled;
     if (!isPending) {
       // 已处理（吸收 / skip / 同片段已吸收）的会话不再是待办，但它可能是这一组与现实文档的连线：
       // 优先看文档自己的 project 字段，缺失时才靠会话反查。
