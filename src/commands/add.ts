@@ -73,6 +73,8 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     if (supersedes.length > 0) console.log(`Supersedes: ${supersedes.join(', ')}`);
     if (result.truncated) {
       console.log(`Truncated to ${result.truncated.limit} characters (--force); the last ${result.truncated.chars - result.truncated.limit} character(s) were discarded.`);
+      // 审计落点：磁盘上不留标记（不加 frontmatter 字段、不加 tags），但 id + 截断量进日志。
+      console.log(`Force-truncated file: ${result.id} — recorded in logs/omem.log. Review the end of the body before relying on it.`);
     }
     for (const old of result.supersededVerified ?? []) {
       console.log(`Note: previous verified status (${old.confidence}) was dropped; ${old.id} is now a superseded version.`);

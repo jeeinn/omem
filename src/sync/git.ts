@@ -40,13 +40,21 @@ export class GitBackend {
     private readonly config: BackendConfig,
   ) {}
 
+  /**
+   * 进程内缓存：`git --version` 每次要 40–80 ms 的进程启动，而写入路径每次都要问一次。
+   * 版本不会在同一个进程生命周期里变化，缓存是安全的。
+   */
+  private static gitAvailable: boolean | undefined;
+
   static available(): boolean {
+    if (GitBackend.gitAvailable !== undefined) return GitBackend.gitAvailable;
     try {
       execFileSync('git', ['--version'], { stdio: 'ignore' });
-      return true;
+      GitBackend.gitAvailable = true;
     } catch {
-      return false;
+      GitBackend.gitAvailable = false;
     }
+    return GitBackend.gitAvailable;
   }
 
   private ensureGit(): void {
@@ -240,6 +248,16 @@ export class GitBackend {
 }
 
 /**
+ * 自动提交覆盖的路径（beta.9.1 / P1-1）。
+ *
+ * `git add -A` 在真实仓（1,101 份会话 / 22 MB sessions/）上要逐文件重算 hash：QA 实测稳态
+ * +456 ms、冷启 +4.1 s。而一次 `save_memory` 真正改动的只有结论、热层清单与 PROCESS.md——
+ * 会话原文由 `omem sync` 采集、由 `omem backup` 统一入版本。把 pathspec 收窄到这三处，
+ * 写入延迟的增量就只与「本次改了几个结论文件」有关。
+ */
+const COMMIT_PATHS = ['knowledge', 'MEMORY-INDEX.md'];
+
+/**
  * 只本地提交，不碰远端、不建快照（beta.9 / T05 / R3）。
  *
  * 为什么要独立于 `push()`：`save_memory` 一次写入只该产生一笔本地提交，
@@ -251,33 +269,32 @@ export class GitBackend {
 export interface LocalCommitResult {
   committed: boolean;
   sha?: string;
-  /** 本次提交包含的文件数（`git status --porcelain` 的行数）。 */
-  files?: number;
   /** committed=false 的原因（人话，直接进回执）。 */
   reason?: string;
 }
 
-export function commitLocal(home: string, message: string): LocalCommitResult {
+export function commitLocal(home: string, message: string, paths: string[] = COMMIT_PATHS): LocalCommitResult {
   if (!existsSync(join(home, '.git'))) {
     return { committed: false, reason: 'not a git repository' };
   }
   if (!GitBackend.available()) {
     return { committed: false, reason: 'git command not found' };
   }
-  const added = gitTry(['add', '-A'], home);
+  // 每次 git 调用在 Windows 上 ≈40–80 ms 的进程启动，写入路径要克制调用次数：
+  // add → commit 两步，`git status` 省掉（「没有改动」由 commit 的退出码回答）。
+  const added = gitTry(['add', '-A', '--', ...paths], home);
   if (!added.ok) {
     return { committed: false, reason: `git add failed (${added.err.split('\n')[0]})` };
   }
-  const porcelain = gitTry(['status', '--porcelain'], home);
-  if (!porcelain.ok) {
-    return { committed: false, reason: `git status failed (${porcelain.err.split('\n')[0]})` };
-  }
-  const files = porcelain.out.split('\n').filter(Boolean).length;
-  if (files === 0) return { committed: false, reason: 'nothing to commit' };
-  const c = gitTry(['commit', '-m', message], home);
+  // `-q` 只影响输出量；`--` pathspec 保证不把用户自己暂存的其它改动带进这笔提交。
+  const c = gitTry(['commit', '-q', '-m', message, '--', ...paths], home);
   if (!c.ok) {
-    return { committed: false, reason: `git commit failed (${c.err.split('\n')[0]})` };
+    const why = c.err.trim().split('\n')[0];
+    if (/nothing to commit|no changes added|nothing added to commit/i.test(c.err)) {
+      return { committed: false, reason: 'nothing to commit' };
+    }
+    return { committed: false, reason: `git commit failed (${why})` };
   }
   const sha = gitTry(['rev-parse', '--short', 'HEAD'], home);
-  return { committed: true, sha: sha.ok ? sha.out : undefined, files };
+  return { committed: true, sha: sha.ok ? sha.out : undefined };
 }

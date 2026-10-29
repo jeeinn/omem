@@ -159,7 +159,6 @@ export function metadataDrift(
 export interface VcsResult {
   status: 'committed' | 'skipped' | 'off';
   sha?: string;
-  files?: number;
   reason?: string;
 }
 
@@ -174,7 +173,7 @@ export interface VcsResult {
 export function autoCommit(home: string, config: OmemConfig, message: string): VcsResult {
   if (config.process.auto_commit !== 'session') return { status: 'off' };
   const r = commitLocal(home, message);
-  if (r.committed) return { status: 'committed', sha: r.sha, files: r.files };
+  if (r.committed) return { status: 'committed', sha: r.sha };
   appendLog(home, 'commit', { status: 'vcs-skipped', reason: r.reason });
   return { status: 'skipped', reason: r.reason };
 }
@@ -182,7 +181,7 @@ export function autoCommit(home: string, config: OmemConfig, message: string): V
 /** 自动提交结果的一句话回执。CLI 与 MCP 只差「你能做什么」那半句。 */
 export function vcsNotice(vcs: VcsResult, caller: 'cli' | 'mcp' = 'cli'): string {
   if (vcs.status === 'committed') {
-    return `Version control: committed ${vcs.files ?? 1} file(s)${vcs.sha ? ` as ${vcs.sha}` : ''}.`;
+    return `Version control: committed${vcs.sha ? ` as ${vcs.sha}` : ''} (one commit per write).`;
   }
   if (vcs.status === 'off') return 'Version control: auto_commit is off; nothing was committed.';
   const why = vcs.reason ?? 'unknown reason';
@@ -275,6 +274,9 @@ export function commitEntry(
     }
   }
 
+  // 回执用的非致命提醒；cap 的截断分支在这里 push 第一条（见下）。
+  const warnings: string[] = [];
+
   // ── 上限规则：唯一裁决点（beta.9 / T02） ──
   // 此前上限只存在于 `save_memory` 自己的入参截断里，`omem add` 与 pipeline 都没有，
   // 于是「2000 字」有三套纪律。现在三条路径都过这里。
@@ -287,9 +289,15 @@ export function commitEntry(
   let truncatedInfo: { chars: number; limit: number } | undefined;
   if (capChars.length > limit) {
     if (capMode === 'truncate') {
-      // 旧行为，只留给 CLI `--force` 这个显式逃生口：回执必须说清尾巴丢了。
+      // 旧行为，只留给 CLI `--force` 这个显式逃生口：回执必须说清尾巴丢了，
+      // 并在 `logs/omem.log` 留一条审计（QA P1-6：只有一次性回执的话，过一周没人能区分
+      // 「人为控制长度」与「被截断」。不加 frontmatter 字段、不加 tags——那些会改语义）。
       truncatedInfo = { chars: capChars.length, limit };
       text = capChars.slice(0, limit).join('') + '…';
+      warnings.push(
+        `Force-truncated: ${capChars.length - limit} character(s) were cut from the tail. `
+        + 'Review the end of the body; this file is recorded as force-truncated in logs/omem.log.',
+      );
     } else {
       const activeForTopic = topic ? index.findActiveByTopic(topic) : undefined;
       return finish(home, {
@@ -337,7 +345,6 @@ export function commitEntry(
     }, input, opts);
   }
 
-  const warnings: string[] = [];
   // `once` 策略：该主题被人工审过之后，后续版本自动落 assent（提底 0.8、不设 verified），
   // 于是不再回到 review 队列。低置信或未锚定的条目不参与——那是安全阀，必须留给人看。
   const policy = topic ? loadTopicPolicies(home).get(topic) : undefined;
@@ -439,7 +446,14 @@ export function commitEntry(
   // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过
   // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
   if (opts.refreshGuide !== false) refreshGuide(home, index, config);
-  logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes, ...opts.audit });
+  logOutcome(home, 'written', {
+    id: entry.fm.id,
+    source: input.source,
+    redacted: hits,
+    supersedes,
+    ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+    ...opts.audit,
+  });
   return {
     status: 'written',
     id: entry.fm.id,

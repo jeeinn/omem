@@ -743,3 +743,47 @@ describe('cap: over-limit content is rejected, never truncated', () => {
     }
   });
 });
+
+// ── P1-6（beta.9.1）：--force 截断必须在磁盘之外留审计痕迹 ──
+describe('force-truncate 的审计痕迹（不加 frontmatter、不加 tags）', () => {
+  it('回执带 Force-truncated 说明，logs/omem.log 的 commit 事件带 id 与截断量', async () => {
+    const long = '长'.repeat(2137);
+    const result = commitEntry(home, defaultConfig(), index, {
+      content: long,
+      type: 'fact',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+      overCap: 'truncate',
+    });
+
+    expect(result.status).toBe('written');
+    expect(result.truncated).toEqual({ chars: 2137, limit: 2000 });
+    expect((result.warnings ?? []).join('\n')).toContain('Force-truncated: 137 character(s) were cut from the tail');
+
+    // 日志里有 id + 截断量（审计入口），frontmatter 里没有新字段
+    const logLines = readFileSync(files.usageLog(home), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const written = logLines.find((e) => e.event === 'commit' && e.id === result.id);
+    expect(written?.truncated).toEqual({ chars: 2137, limit: 2000 });
+
+    const fmKeys = Object.keys(findById(home, result.id!)!.entry.fm);
+    expect(fmKeys).not.toContain('truncated');
+    expect(findById(home, result.id!)!.entry.fm.tags).not.toContain('truncated');
+  });
+
+  it('omem add --force 在终端里把 id 指出来', async () => {
+    const prevHome = process.env.OMEM_HOME;
+    process.env.OMEM_HOME = home;
+    try {
+      const long = '冗'.repeat(2100);
+      expect(await cmdAdd({ _: [long], flags: { topic: 'cli-force-audit', force: true } })).toBe(0);
+      const [loc] = listEntries(home);
+      const log = readFileSync(files.usageLog(home), 'utf8');
+      expect(log).toContain(loc.entry.fm.id);
+      expect(log).toContain('"truncated":{"chars":2100,"limit":2000}');
+    } finally {
+      if (prevHome === undefined) delete process.env.OMEM_HOME;
+      else process.env.OMEM_HOME = prevHome;
+    }
+  });
+});

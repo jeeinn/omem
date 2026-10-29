@@ -8,7 +8,8 @@
 //   ③ `auto_commit = "off"` 时完全不提交。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { defaultConfig, loadConfig, saveConfig } from '../../src/core/config.js';
 import type { OmemConfig } from '../../src/core/config.js';
@@ -29,7 +30,10 @@ function initRepo(): void {
   git(['init']);
   git(['config', 'user.name', 'omem-test']);
   git(['config', 'user.email', 'omem-test@localhost']);
-  git(['commit', '--allow-empty', '-m', 'chore: omem init']);
+  // 与真实数据仓同一份 .gitignore：index/ snapshots/ logs/ PROCESS.md 都不入版本
+  writeFileSync(join(home, '.gitignore'), 'index/\nsnapshots/\nlogs/\nPROCESS.md\n', 'utf8');
+  git(['add', '-A']);
+  git(['commit', '-q', '-m', 'chore: omem init']);
 }
 
 function commitCount(): number {
@@ -72,7 +76,10 @@ describe('auto_commit = "session"（默认）', () => {
     // 两次工具调用 = 两次提交（不是每个文件一次）
     expect(commitCount() - before).toBe(2);
     expect(second.sc.vcs).toMatchObject({ status: 'committed' });
-    expect(second.sc.vcs.files).toBeGreaterThanOrEqual(2);
+    expect(second.sc.vcs.sha).toMatch(/^[0-9a-f]{7,}$/);
+    // 提交里必须含本次写入的文档（不是空提交）
+    const committedFiles = git(['show', '--name-only', '--pretty=format:', 'HEAD']).split('\n').filter(Boolean);
+    expect(committedFiles.some((f) => f.startsWith('knowledge/'))).toBe(true);
     expect(second.text).toContain('Version control: committed');
     // 工作区干净：没有留下未提交的改动
     expect(git(['status', '--porcelain'])).toBe('');
@@ -152,5 +159,23 @@ describe('配置往返', () => {
     (broken.process as any).auto_commit = 'sometimes';
     saveConfig(home, broken);
     expect(loadConfig(home).process.auto_commit).toBe('session');
+  });
+});
+
+describe('commit 的 pathspec 收窄（beta.9.1 / P1-1）', () => {
+  it('只提交 knowledge/ 与 MEMORY-INDEX.md：sessions/ 的未跟踪文件不被卷进来', async () => {
+    initRepo();
+    mkdirSync(join(home, 'sessions', 'local'), { recursive: true });
+    writeFileSync(join(home, 'sessions', 'local', 'stray.md'), 'untracked transcript\n', 'utf8');
+
+    const r = await save({ content: '窄 pathspec 不卷会话 pathspec-marker' });
+    expect(r.sc.vcs).toMatchObject({ status: 'committed' });
+
+    const committed = git(['show', '--name-only', '--pretty=format:', 'HEAD']).split('\n').filter(Boolean);
+    expect(committed.some((f) => f.startsWith('knowledge/'))).toBe(true);
+    expect(committed.some((f) => f.startsWith('sessions/'))).toBe(false);
+    // 会话文件仍是未跟踪状态（等 omem backup 统一入版本）
+    // 未跟踪目录在 porcelain 里会被折叠成 `?? sessions/`
+    expect(git(['status', '--porcelain', '--', 'sessions'])).toContain('?? sessions/');
   });
 });
