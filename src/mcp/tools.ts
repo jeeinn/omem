@@ -392,11 +392,14 @@ async function toolSearch(
     for (const hit of hits) {
       const state = isAbsorbed(hit.session_key) ? ' · absorbed' : ' · not yet absorbed';
       lines.push(`- ${hit.session_key}${hit.project_fp ? ` · ${hit.project_fp}` : ''}${state}`);
+      // 摘录只在 ## user 上取（T03）：空摘录说明命中在 assistant 段，且那段不能当证据。
+      // 沉默会让人以为「没摘录」，所以要说出来——这正是 QA A3 的坑。
       if (hit.snippet) lines.push(`  『${hit.snippet.trim()}』`);
+      else lines.push("  (no ## user text matched this query — the hit is in the assistant's reply, which cannot be used as evidence)");
       lines.push(`  File: ${hit.path}`);
     }
     lines.push('');
-    lines.push('These are raw session notes, not conclusions.');
+    lines.push('These are raw session notes, not conclusions. Excerpts are cut from the `## user` text only.');
     lines.push('Pass the id after the collector name (e.g. from `claude-code:probe-0001`, pass probe-0001) as session_id.');
     return {
       text: lines.join('\n'),

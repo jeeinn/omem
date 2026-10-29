@@ -1,7 +1,7 @@
 // save_memory 的自动置信度。只改 confidence，不把 verified 设为 true。
 // 依据必须是会话文件里某个 ## user 段的连续子串；模型引用自己的话不算。
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
-import { readSessionsById, readStoredSession, splitSessionKey, userSectionText } from '../collect/session-store.js';
+import { evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
 import { searchSessions } from '../core/search.js';
 import { normalizeForHash } from '../core/util.js';
 import type { OmemIndex } from '../core/index.js';
@@ -90,7 +90,7 @@ function corroboratingSessions(index: OmemIndex, evidence: string, skipIds?: str
     if (!id || skipSet.has(id) || seenSessions.has(id)) continue;
     const stored = readStoredSession(hit.path);
     if (!stored) continue;
-    if (!evidenceIn(userSectionText(stored.body), evidence)) continue;
+    if (!evidenceIn(evidenceUserText(stored.body), evidence)) continue;
     seenSessions.add(id);
     if (stored.project && stored.project !== 'unknown') {
       seenProjects.add(stored.project);
@@ -151,7 +151,7 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
   const anchors = {
     total: evidences.length,
     matched: evidences.flatMap((e) => {
-      const hit = cited.find((s) => evidenceIn(userSectionText(s.body), e));
+      const hit = cited.find((s) => evidenceIn(evidenceUserText(s.body), e));
       return hit ? [{ evidence: e, session: hit.sessionId }] : [];
     }),
   };
@@ -217,7 +217,7 @@ export function scoreApiDoc(
 
   if (valid.length > 0) {
     const cited = input.sessionId ? readSessionsById(home, input.sessionId) : [];
-    const citedHit = valid.some((e) => cited.some((s) => evidenceIn(userSectionText(s.body), e)));
+    const citedHit = valid.some((e) => cited.some((s) => evidenceIn(evidenceUserText(s.body), e)));
     if (citedHit) {
       const others = index
         ? valid.reduce<CorroborationInfo>((acc, e) => {

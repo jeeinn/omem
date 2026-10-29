@@ -190,6 +190,85 @@ export function sessionUserHash(body: string): string {
 }
 
 /**
+ * `## user` 段开头的元数据围栏标记。真实 workbuddy / claude 会话长这样：
+ *
+ * ```
+ * ## user
+ * Conversation info (untrusted metadata):
+ * ```json
+ * { "message_id": "…", "timestamp": "…" }
+ * ```
+ *
+ * 用户真正说的话
+ * ```
+ */
+const METADATA_HEAD = /^(?:Conversation info|Sender)\s*\(untrusted metadata\)\s*:?\s*$/;
+
+/**
+ * 剥掉一段 user 文本开头的元数据围栏块。
+ *
+ * 只处理**段首**：段首是 metadata 标记时，跳过其后直到围栏闭合或首个非围栏非空行；
+ * 段首不是标记就原样返回——用户自己粘贴的 JSON（"这段日志里 message_id 是 xxx"）
+ * 是用户的真实表达，全文清洗会把它也吃掉。
+ */
+function stripLeadingMetadataFence(section: string): string {
+  const lines = section.split(/\r?\n/);
+  const first = lines.findIndex((l) => l.trim() !== '');
+  if (first < 0) return section;
+  if (!METADATA_HEAD.test(lines[first].trim())) return section;
+  let i = first + 1;
+  let inFence = false;
+  for (; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (inFence) {
+      if (t.startsWith('```')) inFence = false;
+      continue;
+    }
+    if (t === '') continue;
+    if (t.startsWith('```')) {
+      inFence = true;
+      continue;
+    }
+    break; // 首个非围栏、非空行 = 用户真正说的话的起点
+  }
+  // 围栏没闭合（文件被截断）：整段都是元数据，返回空
+  return lines.slice(i).join('\n').trim();
+}
+
+/**
+ * 证据域文本（beta.9 / T03 / P0-2）。
+ *
+ * 与 `userSectionText` 的唯一区别：逐段剥掉段首的元数据围栏块。
+ * 为什么必须是**新函数**而不是改 `userSectionText`：后者是 `sessionUserHash` 的输入，
+ * 改它会让全体 `user_hash` 漂移，而 `guide.ts` 优先用落盘旧值 → 新旧两套指纹并行
+ * 且没有任何报错（折叠数、copies 口径、`same-user-text` 会静默错一半）。
+ * 证据核对走这里，指纹仍然走 `userSectionText`，两条路互不影响。
+ */
+export function evidenceUserText(body: string): string {
+  const parts: string[] = [];
+  let collecting = false;
+  let buf: string[] = [];
+  const flush = (): void => {
+    if (collecting) {
+      const text = stripLeadingMetadataFence(buf.join('\n').trim());
+      if (text) parts.push(text);
+    }
+    buf = [];
+  };
+  for (const line of body.split(/\r?\n/)) {
+    const marker = line.match(/^##\s*(user|assistant)\s*$/);
+    if (marker) {
+      flush();
+      collecting = marker[1] === 'user';
+      continue;
+    }
+    if (collecting) buf.push(line);
+  }
+  flush();
+  return parts.join('\n');
+}
+
+/**
  * 整文件重写。哈希未变时保留原 `api_state`（文档 §3.5 规则 1）：
  * `--session` 点名在内容未变时也会走到这里，不保状态会把已有 `ok` 先抹掉，
  * 随后传输失败（规则 3 不写新状态）就永久丢失。

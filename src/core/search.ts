@@ -6,6 +6,7 @@
 // - topic 是活文档的唯一标识，但不在 FTS 列里：按 topic 取文档走 entries.topic 等值过滤，
 //   不给关键词时退化为「取该主题的活文档」，避免调用方只能靠「写失败」来发现 active id。
 import type { OmemIndex, EntryRow } from './index.js';
+import { evidenceUserText, readStoredSession } from '../collect/session-store.js';
 
 export interface SearchQuery {
   /** 关键词。可省略——省略时必须给 topic，否则返回空。 */
@@ -175,43 +176,47 @@ export interface SessionHit {
   absorbed?: boolean;
 }
 
-/** 只查会话原文，不返回 knowledge 结论。 */
+/**
+ * 只查会话原文，不返回 knowledge 结论。
+ *
+ * 摘录只从**证据域**取（beta.9 / T03）：FTS 的 `snippet()` 在整份会话正文上取窗口，
+ * 而 assistant 段是最"好读"的那一段 —— 于是摘录越像人话，越可能是不能当证据的那一段
+ * （QA A3：命中落在车型表格里）。这里先用 `evidenceUserText` 剥掉元数据围栏、
+ * 只留 `## user`，再在它上面截窗；命中只在 assistant 段时 `snippet` 为空字符串，
+ * 由渲染层说明「这段不能当证据」，而不是给一段看着像原文的假引文。
+ */
 export function searchSessions(index: OmemIndex, query: string, limit = 3): SessionHit[] {
   const q = query.trim();
   if (!q) return [];
   const tokens = q.split(/\s+/).filter(Boolean);
   const db = index.db;
-  if (tokens.every((t) => charLen(t) >= 3)) {
-    const ftsq = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
-    return db.prepare(`
-      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts,
-             snippet(sessions_fts, 1, '', '', '…', 12) AS snippet
+  const rows = tokens.every((t) => charLen(t) >= 3)
+    ? (db.prepare(`
+      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
       FROM sessions s
       JOIN sessions_fts ON s.session_id = sessions_fts.session_key
       WHERE sessions_fts MATCH ?
       ORDER BY bm25(sessions_fts) ASC
       LIMIT ?
-    `).all(ftsq, limit) as unknown as SessionHit[];
-  }
-  const pattern = `%${escapeLike(q)}%`;
-  const rows = db.prepare(`
-    SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts,
-           sessions_fts.content AS content
-    FROM sessions s
-    JOIN sessions_fts ON s.session_id = sessions_fts.session_key
-    WHERE sessions_fts.content LIKE ? ESCAPE '\\'
-    LIMIT ?
-  `).all(pattern, limit) as unknown as (SessionHit & { content?: string })[];
-  // LIKE 兜底路径用不上 snippet()（它只对 MATCH 生效），自己截一段命中附近的上下文，
-  // 否则 2 字中文查询就只剩路径可看，调用方拿不到原文。标记与 FTS 路径一致地交给渲染层。
-  //
-  // 内存取舍：命中行通常极少——含 <3 字符的词建不了 FTS 索引，LIKE 全表扫后被 LIMIT 截走；
-  // sessions 表规模预期有限，拉一列 content 回内存可接受。若未来 sessions 频繁落盘、规模增长，
-  // 再把 manualSnippet 的截取下沉到 SQL SUBSTR（届时需处理 code point 偏移）。
-  //
-  // 口径差异：FTS 路径 snippet() 以 token 为单位（半径 12），manualSnippet 以 code point 为单位
-  // （半径 40）——服务于不同消费方；且短词 LIKE 命中的 token 边界无意义，故各取适用。
-  return rows.map(({ content, ...hit }) => ({ ...hit, snippet: manualSnippet(content ?? '', q) }));
+    `).all(tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' '), limit) as unknown as SessionHit[])
+    : (db.prepare(`
+      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
+      FROM sessions s
+      JOIN sessions_fts ON s.session_id = sessions_fts.session_key
+      WHERE sessions_fts.content LIKE ? ESCAPE '\\'
+      LIMIT ?
+    `).all(`%${escapeLike(q)}%`, limit) as unknown as SessionHit[]);
+
+  // 摘录在证据域上截窗（radius 40 code point）：两条路径同源，不再一边 token 半径 12、
+  // 一边 code point 半径 40 —— 同一句话在两条路径下长度不同，调用方无法判断能不能当 evidence。
+  return rows.map((hit) => ({ ...hit, snippet: evidenceSnippet(hit.path, q) }));
+}
+
+/** 在 `## user`（剥净元数据）上取命中窗口；读不到文件或只在 assistant 段命中时返回空串。 */
+function evidenceSnippet(path: string, query: string): string {
+  const stored = readStoredSession(path);
+  if (!stored) return '';
+  return manualSnippet(evidenceUserText(stored.body), query);
 }
 
 /**
