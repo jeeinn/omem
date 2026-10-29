@@ -72,19 +72,22 @@ const BT = '`';
 const LONG_BYTES = 100 * 1024;
 
 /**
- * PROCESS.md 的字节预算（beta.9 / T04，F3）。
+ * PROCESS.md 的字节预算（beta.9 / T04，F3；beta.9.1 按宿主实测校正）。
  *
- * H3 的教训不是「文件大」，是**渲染没有任何预算**：同一批 1,101 会话，beta.8 渲染
- * 7,221 B、HEAD 渲染 117,752 B（16.3×），最大单组一人占 478 行。没有预算，同型回归
- * 会以另一种形式再来一次。超限按固定阶梯降级（见 renderGuide），每级都不删头部。
+ * 判据不是「文件有多大」，是**宿主 `Read` 什么时候拒**：它按 `字符数 ÷ 4 > 20000` 估算 token，
+ * 也就是约 **80,000 字符**才拒绝（现场 80,310 B 的文件 est 20,060 = 刚好被拒，就是这个算法）。
+ * 45,000 的依据：
+ *   - 会话行实测单价 ≈ 42 B（裸 uuid 36 + 缩进/反引号/换行），546 行 ≈ 22.9 KB；
+ *     45,000 可容纳约 640 行会话 + 58 行 topic + 头部；
+ *   - est ≈ 45,000 / 4 = 11,250 tokens，离 20,000 的上限留 44% 余量——宿主上限若按
+ *     CJK 更严的 tokenizer 收紧，仍有空间；
+ *   - 真实仓同批 1,101 份会话实测 546 会话行 ≈ 31.6 KB，即本预算下 **0 隐藏**。
+ * 取 30,000（上一版）是按「25% 余量」拍的，没有判据，结果真实数据只剩 30 B 余量、藏了 30 份。
+ * 也不许取到接近 80,000：那是拒绝的硬顶，没有余量。
  *
- * 30,000 B 是「宿主 `Read` 一次读完」的余量：真实 tokenizer 对含 CJK 的文本约为
- * 字符数的 1.2–1.5 倍，30 KB 远低于 20,000 token 的上限。
+ * 预算触发时按阶梯降级（见 renderGuide），每级都不删头部；降级必然留标记。
  */
-export const GUIDE_MAX_BYTES = 30_000;
-
-/** 第二级降级的组内会话上限起点（V0.2 的 cursor 分页上线后由 T11 替换，不叠两层）。 */
-const GROUP_SESSION_CAP = 200;
+export const GUIDE_MAX_BYTES = 45_000;
 
 export interface ExistingTopic {
   name: string;
@@ -203,13 +206,25 @@ function buildGuide(
     renderExistingTopics(lines, existing, shape.columns);
     return lines.join(NL);
   }
+  // 折叠行 → 会话数：一行可以代表 N 份 same-user-text 副本，任何「多少个会话」的口径
+  // 都必须按 copies 累加。上一版按行数计，2,000 会话时标记 435 而真实隐藏 526（少报 17%）。
+  const refsOf = (refs: GuideSessionRef[]): number => refs.reduce((n, r) => n + (r.copies ?? 1), 0);
+  const visibleOf = (refs: GuideSessionRef[]): GuideSessionRef[] =>
+    shape.groupCap === null ? refs : refs.slice(0, shape.groupCap);
+
+  // 头部只报「这一批真正渲染出来的会话数」，隐藏量单列——否则 `N session(s) shown` 与正文
+  // 的 `…M hidden` 会互相打架（真实数据里 639 shown vs 30 hidden 就是这么来的）。
+  let shownSessions = 0;
+  let hiddenSessions = 0;
+  for (const topic of topics) {
+    const visible = visibleOf(topic.sessions);
+    shownSessions += refsOf(visible);
+    hiddenSessions += refsOf(topic.sessions.slice(visible.length));
+  }
   if (topics.length > 0) {
-    // 三个口径分开说：本轮渲染了什么、还有多少组/会话没吸收、以及分工——
-    // 提炼靠 Agent 调 save_memory，omem sync 只采集并重渲染这份清单（2026-10-28 文案纠正）。
-    const shownSessions = totals?.shownSessions
-      ?? topics.reduce((n, t) => n + t.sessions.reduce((m, s) => m + (s.copies ?? 1), 0), 0);
+    const hiddenNote = hiddenSessions > 0 ? ` · ${hiddenSessions} hidden by the size budget` : '';
+    lines.push(`This batch: ${topics.length} group(s) / ${shownSessions} session(s) shown${hiddenNote}. `);
     const leftSessions = totals ? Math.max(0, totals.sessions - shownSessions) : remaining;
-    lines.push(`This batch: ${topics.length} group(s) / ${shownSessions} session(s) shown. `);
     lines.push(`${remaining} group(s) and ${leftSessions} session(s) still unabsorbed — `);
     lines.push('the agent distills via save_memory; `omem sync` only collects and re-renders this list.');
     lines.push('');
@@ -226,7 +241,7 @@ function buildGuide(
       lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
     }
     lines.push('- Sessions not yet absorbed:');
-    const visible = shape.groupCap === null ? topic.sessions : topic.sessions.slice(0, shape.groupCap);
+    const visible = visibleOf(topic.sessions);
     for (const s of visible) {
       let note = '';
       try {
@@ -238,22 +253,28 @@ function buildGuide(
       // 却要占 10B/行 ≈ 5.7KB/572 行——正是这点体积让预算护栏开始隐藏会话。
       lines.push(`  - ${BT}${s.sessionId}${BT}${note}${copies}`);
     }
-    const hidden = topic.sessions.length - visible.length;
-    if (hidden > 0) {
-      // 每组各自标记 + 数字 + 取得方式。只说「…more」等于告诉 Agent「有东西你看不到但拿不到」，
-      // 比不提示更糟（它会把「只能这样了」当成结论）。
-      lines.push(`  - …${hidden} more in this group — hidden by the size budget. Narrow the topic, or run omem topic list / search_memory(topic="<name>") for the rest.`);
+    const hiddenRefs = topic.sessions.slice(visible.length);
+    if (hiddenRefs.length > 0) {
+      // 每组各自标记：数字按**会话数**计（折叠行不等于会话），行数只在两者不同时补一句。
+      // 只说「…more」等于告诉 Agent「有东西你看不到但拿不到」，比不提示更糟。
+      const hiddenCount = refsOf(hiddenRefs);
+      const lineNote = hiddenCount !== hiddenRefs.length ? ` (${hiddenRefs.length} line(s))` : '';
+      lines.push(`  - …${hiddenCount} session(s)${lineNote} hidden by the size budget. Narrow the topic, or search_memory(topic="<name>") for the rest.`);
     }
     lines.push('');
   }
   if (unassigned.length > 0) {
     lines.push('## Unassigned sessions');
     lines.push('These have no project fingerprint. Name a topic when you save, and pass `session_id`.');
-    const visibleUnassigned = shape.groupCap === null ? unassigned : unassigned.slice(0, shape.groupCap);
+    const visibleUnassigned = visibleOf(unassigned);
     for (const s of visibleUnassigned) lines.push(`- ${BT}${s.sessionId}${BT}`);
-    const hiddenUnassigned = unassigned.length - visibleUnassigned.length;
-    if (hiddenUnassigned > 0) {
-      lines.push(`- …${hiddenUnassigned} more here — hidden by the size budget.`);
+    const hiddenUnassigned = unassigned.slice(visibleUnassigned.length);
+    if (hiddenUnassigned.length > 0) {
+      // 这一段同样受预算约束，因此同样必须留标记：真实数据里它曾「235 条只列 5 条、零标记」，
+      // 那是本轮唯一连数字都没有的丢失点——比被标记的 30 份更糟。
+      const hiddenCount = refsOf(hiddenUnassigned);
+      const lineNote = hiddenCount !== hiddenUnassigned.length ? ` (${hiddenUnassigned.length} line(s))` : '';
+      lines.push(`- …${hiddenCount} session(s)${lineNote} hidden by the size budget. Read them after this batch shrinks, or save with an explicit topic.`);
     }
     lines.push('');
   }
@@ -528,7 +549,8 @@ export function pendingTopics(
   return [
     shown,
     Math.max(0, all.length - batch),
-    unassigned.slice(0, batch),
+    // 不再在这里 slice(0, batch)：截断发生在渲染层（能用预算算式解释、且必然留标记）。
+    unassigned,
     {
       topics: all.length,
       unassigned: unassigned.reduce((n, s) => n + (s.copies ?? 1), 0),

@@ -1,22 +1,27 @@
-// PROCESS.md 的无损瘦身与预算护栏（beta.9 / T04 / P0-3）。
+// PROCESS.md 的预算护栏与计数口径（beta.9 / T04，beta.9.1 按 QA 实测校正）。
 //
-// 三条判据都是相对口径，不钉绝对值（QA §8.5：绝对基线来自 WAL 未回放的快照，钉不进去）：
-//   ① 会话行不再带绝对路径（旧体积的 50.7% 是零信息冗余）；
-//   ② 会话行数不减：显示行 + 每组 hidden 计数 == 输入会话数（截断也不许静默）；
-//   ③ 渲染有 30,000 字节硬预算，超限按阶梯降级并在**每组**输出带数字的标记。
+// 三条判据都是**可失败**的，且都不钉绝对值（绝对基线来自别的机器/别的吸收状态）：
+//   ① 会话行不含绝对路径（断言作用在「会话行」上，不是全文件——`## X:\ai-dev` 是数据）；
+//   ② 会话维度恒等式：`shown + hidden + unassigned == 窗口会话数`；
+//   ③ 预算 45,000 B：判据是宿主 `Read` 的 `字符数÷4 > 20000`，不是拍的数。
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GUIDE_MAX_BYTES, renderGuide } from '../../src/process/guide.js';
 import type { GuideSessionRef, GuideTopic } from '../../src/process/guide.js';
 
-function refs(count: number, prefix = 'sess'): GuideSessionRef[] {
+const uuid = (i: number): string =>
+  `${(0x10000000 + i).toString(16).padStart(8, '0')}-1a2b-4c3d-8e9f-${String(i).padStart(12, '0')}`;
+
+let seq = 0;
+/** 造 refs；`folded` 指定前多少行代表 2 份副本（模拟 same-user-text 折叠）。 */
+function refs(count: number, folded = 0): GuideSessionRef[] {
   return Array.from({ length: count }, (_, i) => ({
-    // 路径故意给不存在的绝对路径：既验证「渲染不读盘也能跑」，也验证它不会把路径写出来。
-    path: `C:\\Users\\wei\\.omem\\sessions\\workbuddy\\${prefix}-${i}.md`,
-    // id 用真实形状（36 字符 uuid）：短 id 会把体积算小，测不出预算
-    sessionId: `${prefix}-${String(i).padStart(4, '0')}-4f2525a1-9c3b-4d7e-8a01-${String(i).padStart(12, '0')}`,
+    // 路径故意给不存在的绝对路径：验证「渲染不写路径」而不是「读盘失败就跳过」
+    path: `C:\\Users\\wei\\.omem\\sessions\\workbuddy\\${uuid(seq)}.md`,
+    sessionId: uuid(seq++),
     agent: 'workbuddy',
+    copies: i < folded ? 2 : 1,
   }));
 }
 
@@ -24,144 +29,142 @@ function group(topic: string, sessions: GuideSessionRef[]): GuideTopic {
   return { topic, sessions, otherDocs: 0 };
 }
 
-/** 从渲染产物里读出「每组 hidden 会话数」的总和。 */
-function hiddenTotal(text: string): number {
-  const matches = text.match(/…(\d+) more in this group — hidden by the size budget/g) ?? [];
-  return matches.reduce((n, m) => n + Number(/(\d+)/.exec(m)![1]), 0);
-}
+const sessionLines = (text: string): string[] => text.split('\n').filter((l) => l.startsWith('  - `'));
+const unassignedLines = (text: string): string[] => text.split('\n').filter((l) => /^- `[0-9a-f]{8}-/.test(l));
+const markers = (text: string): number[] =>
+  (text.match(/…(\d+) session\(s\)(?: \(\d+ line\(s\)\))? hidden by the size budget/g) ?? [])
+    .map((m) => Number(/(\d+)/.exec(m)![1]));
 
-function sessionLineCount(text: string): number {
-  return text.split('\n').filter((l) => /^ {2}- `/.test(l)).length;
-}
-
-describe('无损瘦身：会话行不再拼绝对路径', () => {
-  it('10 个会话全量渲染，产物里没有任何盘符路径', () => {
-    const sessions = refs(10);
-    const text = renderGuide([group('local:aaa', sessions)], 0, []);
-    expect(sessionLineCount(text)).toBe(10);
-    // 判据与 QA 的 `grep -c 'C:\Users'` 一致
-    expect(text).not.toMatch(/[A-Za-z]:\\\\Users/);
-    expect(text).not.toContain('sessions\\workbuddy');
-    // 但裸 id 必须在——读取通道靠它（agent 名不参与任何调用，去掉它才装得进 30KB）
-    expect(text).toContain('  - `sess-0000-');
-    expect(text).not.toContain('`workbuddy` /');
-  });
-
-  it('会话行数不减：显示行数 == 输入会话数（无预算压力时）', () => {
-    const sessions = refs(37);
-    const text = renderGuide([group('local:bbb', sessions)], 0, []);
-    expect(sessionLineCount(text)).toBe(37);
+describe('预算常量的依据（不是拍的数）', () => {
+  it('45,000 B：宿主 Read 的 est = 字符÷4 ≤ 20,000 → 硬顶约 80,000 字符，本值留 44% 余量', () => {
+    expect(GUIDE_MAX_BYTES).toBe(45_000);
+    expect(GUIDE_MAX_BYTES / 4).toBeLessThan(20_000);
+    // 真实仓同批会话（546 行 ≈ 31.6 KB）必须装得下，且不许贴到 80,000 的硬顶
+    expect(GUIDE_MAX_BYTES).toBeGreaterThan(32_000);
+    expect(GUIDE_MAX_BYTES).toBeLessThan(60_000);
   });
 });
 
-describe('预算护栏 GUIDE_MAX_BYTES', () => {
-  it('单组 400 个会话（真实 id 长度）→ 输出 ≤ 30KB，一行不丢', () => {
-    const sessions = refs(400, 'a');
-    const degradations: { level: number; groupCap: number | null; bytes: number }[] = [];
-    const text = renderGuide([group('local:big', sessions)], 0, [], [], undefined, {
-      onDegrade: (info) => degradations.push(info),
-    });
-    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
-    // 刚好装得下就一行不裁：预算不是借口去裁内容
-    if (degradations.length === 0) expect(sessionLineCount(text)).toBe(400);
-    // 装不下则必须逐组标记，且 Σ显示行 + Σhidden == 400（截断不许静默）
-    else expect(sessionLineCount(text) + hiddenTotal(text)).toBe(400);
-  });
-
-  it('单组 1,200 个会话：靠降级装进 30KB，且每个被裁的组都带数字标记', () => {
-    const sessions = refs(1200, 'b');
-    const degradations: { level: number; groupCap: number | null; bytes: number }[] = [];
-    const text = renderGuide([group('local:huge', sessions)], 0, [], [], undefined, {
-      onDegrade: (info) => degradations.push(info),
-    });
-    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
-    expect(text).toContain('hidden by the size budget');
-    // 标记必须带数字（只说「…more」等于告诉 Agent 「有东西你看不到但拿不到」）
-    expect(hiddenTotal(text)).toBeGreaterThan(0);
-    expect(sessionLineCount(text) + hiddenTotal(text)).toBe(1200);
-    // 降级被记下来，等级与组内上限都在（refreshProcessGuide 会写进 logs/omem.log）
-    expect(degradations).toHaveLength(1);
-    expect(degradations[0].level).toBe(2);
-    expect(degradations[0].groupCap).toBeGreaterThan(0);
-  });
-
-  it('多组同时超限时每组各自标记，不是只在全局说一句', () => {
-    const big1 = refs(700, 'c');
-    const big2 = refs(700, 'd');
-    const text = renderGuide([group('local:a', big1), group('local:b', big2)], 0, []);
-    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
-    const markers = text.match(/hidden by the size budget/g) ?? [];
-    expect(markers.length).toBe(2);
-    expect(sessionLineCount(text) + hiddenTotal(text)).toBe(1400);
-  });
-
-  it('未超预算时不降级、不出现 hidden 标记（预算不是借口去裁内容）', () => {
+describe('真实形状：0 隐藏、行数不减', () => {
+  it('548 refs（含 91 份折叠）+ 235 unassigned + 58 topic → 装得下，0 隐藏', () => {
+    seq = 0;
+    // 形状取自 QA 验收报告 §4.1：窗口 refs 548 / 会话 639 / 最大组 469 / unassigned 235
+    const topics = [
+      group('local:7578434e', refs(469, 60)),
+      group('workbuddy:66a01cd3', refs(40, 20)),
+      group('local:35651ad7', refs(20, 10)),
+      group('catpaw:9f1c02aa', refs(12, 1)),
+      group('qoder:77aa10bb', refs(7, 0)),
+    ];
+    const unassigned = refs(235);
+    const existing = Array.from({ length: 58 }, (_, k) => ({
+      name: `topic-${String(k).padStart(2, '0')}`,
+      docId: `2026-10-28-${(k + 100).toString(16).padStart(6, '0')}`,
+      confidence: 0.55,
+      created: '2026-10-28T00:00:00.000Z',
+    }));
+    const windowSessions = [...topics.map((t) => t.sessions), unassigned]
+      .flat()
+      .reduce((n, r) => n + (r.copies ?? 1), 0);
     const degradations: unknown[] = [];
-    const text = renderGuide([group('local:small', refs(20))], 0, [], [], undefined, {
+    const text = renderGuide(topics, 64, unassigned, existing, { sessions: windowSessions + 405, shownSessions: 0 }, {
       onDegrade: (info) => degradations.push(info),
     });
-    expect(text).not.toContain('hidden by the size budget');
+
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+    // 会话行一行不丢（548 组内 + 235 unassigned），且没有降级
+    expect(sessionLines(text)).toHaveLength(548);
+    expect(unassignedLines(text)).toHaveLength(235);
     expect(degradations).toHaveLength(0);
+    expect(text).not.toContain('hidden by the size budget');
+    // topic 行数 == active 数，且 id 仍在
+    expect((text.match(/^- `topic-/gm) ?? []).length).toBe(58);
+    expect(text).toContain('`2026-10-28-00006d`');
+  });
+});
+
+describe('会话行不得含绝对路径（断言作用在会话行上，不在全文件上）', () => {
+  it('会话行里没有盘符', () => {
+    seq = 0;
+    const text = renderGuide([group('local:aaa', refs(10))], 0, []);
+    expect(sessionLines(text)).toHaveLength(10);
+    for (const line of sessionLines(text)) expect(line).not.toMatch(/[A-Za-z]:[\\/]/);
+    // 裸 id 仍在（读取通道靠它）
+    expect(sessionLines(text)[0]).toMatch(/^ {2}- `[0-9a-f]{8}-/);
+  });
+
+  it('project_fp 里的盘符是数据，必须原样保留（不能被当违规路径清掉）', () => {
+    seq = 0;
+    const text = renderGuide([group('X:\\ai-dev', refs(2))], 0, []);
+    expect(text).toContain('## X:\\ai-dev');
+  });
+});
+
+describe('预算触发时：标记按会话计，恒等式成立', () => {
+  it('1,800 refs（含折叠）→ 装进 45,000，且 Σshown + Σhidden + unassigned == 窗口会话数', () => {
+    seq = 0;
+    const topics = [
+      group('local:7578434e', refs(1420, 100)),
+      group('workbuddy:66a01cd3', refs(200, 40)),
+      group('local:35651ad7', refs(180, 0)),
+    ];
+    const unassigned = refs(60);
+    const windowSessions = [...topics.map((t) => t.sessions), unassigned]
+      .flat()
+      .reduce((n, r) => n + (r.copies ?? 1), 0);
+    const text = renderGuide(topics, 0, unassigned, [], { sessions: windowSessions, shownSessions: 0 });
+
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
+    const hidden = markers(text).reduce((a, b) => a + b, 0);
+    expect(hidden).toBeGreaterThan(0);
+    // 头部报的 shown 是**真正渲染出来**的会话数（不是窗口内全部）
+    const shown = Number(/This batch: \d+ group\(s\) \/ (\d+) session\(s\) shown/.exec(text)![1]);
+    const unassignedRendered = unassignedLines(text).reduce((n, line) => {
+      const id = /`([^`]+)`/.exec(line)![1];
+      const ref = unassigned.find((r) => r.sessionId === id);
+      return n + (ref?.copies ?? 1);
+    }, 0);
+    expect(shown + hidden + unassignedRendered).toBe(windowSessions);
+    // 头部不许再把被隐藏的算成 shown
+    expect(shown).toBeLessThan(windowSessions);
+  });
+
+  it('Unassigned sessions 也有自己的隐藏标记（不允许「235 条只列 5 条且不吭声」）', () => {
+    seq = 0;
+    const unassigned = refs(235);
+    const text = renderGuide([], 0, unassigned, [], { sessions: 235, shownSessions: 0 }, { maxBytes: 6_000 });
+    const unassignedSection = text.slice(text.indexOf('## Unassigned sessions'));
+    expect(unassignedSection).toContain('hidden by the size budget');
+    const rendered = unassignedLines(text).length;
+    expect(rendered).toBeLessThan(235);
+    expect(markers(unassignedSection).reduce((a, b) => a + b, 0)).toBe(235 - rendered);
+  });
+
+  it('每组各自标记，且标记的数字是会话数（折叠行会在括号里补行数）', () => {
+    seq = 0;
+    const big = refs(600, 300); // 600 行 = 900 会话
+    const text = renderGuide([group('local:huge', big)], 0, [], [], { sessions: 900, shownSessions: 0 }, { maxBytes: 20_000 });
+    const line = text.split('\n').find((l) => l.startsWith('  - …'))!;
+    expect(line).toMatch(/…\d+ session\(s\) \(\d+ line\(s\)\) hidden by the size budget/);
+    const hiddenSessions = Number(/…(\d+) session\(s\)/.exec(line)![1]);
+    const hiddenLines = Number(/\((\d+) line\(s\)\)/.exec(line)![1]);
+    expect(hiddenSessions).toBeGreaterThan(hiddenLines); // 折叠行代表的会话更多
   });
 });
 
 describe('消灭手写副本：规则句只从 instructions.ts 取', () => {
   it('guide.ts 源码里 RULE_EVIDENCE / RULE_VERIFIED 的字面串出现 0 次', () => {
     const src = readFileSync(join(process.cwd(), 'src/process/guide.ts'), 'utf8');
-    // 字面串（不是标识符）：AGENTS.md:23 的原始缺陷就是这两句被手写了第二份
     expect(src).not.toContain('at least 12 consecutive characters copied from a');
     expect(src).not.toContain('comes only from `omem add` or `omem review --confirm`');
-    // 但仍要 import 常量，否则渲染出来就少了这两条规则
     expect(src).toContain('RULE_EVIDENCE');
     expect(src).toContain('RULE_VERIFIED');
   });
 
   it('渲染产物里仍然含这两条规则（去重不是删掉）', () => {
+    seq = 0;
     const text = renderGuide([group('local:ccc', refs(1))], 0, []);
     expect(text).toContain('copied from a `## user` section');
     expect(text).toContain('comes only from `omem add` or `omem review --confirm`');
-  });
-});
-
-describe('真实 shape 的验收：572 行 + 58 topic 同时满足 ≤30KB 与行数不减', () => {
-  const uuid = (i: number): string => `${(0x7578434e + i).toString(16).padStart(8, '0')}-1a2b-4c3d-8e9f-${String(i).padStart(12, '0')}`;
-
-  function realRefs(count: number): GuideSessionRef[] {
-    return Array.from({ length: count }, (_, i) => ({ path: 'x', sessionId: uuid(i), agent: 'local' }));
-  }
-
-  it('478 行巨组 + 94 行其余组 + 58 个 topic → 29KB 左右、0 隐藏、0 盘符路径', () => {
-    const topics = [
-      group('local:7578434e', realRefs(478)),
-      group('workbuddy:66a01cd3', realRefs(40)),
-      group('local:35651ad7', realRefs(30)),
-      group('catpaw:9f1c02aa', realRefs(24)),
-    ];
-    const existing = Array.from({ length: 58 }, (_, i) => ({
-      name: `topic-${String(i).padStart(2, '0')}`,
-      docId: `2026-10-28-${(i + 100).toString(16).padStart(6, '0')}`,
-      confidence: 0.55,
-      created: '2026-10-28T00:00:00.000Z',
-    }));
-    const degradations: unknown[] = [];
-    const text = renderGuide(topics, 60, [], existing, { sessions: 1101, shownSessions: 572 }, {
-      onDegrade: (info) => degradations.push(info),
-    });
-
-    // ① 宿主 Read 的硬门槛（≤30,000 B）
-    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(GUIDE_MAX_BYTES);
-    // ② 会话行数不减：572 行一行不少，也没有靠隐藏来换体积
-    expect(sessionLineCount(text)).toBe(572);
-    expect(text).not.toContain('hidden by the size budget');
-    // 降级最多到「主题行紧凑」，id 必须还在（supersedes 要的就是它）
-    if (degradations.length > 0) {
-      expect(degradations).toHaveLength(1);
-      expect((degradations[0] as { level: number }).level).toBe(1);
-    }
-    expect(text).toContain('`2026-10-28-00006d`');
-    // ③ topic 行数 == active 数（58）
-    expect((text.match(/^- `topic-/gm) ?? []).length).toBe(58);
-    // ④ 没有盘符路径
-    expect(text).not.toMatch(/[A-Za-z]:[\\/]/);
   });
 });

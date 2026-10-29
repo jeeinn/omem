@@ -93,6 +93,22 @@ if grep -rq "sk-ant-abc123" "$OMEM_HOME/sessions" 2>/dev/null; then bad "secrets
 grep -rq "REDACTED" "$OMEM_HOME/sessions" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
 if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/sessions" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
 if grep -rq "会话摘要" "$OMEM_HOME/sessions" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
+echo "== S6c PROCESS.md: 预算 / 行数 / 会话行不带绝对路径 =="
+GUIDE="$OMEM_HOME/PROCESS.md"
+[ -f "$GUIDE" ] && ok "PROCESS.md generated" || bad "PROCESS.md missing"
+GBYTES=$(wc -c < "$GUIDE" | tr -d ' ')
+# 宿主 Read 的判据是 字符数÷4 > 20000（≈80,000 字符）才拒；45,000 是本项目的预算上限。
+[ "$GBYTES" -le 45000 ] && ok "PROCESS.md within the 45000 B budget ($GBYTES)" || bad "PROCESS.md over budget: $GBYTES"
+# 注意：这里必须用 grep -F。本机 Git-Bash 的 BRE 会把 '\\' 解释掉，`grep -c 'C:\Users'`
+# 对含 551 条盘符路径的文件也返回 0 —— 那是假阴性（QA 2026-10-29 实测）。
+# 断言只作用在「会话行」上：`## X:\ai-dev` 这类 project_fp 是数据，不是冗余路径。
+SESS_LINES=$(grep -cF '  - `' "$GUIDE" || true)
+SESS_WITH_DRIVE=$(grep -F '  - `' "$GUIDE" | grep -cF ':\' || true)
+[ "${SESS_WITH_DRIVE:-0}" -eq 0 ] && ok "no drive letters in session lines (grep -F, $SESS_LINES line(s))" || bad "$SESS_WITH_DRIVE session line(s) carry a drive letter"
+# 行数不减：fixture 的那份会话必须在清单里（不是被预算藏起来）
+[ "${SESS_LINES:-0}" -ge 1 ] && ok "the pending fixture session is listed" || bad "no session line rendered"
+grep -qF 'hidden by the size budget' "$GUIDE" && bad "budget tripped on the smoke fixture (should fit)" || ok "no degradation on the smoke fixture"
+
 BAD=$(run sync --tier rules); CODE=$?
 [ $CODE -eq 1 ] && ok "tier rules rejected" || bad "tier rules exit $CODE: $BAD"
 
