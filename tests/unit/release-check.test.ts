@@ -2,16 +2,19 @@
 // 只钉纯函数——真跑 `npm pack` 的判据由 scripts/release-check.mjs 在发布前执行，
 // 在没有精确 tag 的工作区里它必须失败，那是设计意图，不是测试环境问题。
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   FORBIDDEN_PATTERNS,
+  distProblems,
   findForbiddenPath,
   md5File,
   normalizeTag,
+  packageCountProblem,
   versionTagMismatch,
   whitelistProblems,
-} from '../../scripts/release-check.mjs';
+} from '../../scripts/release-rules.mjs';
 import { composeVersion } from '../../src/core/version.js';
 
 describe('version string carries the build commit', () => {
@@ -91,5 +94,66 @@ describe('release-check: whitelist and entry points', () => {
   it('md5File hashes the tarball for registration in docs/releases.md', () => {
     const file = join(process.cwd(), 'package.json');
     expect(md5File(file)).toMatch(/^[0-9a-f]{32}$/);
+  });
+});
+
+// ── P1-A（beta.9.1）：dist 不许有孤儿产物，否则 md5 取决于构建历史 ──
+describe('release-check: dist 孤儿产物', () => {
+  function fixture(): string {
+    const root = mkdtempSync(join(tmpdir(), 'omem-dist-'));
+    mkdirSync(join(root, 'src', 'commands'), { recursive: true });
+    mkdirSync(join(root, 'dist', 'commands'), { recursive: true });
+    writeFileSync(join(root, 'src', 'cli.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'src', 'commands', 'add.ts'), 'export const b = 1;\n');
+    writeFileSync(join(root, 'dist', 'cli.js'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'dist', 'commands', 'add.js'), 'export const b = 1;\n');
+    mkdirSync(join(root, 'dist', 'core'), { recursive: true });
+    writeFileSync(join(root, 'dist', 'core', 'build-info.json'), '{}');
+    return root;
+  }
+
+  it('干净构建：dist 与 src 一一对应，无孤儿', () => {
+    const root = fixture();
+    try {
+      const r = distProblems(root);
+      expect(r.orphans).toEqual([]);
+      expect(r.missing).toEqual([]);
+      expect(r.actualCount).toBe(3);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('源码已删但 dist 残留（真实事故：dist/commands/pause.js）→ 判为孤儿', () => {
+    const root = fixture();
+    try {
+      writeFileSync(join(root, 'dist', 'commands', 'pause.js'), '// stale');
+      const r = distProblems(root);
+      expect(r.orphans).toEqual(['commands/pause.js']);
+      expect(r.missing).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('少一个产物（构建不完整）也算失败', () => {
+    const root = fixture();
+    try {
+      rmSync(join(root, 'dist', 'commands', 'add.js'));
+      expect(distProblems(root).missing).toEqual(['commands/add.js']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('包内文件数必须等于 dist + 5 个固定条目', () => {
+    const root = fixture();
+    try {
+      // dist 3 个文件 → 期望 8
+      expect(packageCountProblem(8, root)).toBeNull();
+      expect(packageCountProblem(9, root)).toContain('packed 9 file(s)');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -17,68 +17,25 @@
 //
 // 断言逻辑抽成纯函数并导出：tests/unit/release-check.test.ts 直接钉这些判据，
 // 而不是「跑一遍命令看它退不退出」——后者在没有 tag 的工作区永远红。
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import {
+  FORBIDDEN_PATTERNS,
+  distProblems,
+  findForbiddenPath,
+  md5File,
+  packageCountProblem,
+  versionTagMismatch,
+  whitelistProblems,
+} from './release-rules.mjs';
+
+// 保持对外导出不变（脚本与测试都可以从任一文件取到判据）
+export * from './release-rules.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** tag → 版本号：`v0.1.0-beta.9` → `0.1.0-beta.9`。 */
-export function normalizeTag(tag) {
-  return String(tag ?? '').trim().replace(/^v/, '');
-}
-
-/**
- * 打包清单里不允许出现的路径特征。
- * 每一条都对应一次真实事故或一类可预见的泄漏：
- * - `test/`、`*.test.*`：QA 报告里带出去的就是这些（含 `.omem-test/home-*`）；
- * - `.omem-test`：冒烟测试把隔离 HOME 建在仓库根；
- * - `docs/`、`src/`：源码与内部文档没必要进包，且会把内部推理带出去。
- */
-export const FORBIDDEN_PATTERNS = [
-  /(^|\/)tests?\//i,
-  /\.test\.[cm]?[jt]sx?$/i,
-  /(^|\/)\.omem-test(\/|$)/i,
-  /(^|\/)docs\//i,
-  /(^|\/)src\//i,
-];
-
-/** 返回清单里第一处违禁路径；干净时返回 null。 */
-export function findForbiddenPath(files) {
-  for (const f of files ?? []) {
-    const p = String(f).replace(/\\/g, '/');
-    if (FORBIDDEN_PATTERNS.some((re) => re.test(p))) return p;
-  }
-  return null;
-}
-
-/** 版本与 tag 的一致性判据。返回 null 表示通过，否则返回人话原因。 */
-export function versionTagMismatch(version, tag) {
-  const wanted = normalizeTag(tag);
-  if (!wanted) return 'no exact tag on HEAD (git describe --tags --exact-match is empty)';
-  if (String(version ?? '').trim() !== wanted) return `package.json version "${version}" != tag "${tag}"`;
-  return null;
-}
-
-/** `files` 白名单自检：dist / bin 必在，main 与 bin 入口文件必须真实存在。 */
-export function whitelistProblems(pkg) {
-  const problems = [];
-  const files = Array.isArray(pkg?.files) ? pkg.files.map(String) : [];
-  for (const required of ['dist', 'bin']) {
-    if (!files.includes(required)) problems.push(`files whitelist is missing "${required}"`);
-  }
-  for (const entry of [pkg?.main, ...Object.values(pkg?.bin ?? {})]) {
-    if (typeof entry !== 'string' || !entry) continue;
-    if (!existsSync(join(ROOT, entry))) problems.push(`entry point not found: ${entry}`);
-  }
-  return problems;
-}
-
-export function md5File(path) {
-  return createHash('md5').update(readFileSync(path)).digest('hex');
-}
 
 function gitTag() {
   try {
@@ -149,6 +106,21 @@ function main(argv) {
   // 3. 白名单与入口
   for (const problem of whitelistProblems(pkg)) failures.push(`packaging: ${problem}`);
   if (failures.length === 0) console.log('whitelist: dist + bin present, entry points exist');
+
+  // 3b. dist 不许有孤儿（孤儿会被 files:["dist"] 一起打包 → md5 取决于构建历史）
+  const dist = distProblems();
+  if (dist.orphans.length > 0) {
+    failures.push(`dist has orphan build output (source deleted, file left): ${dist.orphans.slice(0, 5).join(', ')}${dist.orphans.length > 5 ? ` …(+${dist.orphans.length - 5})` : ''} — run npm run build (it cleans dist first)`);
+  }
+  if (dist.missing.length > 0) failures.push(`dist is missing build output: ${dist.missing.slice(0, 5).join(', ')}`);
+  if (dist.orphans.length === 0 && dist.missing.length === 0) {
+    console.log(`dist: ${dist.actualCount} file(s) match src/**/*.ts 1:1 (+build-info.json)`);
+  }
+
+  // 3c. 包内文件数 == dist + 4 个固定条目
+  const countProblem = packageCountProblem(files.length);
+  if (countProblem) failures.push(`packaging: ${countProblem}`);
+  else console.log(`packaging: ${files.length} file(s) = dist + bin + README + NOTICE + package.json`);
 
   // 4. tarball md5（供 docs/releases.md 登记）
   if (tarballArg) {

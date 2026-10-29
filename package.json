@@ -35,8 +35,8 @@
     "NOTICE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-info.mjs",
-    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node scripts/build-info.mjs",
+    "clean": "node scripts/clean-dist.mjs",
     "test": "vitest run",
     "test:live": "npm run build && node tests/live/verify-local.mjs",
     "test:watch": "vitest",
