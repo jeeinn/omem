@@ -238,3 +238,46 @@ export class GitBackend {
     else git(['remote', 'add', 'origin', url], this.home);
   }
 }
+
+/**
+ * 只本地提交，不碰远端、不建快照（beta.9 / T05 / R3）。
+ *
+ * 为什么要独立于 `push()`：`save_memory` 一次写入只该产生一笔本地提交，
+ * 快照与远端推送是 `omem backup` 的职责。把两者混在一起会让每次写入都想联网。
+ *
+ * 非 git 仓库 / 未配置身份 / 没有改动 一律返回结构化原因，**不抛**：
+ * 记忆已经落盘了，提交失败不该让一次成功的写入变成失败（清单与正文都还在）。
+ */
+export interface LocalCommitResult {
+  committed: boolean;
+  sha?: string;
+  /** 本次提交包含的文件数（`git status --porcelain` 的行数）。 */
+  files?: number;
+  /** committed=false 的原因（人话，直接进回执）。 */
+  reason?: string;
+}
+
+export function commitLocal(home: string, message: string): LocalCommitResult {
+  if (!existsSync(join(home, '.git'))) {
+    return { committed: false, reason: 'not a git repository' };
+  }
+  if (!GitBackend.available()) {
+    return { committed: false, reason: 'git command not found' };
+  }
+  const added = gitTry(['add', '-A'], home);
+  if (!added.ok) {
+    return { committed: false, reason: `git add failed (${added.err.split('\n')[0]})` };
+  }
+  const porcelain = gitTry(['status', '--porcelain'], home);
+  if (!porcelain.ok) {
+    return { committed: false, reason: `git status failed (${porcelain.err.split('\n')[0]})` };
+  }
+  const files = porcelain.out.split('\n').filter(Boolean).length;
+  if (files === 0) return { committed: false, reason: 'nothing to commit' };
+  const c = gitTry(['commit', '-m', message], home);
+  if (!c.ok) {
+    return { committed: false, reason: `git commit failed (${c.err.split('\n')[0]})` };
+  }
+  const sha = gitTry(['rev-parse', '--short', 'HEAD'], home);
+  return { committed: true, sha: sha.ok ? sha.out : undefined, files };
+}

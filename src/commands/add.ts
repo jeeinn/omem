@@ -1,7 +1,7 @@
 // omem add：手动写入一条记忆（source: manual，verified: true——用户显式断言即确认）。
 // 过滤、去重、落盘走 commitEntry。--force 只绕过禁区与代码密度。
 import { openCtx } from '../core/ctx.js';
-import { commitEntry, metadataDrift, overCapNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, overCapNotice, vcsNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
@@ -77,6 +77,8 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     for (const old of result.supersededVerified ?? []) {
       console.log(`Note: previous verified status (${old.confidence}) was dropped; ${old.id} is now a superseded version.`);
     }
+    // 写入即有版本历史（T05）：一次命令一次提交，非 git 仓只说明不报错。
+    console.log(vcsNotice(autoCommit(ctx.home, ctx.config, `omem: add ${result.id ?? ''}`.trim()), 'cli'));
     for (const w of result.warnings ?? []) console.log(`Note: ${w}`);
     return 0;
   } finally {

@@ -16,7 +16,7 @@ import type { SessionHit } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
-import { commitEntry, metadataDrift, normalizeTopic, overCapNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, vcsNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
@@ -212,7 +212,8 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'Limits: content longer than the configured maximum is NOT written — the response states how far over you are, what the ' +
         'overflow looked like, that the existing document is unchanged, and the two ways forward (tighten the body, or start a ' +
         'narrower topic). Nothing is ever truncated silently. Identical content is not written twice; if only the metadata ' +
-        'differs, the response tells you how to apply it.',
+        'differs, the response tells you how to apply it. Each call that writes leaves exactly one local git commit when the ' +
+        'store is a git repository, and the response reports it (`vcs`) — pushing to a remote is `omem backup`, not this tool.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -277,6 +278,16 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
               overflow: { type: 'number' },
               preview: { type: 'string', description: 'The tail that would have been lost (receipt only; never written).' },
               activeId: { type: 'string', description: 'The document that is still active and unchanged.' },
+            },
+          },
+          vcs: {
+            type: 'object',
+            description: 'Version-control outcome for this call: committed / skipped (with reason) / off.',
+            properties: {
+              status: { type: 'string' },
+              sha: { type: 'string' },
+              files: { type: 'number' },
+              reason: { type: 'string' },
             },
           },
           superseded_verified: {
@@ -664,6 +675,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
   if (unknownNote) notes.push(unknownNote);
 
   const structured: Record<string, unknown> = { status: 'noop' };
+  /** 本次调用是否真的改了磁盘（决定要不要提交、要不要说 vcs）。 */
+  let wroteSomething = false;
 
   if (content) {
     // 上限不再在这里裁（beta.9 / T02）：cap 的唯一裁决点在 commitEntry，三条写路径共用。
@@ -747,6 +760,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       ? metadataDrift(result.existing, { topic, type: type === requestedType ? type : undefined, tags: requestedTags })
       : [];
 
+    wroteSomething = result.status === 'written';
     Object.assign(structured, {
       status: result.status,
       id: result.id,
@@ -831,12 +845,20 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
     } else {
       const { updated, missing } = applyAssent(ctx.home, ctx.index, confirmIds);
+      if (updated.length > 0) wroteSomething = true;
       if (updated.length > 0) parts.push(`Assent recorded for ${updated.join(', ')} (confidence up to 0.8, still unverified).`);
       if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
       Object.assign(structured, { confirmed: updated, confirm_missing: missing });
     }
   }
 
+  // 一次工具调用 = 一次提交（beta.9 / T05）：把「这次调用改了什么」固化成可回溯的一步。
+  // 落在这里而不是 commitEntry 里，是因为同一次调用还可能包含 confirm_ids 的改动。
+  if (!dryRun && wroteSomething) {
+    const vcs = autoCommit(ctx.home, ctx.config, `omem: ${structured.status === 'deduped' ? 'dedup' : 'save'} ${String(structured.id ?? '')}`.trim());
+    structured.vcs = vcs;
+    parts.push(vcsNotice(vcs, 'mcp'));
+  }
   for (const n of notes) parts.push(n);
   if (dryRun) structured.dry_run = true;
   return { text: parts.join('\n'), structured };

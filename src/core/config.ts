@@ -25,7 +25,19 @@ export interface OmemConfig {
     codebuddy_cn_projects: string;
     exclude_paths: string[];
   };
-  process: { default_tier: Tier; stale_after_days: number; stale_weight: number; max_content_chars: number; guide_batch: number };
+  process: {
+    default_tier: Tier;
+    stale_after_days: number;
+    stale_weight: number;
+    max_content_chars: number;
+    guide_batch: number;
+    /**
+     * 写入后是否自动提交数据仓库（beta.9 / T05 / R3）。
+     * `session`（默认）：一次工具调用 / 一次 add 结束提交一次；`off`：只落盘不提交。
+     * 非 git 仓库一律静默跳过（不进 stdout），只在回执与 logs/omem.log 里说明。
+     */
+    auto_commit: 'session' | 'off';
+  };
   /** 档 3（API 加工）端点配置（文档 §3.1）。timeout_ms / max_input_chars 为 0 时按端点类型取默认。 */
   api: {
     base: string;
@@ -64,6 +76,7 @@ export function defaultConfig(): OmemConfig {
       stale_weight: 0.5, // 规格 §4.2：L2 冷却降权 ×0.5
       max_content_chars: 2000,
       guide_batch: 5, // PROCESS.md 每轮渲染的分组数（2026-10-28 前 hardcode 在 guide.ts）
+      auto_commit: 'session', // 写入即有版本历史：13 次写 0 提交是 beta.8 的 P1 缺陷（QA W14）
     },
     api: {
       base: 'http://localhost:11434/v1', // ollama / llama-server 的 OpenAI 兼容端点
@@ -381,6 +394,8 @@ function fromParsed(p: Record<string, any>): OmemConfig {
       stale_weight: numIn(p?.process?.stale_weight, 0, 1, d.process.stale_weight),
       max_content_chars: numIn(p?.process?.max_content_chars, 100, 100_000, d.process.max_content_chars),
       guide_batch: numIn(p?.process?.guide_batch, 1, 100, d.process.guide_batch),
+      // 只认 'off' 这一个关闭值：拼错时按默认（开）处理更安全——历史缺失无法补救，多一笔提交可 revert。
+      auto_commit: p?.process?.auto_commit === 'off' ? 'off' : 'session',
     },
     api: {
       base: typeof p?.api?.base === 'string' && p.api.base ? p.api.base : d.api.base,
@@ -436,6 +451,7 @@ export function serializeConfig(c: OmemConfig): string {
     `stale_after_days = ${c.process.stale_after_days}`,
     `stale_weight = ${c.process.stale_weight}`,
     `max_content_chars = ${c.process.max_content_chars}`,
+    `auto_commit = ${tomlStr(c.process.auto_commit)}`,
     '',
     '# [api].key will be committed to the git data repo by omem backup (doc §4 D5); leave empty for loopback endpoints',
     '[api]',

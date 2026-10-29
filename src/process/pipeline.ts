@@ -7,7 +7,7 @@ import { nowIso, parseSince, BackendUnavailableError } from '../core/util.js';
 import { deriveTitle, isNearDupTopic } from '../core/entry.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
-import { commitEntry } from '../core/commit.js';
+import { autoCommit, commitEntry } from '../core/commit.js';
 import { listEntries } from '../core/store.js';
 import { scanSessions, type ScanResult } from '../collect/collector.js';
 import { COLLECTOR_SPECS } from '../collect/registry.js';
@@ -91,6 +91,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
   publishGuide(home, index, config, opts.dryRun ?? false, report);
   finish(home, index, report, opts.dryRun ?? false);
+  if (!opts.dryRun) commitRun(home, config, report);
   return report;
 }
 
@@ -251,9 +252,20 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   // 规则 9：同一次运行就把已吸收会话从 PROCESS.md 待办里去掉。中止前也刷新，已产出留在索引里。
   publishGuide(home, index, config, false, report, true);
   finish(home, index, report, false);
+  commitRun(home, config, report);
   if (stop) throw stop;
   if (fatal) throw fatal;
   return report;
+}
+
+/** 一轮 run 一次提交（不是每个会话一次）：run 是用户视角的一个动作。 */
+function commitRun(home: string, config: OmemConfig, report: RunReport): void {
+  const vcs = autoCommit(
+    home,
+    config,
+    `omem: sync ${report.sessions} session(s), ${report.written.length} document(s)`,
+  );
+  if (vcs.status === 'skipped') report.notes.push(`git: ${vcs.reason} (auto_commit=session, nothing committed)`);
 }
 
 function readBodyChars(path: string): number {

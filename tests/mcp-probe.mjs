@@ -61,7 +61,8 @@ try {
   const init = await waitFor(1);
   results.push(['initialize returns serverInfo=omem', init.result?.serverInfo?.name === 'omem']);
   // 版本号必须来自 package.json：长驻进程升级后，这是唯一能确认「跑的是哪个 build」的证据。
-  results.push(['initialize reports a real version (not hardcoded 0.1.0)', /^0\.1\.0-beta\.\d+$/.test(init.result?.serverInfo?.version ?? '')]);
+  // T01：版本串现在带 short commit（0.1.0-beta.9+52d7c85），未带 tag 的构建没有后缀
+  results.push(['initialize reports a real version (not hardcoded 0.1.0)', /^0\.1\.0-beta\.\d+(\+[0-9a-f]{6,12}(-dirty)?)?$/.test(init.result?.serverInfo?.version ?? '')]);
   // save_memory 的描述里让 Agent「先读 instructions 拿 PROCESS.md 路径」，这句必须真的成立。
   const instr = init.result?.instructions ?? '';
   results.push(['initialize ships instructions', typeof instr === 'string' && instr.length > 0]);

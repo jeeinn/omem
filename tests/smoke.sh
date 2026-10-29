@@ -59,6 +59,12 @@ OUT=$(run search "Postgres 而非"); CODE=$?
 echo "$OUT" | grep -q "Postgres" && ok "multi-word trigram hit" || bad "multi-word trigram miss: $OUT"
 echo "$OUT" | grep -q "confirmed" && ok "output carries freshness label" || bad "output missing freshness label"
 
+echo "== S2b auto commit (T05: 一次写入一个 commit) =="
+COMMITS=$(git -C "$OMEM_HOME" rev-list --count HEAD 2>/dev/null || echo 0)
+[ "$COMMITS" -ge 2 ] && ok "omem add produced a commit (init + add = $COMMITS)" || bad "no commit after add (count $COMMITS)"
+DIRTY=$(git -C "$OMEM_HOME" status --porcelain | wc -l | tr -d ' ')
+[ "$DIRTY" -eq 0 ] && ok "working tree clean after add (auto commit flushed it)" || bad "$DIRTY file(s) left uncommitted after add"
+
 echo "== S3 short query LIKE fallback (trigram invalid for <3 chars) =="
 OUT=$(run search "库")
 echo "$OUT" | grep -q "Postgres" && ok "single-char query LIKE fallback hit" || bad "single-char query miss: $OUT"

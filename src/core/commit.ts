@@ -16,6 +16,7 @@ import { applySupersedes, generateMemoryIndex } from './lifecycle.js';
 import { appendLog } from './log.js';
 import { inferDomain } from '../process/rules.js';
 import { refreshProcessGuide } from '../process/guide.js';
+import { commitLocal } from '../sync/git.js';
 
 export interface CommitInput {
   content: string;
@@ -147,6 +148,47 @@ export function metadataDrift(
     if (missing.length > 0) diffs.push(`tags [${missing.join(', ')}] not on the stored entry`);
   }
   return diffs;
+}
+
+/**
+ * 自动提交的结果（beta.9 / T05 / R3）。
+ *
+ * `off` = 用户关掉了（配置）；`skipped` = 想提交但没能提交（非 git 仓、无改动、身份缺失）。
+ * 两者都要能进回执，但都**不改变写入的成败**——记忆已经落盘了。
+ */
+export interface VcsResult {
+  status: 'committed' | 'skipped' | 'off';
+  sha?: string;
+  files?: number;
+  reason?: string;
+}
+
+/**
+ * 写入路径的自动提交。一次工具调用 / 一次 add 结束时调一次，不是每个文件调一次。
+ *
+ * 为什么不是每个文件提交一次：`save_memory` 一次调用可能落 3 个文件（新文档 + 旧版
+ * supersede + PROCESS.md 重算），分成 3 笔提交会把「一次写入」这件事拆成无法回溯的三步。
+ *
+ * 非 git 仓库：静默跳过（不抛、不写 stdout），由调用方在回执里说一句。
+ */
+export function autoCommit(home: string, config: OmemConfig, message: string): VcsResult {
+  if (config.process.auto_commit !== 'session') return { status: 'off' };
+  const r = commitLocal(home, message);
+  if (r.committed) return { status: 'committed', sha: r.sha, files: r.files };
+  appendLog(home, 'commit', { status: 'vcs-skipped', reason: r.reason });
+  return { status: 'skipped', reason: r.reason };
+}
+
+/** 自动提交结果的一句话回执。CLI 与 MCP 只差「你能做什么」那半句。 */
+export function vcsNotice(vcs: VcsResult, caller: 'cli' | 'mcp' = 'cli'): string {
+  if (vcs.status === 'committed') {
+    return `Version control: committed ${vcs.files ?? 1} file(s)${vcs.sha ? ` as ${vcs.sha}` : ''}.`;
+  }
+  if (vcs.status === 'off') return 'Version control: auto_commit is off; nothing was committed.';
+  const why = vcs.reason ?? 'unknown reason';
+  return caller === 'mcp'
+    ? `Version control: nothing committed (${why}). The entry is on disk but has no version history yet — ask the user to run omem backup, or to init the data repo.`
+    : `Version control: nothing committed (${why}). Run omem backup to create history, or omem init to create the data repo.`;
 }
 
 /** 脱敏后只剩下供应商前缀和占位符，视为整条都是密钥。 */
