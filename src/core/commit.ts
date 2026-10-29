@@ -34,6 +34,17 @@ export interface CommitInput {
   supersedes?: string[];
   profile?: Profile;
   /**
+   * 正文超过 `process.max_content_chars` 时怎么办。
+   *
+   * **必填、无默认值**（beta.9 / T02）：上限规则必须只有一处裁决点，而三条写路径
+   * （`save_memory` / `omem add` / pipeline）必须各自显式表态。靠 TypeScript 在编译期
+   * 把调用点标红，比靠 code review 记住「这里也得加」可靠。
+   *
+   * 运行时对 `undefined` 仍按 `reject` 处理：类型挡住新代码，运行时兜住任何漏网调用方，
+   * 且兜的方向是安全侧（拒绝写入，而不是产生半截事实）。
+   */
+  overCap: OverCap;
+  /**
    * 调用方类别。默认 'cli' 保持向后兼容。
    * 为什么需要：同一句冲突提示要按调用方生成——MCP 侧没有 `--force` 参数，
    * 也没有命令行，把 CLI 语法塞进去等于给 Agent 一条执行不了的指令。
@@ -62,6 +73,25 @@ export interface CommitOpts {
 
 export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty';
 
+/**
+ * 超限策略：`reject`（默认语义，落 0 条 + 回执给出路）或 `truncate`（旧行为，只留给
+ * CLI `--force` 这个显式逃生口）。
+ */
+export type OverCap = 'reject' | 'truncate';
+
+/** 超限拒绝时回执要用的量化信息。数量、出路与「旧文档没动」三件事缺一不可。 */
+export interface OverCapInfo {
+  /** 实际字符数（code point）。 */
+  chars: number;
+  limit: number;
+  /** 超出的字符数。 */
+  overflow: number;
+  /** 溢出片段预览：右侧会被丢掉的那一段（仅回执可见，不落盘）。 */
+  preview: string;
+  /** 该 topic 现在仍 active 的文档 id——它**没有被改动**，这是拒绝的全部价值。 */
+  activeId?: string;
+}
+
 export interface CommitResult {
   status: CommitStatus;
   id?: string;
@@ -70,6 +100,15 @@ export interface CommitResult {
   /** dry-run 且本应落盘时为 true；此时没有 id / path。 */
   dryRun?: boolean;
   reason?: string;
+  /** 超限被拒时的量化信息（回执四段由 overCapNotice 统一渲染）。 */
+  overCap?: OverCapInfo;
+  /** `overCap:'truncate'` 真的截了：调用方必须把「尾巴丢了」说出来。 */
+  truncated?: { chars: number; limit: number };
+  /**
+   * 被 supersede 掉的旧文档里原本是 `verified: true` 的那些（含旧 confidence）。
+   * 只报「Saved / Unverified entry」时，调用方分不清「新写的」与「把 0.9 换成 0.55 的」。
+   */
+  supersededVerified?: { id: string; confidence: number }[];
   /**
    * 非致命提醒：写入成功，但这件事值得让调用方知道（跨 topic 合并、近似 topic、
    * 误把项目分组名当主题）。不拒绝写入——拒绝会打断 Agent 的写回流程。
@@ -123,6 +162,41 @@ function logOutcome(home: string, status: CommitStatus, extra: Record<string, un
   appendLog(home, 'commit', { status, ...extra });
 }
 
+/** 溢出片段预览的长度上限：够看清「丢的是什么」，又不至于把回执撑爆。 */
+const OVERFLOW_PREVIEW_CHARS = 90;
+
+/**
+ * 超限回执的**唯一**渲染处（beta.9 / T02）。
+ *
+ * 为什么放在 commit.ts 而不是各调用方自己拼：同一句话在 CLI 与 MCP 各手写一遍，
+ * 必然一边先说「字数」一边先说「出口」，两句就漂了（`metadataDrift` 是同一教训）。
+ * 这里只做 caller 分支（MCP 没有 `--force` 这种命令行语法），不做语义分支。
+ *
+ * 四段结构固定：超限量 / 旧文档没被动过 / 溢出片段预览 / 两个出口。
+ * 缺任何一段，「拒绝」就退化成「写不进」——那正是 PM 唯一坚持的东西。
+ */
+export function overCapNotice(info: OverCapInfo, caller: 'cli' | 'mcp' = 'cli'): string[] {
+  const { chars, limit, overflow } = info;
+  const lines = [
+    `Not written: content is ${chars.toLocaleString('en-US')} characters, over the ${limit.toLocaleString('en-US')} limit by ${overflow.toLocaleString('en-US')}.`,
+  ];
+  lines.push(info.activeId
+    ? `Nothing was superseded; ${info.activeId} is still active and unchanged.`
+    : 'Nothing was written; no existing document was touched.');
+  if (info.preview) {
+    lines.push(`Over-cap preview (not written): "${info.preview}${overflow > [...info.preview].length ? '…' : ''}"`);
+  }
+  lines.push(caller === 'mcp'
+    ? `Options: (a) tighten the body to under ${limit.toLocaleString('en-US')} characters and resend; (b) start a narrower topic for the new fact and pass it as \`topic\` (the current document stays as it is).`
+    : `Options: (a) tighten the body to under ${limit.toLocaleString('en-US')} characters and re-run; (b) use --topic <narrower-name> for the new fact (the current document stays as it is). --force truncates instead, discarding the tail.`);
+  return lines;
+}
+
+/** 溢出尾部预览：右侧是被 cap 挡掉的那一段（新事实通常在尾部）。 */
+function overflowPreview(chars: string[], limit: number): string {
+  return chars.slice(limit, limit + OVERFLOW_PREVIEW_CHARS).join('').replace(/\s+/g, ' ').trim();
+}
+
 /**
  * 重写 PROCESS.md。清单是派生物，刷不动不该让已经落盘的记忆变成失败——
  * 记忆已经写好了，丢掉它才是真的损失。所以这里吞掉异常，只记日志。
@@ -145,7 +219,8 @@ export function commitEntry(
   const raw = input.content.trim();
   if (!raw) return finish(home, { status: 'excluded', reason: 'Content is empty' }, input, opts);
 
-  const { text, hits } = redactSecrets(raw);
+  const { text: redactedText, hits } = redactSecrets(raw);
+  let text = redactedText;
   const redacted = hits > 0 ? hits : undefined;
   if (hits > 0 && isRedactionShell(text)) {
     return finish(home, { status: 'redacted-empty', redacted, reason: 'Entire entry is a secret; discarded' }, input, opts);
@@ -155,6 +230,38 @@ export function commitEntry(
   if (!opts.force) {
     if (profile === 'work' && isCodeHeavy(text)) {
       return finish(home, { status: 'excluded', redacted, reason: 'Code-heavy entries excluded under work profile' }, input, opts);
+    }
+  }
+
+  // ── 上限规则：唯一裁决点（beta.9 / T02） ──
+  // 此前上限只存在于 `save_memory` 自己的入参截断里，`omem add` 与 pipeline 都没有，
+  // 于是「2000 字」有三套纪律。现在三条路径都过这里。
+  // 位置在 supersede 解析之前：拒绝时旧文档必须零改动——这是「拒绝」相对「截断」的全部价值
+  // （截断会把旧文档 supersede 掉，内容永久退出检索）。
+  const topic = resolveTopic(input);
+  const capChars = [...text];
+  const limit = Math.max(1, Math.floor(config.process.max_content_chars));
+  const capMode: OverCap = input.overCap === 'truncate' ? 'truncate' : 'reject';
+  let truncatedInfo: { chars: number; limit: number } | undefined;
+  if (capChars.length > limit) {
+    if (capMode === 'truncate') {
+      // 旧行为，只留给 CLI `--force` 这个显式逃生口：回执必须说清尾巴丢了。
+      truncatedInfo = { chars: capChars.length, limit };
+      text = capChars.slice(0, limit).join('') + '…';
+    } else {
+      const activeForTopic = topic ? index.findActiveByTopic(topic) : undefined;
+      return finish(home, {
+        status: 'excluded',
+        redacted,
+        overCap: {
+          chars: capChars.length,
+          limit,
+          overflow: capChars.length - limit,
+          preview: overflowPreview(capChars, limit),
+          activeId: activeForTopic?.id ?? (input.supersedes ?? []).map((s) => s.trim()).filter(Boolean)[0],
+        },
+        reason: `Content is ${capChars.length} characters, over the ${limit} limit by ${capChars.length - limit}; nothing was written`,
+      }, input, opts);
     }
   }
 
@@ -171,8 +278,7 @@ export function commitEntry(
   }
 
   const supersedes = (input.supersedes ?? []).map((s) => s.trim()).filter(Boolean);
-  // 提前解析 topic：supersedes 落空时的提示要用它给出「该主题现在的活文档是谁」。
-  const topic = resolveTopic(input);
+  // topic 已在 cap 判定前解析（拒绝回执要用它指出「哪份文档没被动过」），此处不重复。
   // 一次遍历同时完成「存在性校验」和「继承所需的数据」，避免对同一批 id 反复 findById。
   const oldEntries: Located[] = [];
   const missing: string[] = [];
@@ -247,7 +353,14 @@ export function commitEntry(
   }
 
   if (opts.dryRun) {
-    return { status: 'written', redacted, dryRun: true, reason: 'dry-run', warnings };
+    return {
+      status: 'written',
+      redacted,
+      dryRun: true,
+      reason: 'dry-run',
+      warnings,
+      ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+    };
   }
 
   const entry: Entry = {
@@ -274,12 +387,26 @@ export function commitEntry(
   const located = { entry, path: written.path, location: 'knowledge' as const };
   index.upsert(entry, written.path, written.content);
   if (supersedes.length > 0) applySupersedes(home, index, located);
+  // 被取代的旧版里原本 verified 的，必须进回执（QA W4：回执一字不提，调用方无法察觉
+  // 自己把 0.9 的活文档换成了 0.55 的新版）。旧文件仍然保留 verified: true，只是不再是
+  // 活文档——所以措辞是「降级」，不是「验证信息蒸发」。
+  const supersededVerified = oldEntries
+    .filter((l) => l.entry.fm.verified)
+    .map((l) => ({ id: l.entry.fm.id, confidence: l.entry.fm.confidence }));
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
   // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过
   // omem sync，清单原本只会在采集路径上重算——Agent 会读到已吸收的旧待办。
   if (opts.refreshGuide !== false) refreshGuide(home, index, config);
   logOutcome(home, 'written', { id: entry.fm.id, source: input.source, redacted: hits, supersedes, ...opts.audit });
-  return { status: 'written', id: entry.fm.id, path: written.path, redacted, warnings };
+  return {
+    status: 'written',
+    id: entry.fm.id,
+    path: written.path,
+    redacted,
+    warnings,
+    ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+    ...(supersededVerified.length > 0 ? { supersededVerified } : {}),
+  };
 }
 
 function resolveTopic(input: CommitInput): string | undefined {

@@ -614,3 +614,132 @@ describe('save_memory 回执与落盘一致（2026-10-28 实测回归）', () =>
     expect(fm.tags).toContain('ungrounded');
   });
 });
+
+// ── T02 / N2：2000 字上限只有一处裁决点，超限拒绝而不是截断 ──
+describe('cap: over-limit content is rejected, never truncated', () => {
+  const LIMIT = 2000;
+
+  function textOf(r: Awaited<ReturnType<typeof handleTool>>): string {
+    return r.content.map((c) => c.text).join('\n');
+  }
+
+  /** 造一份恰好 1990 字的活文档（cap 之下，允许写入）。 */
+  function seedLiveDoc(topic: string): { id: string; body: string } {
+    const base = '既存事实行。'.repeat(400).slice(0, LIMIT - 10);
+    const r = commitEntry(home, base0(), index, {
+      content: base,
+      type: 'decision',
+      topic,
+      source: 'agent',
+      confidence: 0.55,
+      verified: false,
+      overCap: 'reject',
+    });
+    expect(r.status).toBe('written');
+    return { id: r.id!, body: base };
+  }
+
+  function base0(): OmemConfig {
+    return defaultConfig();
+  }
+
+  it('N2 回归：1,990 字活文档追加 73 字新事实 → excluded，旧文档仍 active 且逐字未变', async () => {
+    const topic = 'full-doc';
+    const { id, body } = seedLiveDoc(topic);
+    expect([...body].length).toBe(LIMIT - 10);
+
+    // Agent 读到 1,990 字文档后把新事实并进去整篇重发（2063 字）
+    const merged = `${body}\n99. 新增事实：指数退避与重试预算，失败三次后进入熔断并告警。`;
+    expect([...merged].length).toBeGreaterThan(LIMIT);
+
+    const r = await handleTool('save_memory', {
+      content: merged, topic, supersedes: [id],
+    }, { home, config: defaultConfig(), index });
+    const sc = r.structuredContent as Record<string, any>;
+    const text = textOf(r);
+
+    // ① 拒绝，不是 Truncated
+    expect(sc.status).toBe('excluded');
+    expect(text).toContain(`Not written: content is ${[...merged].length.toLocaleString('en-US')} characters`);
+    expect(text).not.toContain('Truncated');
+    // ② 回执说清旧文档没被动过
+    expect(text).toContain(`Nothing was superseded; ${id} is still active and unchanged.`);
+    // ③ 溢出片段预览（仅回执，不落盘）
+    expect(text).toContain('Over-cap preview (not written)');
+    // ④ 两个出口
+    expect(text).toContain('Options: (a) tighten the body');
+
+    // 旧文档仍然 active，正文逐字未变，且没有被 supersede
+    const live = findById(home, id)!;
+    expect(live.entry.fm.status).toBe('active');
+    expect(live.entry.body).toBe(body);
+    expect(live.entry.fm.superseded_by).toBeUndefined();
+    // 库里只有这一份，没有半截事实
+    expect(listEntries(home)).toHaveLength(1);
+  });
+
+  it('2,800 字单次写入同样被拒绝，落盘 0 条', async () => {
+    const r = await handleTool('save_memory', {
+      content: '长'.repeat(2800), topic: 'over-cap-single',
+    }, { home, config: defaultConfig(), index });
+    expect((r.structuredContent as any).status).toBe('excluded');
+    expect((r.structuredContent as any).over_cap).toMatchObject({ chars: 2800, limit: 2000, overflow: 800 });
+    expect(listEntries(home)).toHaveLength(0);
+    expect(textOf(r)).toContain('Not written: content is 2,800 characters, over the 2,000 limit by 800.');
+  });
+
+  it('全库扫描：没有 body 长度 == cap+1 且以 … 结尾的 active 文档（半截事实落盘数 = 0）', async () => {
+    seedLiveDoc('scan-topic');
+    await handleTool('save_memory', { content: '短正文正常写入 scan-marker' }, { home, config: defaultConfig(), index });
+    const limit = defaultConfig().process.max_content_chars;
+    const suspicious = listEntries(home).filter((l) => {
+      const n = [...l.entry.body].length;
+      return l.entry.fm.status === 'active' && (n === limit + 1 || n > limit) && l.entry.body.endsWith('…');
+    });
+    expect(suspicious).toHaveLength(0);
+  });
+
+  it('supersede 掉 verified 文档时回执写明旧 confidence 与旧 id（QA W4）', async () => {
+    // omem add 写出 verified / 0.9 / source: manual
+    const add = commitEntry(home, base0(), index, {
+      content: '用户口头确认过的车贷方案 manual-verified-marker',
+      type: 'decision',
+      topic: 'car-loan',
+      source: 'manual',
+      confidence: 0.9,
+      verified: true,
+      overCap: 'reject',
+    });
+    expect(add.status).toBe('written');
+    const oldId = add.id!;
+
+    const r = await handleTool('save_memory', {
+      content: '补充：4S 店承诺首保免费 supersede-verified-marker',
+      topic: 'car-loan',
+      supersedes: [oldId],
+    }, { home, config: defaultConfig(), index });
+    const text = textOf(r);
+    expect(text).toContain('Saved');
+    expect(text).toContain('Previous verified status (0.9) was dropped');
+    expect(text).toContain(oldId);
+    expect((r.structuredContent as any).superseded_verified).toEqual([{ id: oldId, confidence: 0.9 }]);
+  });
+
+  it('omem add 对超长内容改为拒绝（CLI 行为变更），--force 才截断', async () => {
+    const long = '长'.repeat(2100);
+    const prevHome = process.env.OMEM_HOME;
+    process.env.OMEM_HOME = home;
+    try {
+      expect(await cmdAdd({ _: [long], flags: { topic: 'cli-cap' } })).toBe(0);
+      expect(listEntries(home)).toHaveLength(0);
+
+      expect(await cmdAdd({ _: [long], flags: { topic: 'cli-cap', force: true } })).toBe(0);
+      const written = listEntries(home);
+      expect(written).toHaveLength(1);
+      expect([...written[0].entry.body].length).toBe(defaultConfig().process.max_content_chars + 1);
+    } finally {
+      if (prevHome === undefined) delete process.env.OMEM_HOME;
+      else process.env.OMEM_HOME = prevHome;
+    }
+  });
+});

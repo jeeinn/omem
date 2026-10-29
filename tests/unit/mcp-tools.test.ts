@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { buildTools, handleTool } from '../../src/mcp/tools.js';
 import { prepareToolCall } from '../../src/mcp/server.js';
-import { writeEntry, readEntryFile } from '../../src/core/store.js';
+import { writeEntry, readEntryFile, listEntries } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import { defaultConfig } from '../../src/core/config.js';
 import { contentHash } from '../../src/core/util.js';
@@ -212,47 +212,39 @@ describe('mcp: handleTool', () => {
     expect(rows[0].verified).toBe(0);
   });
 
-  it('save_memory truncates over-long content + warns in response', async () => {
+  it('save_memory rejects over-long content instead of truncating (T02)', async () => {
     const long = 'x'.repeat(5000);
     const r = await handleTool('save_memory', { content: long }, ctx);
     const text = textOf(r);
-    expect(text).toContain('Saved');
-    expect(text).toContain('Truncated'); // Agent is warned about truncation
-    const row = index.db.prepare('SELECT id, path FROM entries LIMIT 1').get() as unknown as { id: string; path: string };
-    const entry = readEntryFile(row.path)!;
-    expect([...entry.body].length).toBeLessThanOrEqual(2001); // 2000 + 省略号
-    expect(readFileSync(row.path, 'utf8')).toContain('…');
-  });
-
-  it('save_memory truncates correctly with emoji (code points vs UTF-16)', async () => {
-    // 1998 ASCII + 3 emoji (each 1 code point but 2 UTF-16 units) = 2001 code points
-    const emoji = String.fromCodePoint(0x1F600); 
-    const body = 'a'.repeat(1998) + emoji.repeat(3);
-    expect([...body].length).toBe(2001); // code points
-    expect(body.length).toBe(2004); // UTF-16 units (emoji are surrogate pairs)
-    const r = await handleTool('save_memory', { content: body }, ctx);
-    const text = textOf(r);
-    expect(text).toContain('Saved');
-    expect(text).toContain('Truncated');
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
-    const raw = readFileSync(row.path, 'utf8');
-    expect(raw).toContain('…'); // truncated body includes ellipsis
-    // After truncation: exactly 2000 code points + '…' = 2001 code points
-    const entry = readEntryFile(row.path)!;
-    expect([...entry.body].length).toBe(2001);
-    // Old bug: body.length (UTF-16) would have been miscounted and produced broken surrogate pairs
-  });
-
-  it('save_memory dry_run validates without writing', async () => {
-    const long = 'y'.repeat(2100); // Over limit, triggers truncation
-    const r = await handleTool('save_memory', { content: long, topic: 'dry-run-topic', dry_run: true }, ctx);
-    const text = textOf(r);
-    expect(text).toContain('[dry-run]');
-    expect(text).toContain('written');
-    expect(text).toContain('Truncated');
-    // No entry written
+    expect(text).toContain('Not written: content is 5,000 characters, over the 2,000 limit by 3,000.');
+    expect(text).toContain('Nothing was written; no existing document was touched.');
+    expect(text).toContain('Over-cap preview (not written)');
+    expect(text).toContain('Options: (a) tighten the body');
+    // 半截事实落盘数 = 0：一条都没写
     const rows = index.db.prepare('SELECT id FROM entries').all();
     expect(rows).toHaveLength(0);
+    expect(listEntries(home)).toHaveLength(0);
+    expect((r.structuredContent as any).status).toBe('excluded');
+    expect((r.structuredContent as any).over_cap).toMatchObject({ chars: 5000, limit: 2000, overflow: 3000 });
+  });
+
+  it('the cap counts code points, so emoji cannot sneak under the limit', async () => {
+    // 1998 ASCII + 3 emoji = 2001 code points（UTF-16 长度 2004）：按 code point 判超限
+    const emoji = String.fromCodePoint(0x1F600);
+    const body = 'a'.repeat(1998) + emoji.repeat(3);
+    expect([...body].length).toBe(2001);
+    const r = await handleTool('save_memory', { content: body }, ctx);
+    expect(textOf(r)).toContain('Not written: content is 2,001 characters');
+    expect(listEntries(home)).toHaveLength(0);
+  });
+
+  it('save_memory dry_run reports the same rejection, and writes nothing', async () => {
+    const long = 'y'.repeat(2100);
+    const r = await handleTool('save_memory', { content: long, topic: 'dry-run-topic', dry_run: true }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('[dry-run] excluded');
+    expect(text).toContain('Not written: content is 2,100 characters');
+    expect(index.db.prepare('SELECT id FROM entries').all()).toHaveLength(0);
   });
 
   it('save_memory redacts secrets', async () => {

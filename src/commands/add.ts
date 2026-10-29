@@ -1,13 +1,14 @@
 // omem add：手动写入一条记忆（source: manual，verified: true——用户显式断言即确认）。
 // 过滤、去重、落盘走 commitEntry。--force 只绕过禁区与代码密度。
 import { openCtx } from '../core/ctx.js';
-import { commitEntry, metadataDrift } from '../core/commit.js';
+import { commitEntry, metadataDrift, overCapNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { MemoryType } from '../core/entry.js';
 
-const USAGE = 'Usage: omem add <content> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--topic name] [--supersedes id1,id2] [--force]';
+const USAGE = 'Usage: omem add <content> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--topic name] [--supersedes id1,id2] [--force]'
+  + '\nContent longer than [process] max_content_chars is rejected; --force truncates it instead (the tail is lost).';
 
 export async function cmdAdd(args: ParsedArgs): Promise<number> {
   const content = args._.join(' ').trim();
@@ -21,6 +22,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     const tags = (flagStr(args.flags, 'tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const topic = flagStr(args.flags, 'topic');
     const supersedes = (flagStr(args.flags, 'supersedes') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const force = flagBool(args.flags, 'force');
     const result = commitEntry(ctx.home, ctx.config, ctx.index, {
       content,
       type,
@@ -32,7 +34,10 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       confidence: 0.9,
       verified: true,
       supersedes,
-    }, { force: flagBool(args.flags, 'force') });
+      // 三条写路径各自显式表态（beta.9 / T02）：CLI 默认拒绝超长内容，
+      // --force 是唯一保留旧截断行为的出口——它是逃生口，不是默认。
+      overCap: force ? 'truncate' : 'reject',
+    }, { force });
 
     if ((result.redacted ?? 0) > 0 && result.status !== 'redacted-empty') {
       console.log(`Redacted ${result.redacted} sensitive spot(s)`);
@@ -50,6 +55,11 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       return 0;
     }
     if (result.status === 'excluded' || result.status === 'redacted-empty') {
+      // 超限用统一四段回执（与 MCP 同一实现，避免两处各写一遍漂成两种说法）。
+      if (result.overCap) {
+        for (const line of overCapNotice(result.overCap, 'cli')) console.log(line);
+        return 0;
+      }
       console.log(`Not written: ${result.reason}`);
       if (result.reason?.includes('already has an active document')) {
         console.log('--force does not bypass a topic update. Re-run with the --supersedes id from the message above.');
@@ -61,6 +71,12 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     console.log(`Saved id: ${result.id}`);
     console.log(`File: ${result.path}`);
     if (supersedes.length > 0) console.log(`Supersedes: ${supersedes.join(', ')}`);
+    if (result.truncated) {
+      console.log(`Truncated to ${result.truncated.limit} characters (--force); the last ${result.truncated.chars - result.truncated.limit} character(s) were discarded.`);
+    }
+    for (const old of result.supersededVerified ?? []) {
+      console.log(`Note: previous verified status (${old.confidence}) was dropped; ${old.id} is now a superseded version.`);
+    }
     for (const w of result.warnings ?? []) console.log(`Note: ${w}`);
     return 0;
   } finally {

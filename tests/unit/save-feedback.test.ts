@@ -139,11 +139,15 @@ describe('save_memory: 拒绝与去重的文案要能执行', () => {
     expect(textOf(r)).toContain('stored as fact');
   });
 
-  it('超长内容给出截断说明', async () => {
-    const long = '很长'.repeat(1500);
+  it('超长内容被拒绝而不是截断，回执给出超限量与两个出口', async () => {
+    const long = '很长'.repeat(1500); // 3000 字符
     const r = await handleTool('save_memory', { content: long }, ctx);
-    expect(textOf(r)).toContain('Truncated');
-    expect((r.structuredContent as any).truncated).toBe(true);
+    const text = textOf(r);
+    expect(text).toContain('Not written: content is 3,000 characters, over the 2,000 limit by 1,000.');
+    expect(text).toContain('Options: (a) tighten the body');
+    expect(text).not.toContain('Truncated');
+    expect((r.structuredContent as any).status).toBe('excluded');
+    expect((r.structuredContent as any).over_cap.overflow).toBe(1000);
   });
 });
 

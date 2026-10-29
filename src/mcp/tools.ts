@@ -16,7 +16,7 @@ import type { SessionHit } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
-import { commitEntry, metadataDrift, normalizeTopic } from '../core/commit.js';
+import { commitEntry, metadataDrift, normalizeTopic, overCapNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
 import { readSessionsById } from '../collect/session-store.js';
@@ -175,9 +175,10 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'Grounded writes score higher; an unmatched quote drops the entry to 0.35 and tags it `ungrounded`, so read the response ' +
         'rather than assuming success. Unsure? send `dry_run:true` first — it reports status, would-be confidence, truncation and ' +
         'topic collisions without writing anything.\n\n' +
-        'Limits: content longer than the configured maximum is truncated and the response says so — shorten it or split the topic ' +
-        'instead of resending. Identical content is not written twice; if only the metadata differs, the response tells you how to ' +
-        'apply it. This tool never runs `git commit` — the entry stays a working-tree change until `omem backup`.',
+        'Limits: content longer than the configured maximum is NOT written — the response states how far over you are, what the ' +
+        'overflow looked like, that the existing document is unchanged, and the two ways forward (tighten the body, or start a ' +
+        'narrower topic). Nothing is ever truncated silently. Identical content is not written twice; if only the metadata ' +
+        'differs, the response tells you how to apply it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -233,7 +234,25 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           confidence: { type: 'number' },
           tags: { type: 'array', items: { type: 'string' } },
           warnings: { type: 'array', items: { type: 'string' } },
-          truncated: { type: 'boolean' },
+          over_cap: {
+            type: 'object',
+            description: 'Present only when the body was rejected for exceeding the configured limit. Nothing was written and no existing document was touched.',
+            properties: {
+              chars: { type: 'number' },
+              limit: { type: 'number' },
+              overflow: { type: 'number' },
+              preview: { type: 'string', description: 'The tail that would have been lost (receipt only; never written).' },
+              activeId: { type: 'string', description: 'The document that is still active and unchanged.' },
+            },
+          },
+          superseded_verified: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { id: { type: 'string' }, confidence: { type: 'number' } },
+            },
+            description: 'Superseded versions that used to be verified. Empty when no verified document was replaced.',
+          },
           supersedes: { type: 'array', items: { type: 'string' } },
           session_found: { type: 'boolean' },
           anchors: {
@@ -520,13 +539,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
   const structured: Record<string, unknown> = { status: 'noop' };
 
   if (content) {
-    // Truncation: unify code-point count + slice (fixes UTF-16 surrogate pair mismatch)
-    let truncated = false;
-    const chars = [...content];
-    if (chars.length > ctx.config.process.max_content_chars) {
-      content = chars.slice(0, ctx.config.process.max_content_chars).join('') + '…';
-      truncated = true;
-    }
+    // 上限不再在这里裁（beta.9 / T02）：cap 的唯一裁决点在 commitEntry，三条写路径共用。
+    // 字数也由那边数——两处各数一遍必然一边按 code point 一边按 UTF-16。
     const requestedType = args.type;
     const type = MEMORY_TYPES.includes(requestedType) ? (requestedType as MemoryType) : 'fact';
     if (requestedType !== undefined && requestedType !== null && !MEMORY_TYPES.includes(requestedType)) {
@@ -583,6 +597,9 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       verified: false,
       supersedes,
       caller: 'mcp',
+      // MCP 侧不接受超长正文：拒绝而不是截断（半截事实会被下一个 Agent 当真事实用）。
+      // 这个字段必填，正是为了让每条写路径在编译期被迫表态。
+      overCap: 'reject',
     }, {
       dryRun,
       // 锚定归因进 commit 日志：审计链路要能回答「这条当时锚没锚上」，光看落盘的
@@ -609,18 +626,20 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       confidence: scored.confidence,
       tags,
       warnings: result.warnings ?? [],
-      truncated,
+      over_cap: result.overCap,
       supersedes,
       session_found: scored.sessionFound,
       anchors: { total: scored.anchors?.total ?? 0, matched: scored.anchors?.matched.length ?? 0 },
       metadata_drift: drift,
+      superseded_verified: result.supersededVerified ?? [],
     });
 
     if (dryRun) {
       parts.push(`[dry-run] ${result.status}${result.reason ? ': ' + result.reason : ''}`);
       parts.push(`Confidence would be ${scored.confidence}.`);
       if (drift.length > 0) parts.push(`Metadata that would be lost to content dedup: ${drift.join('; ')}.`);
-      if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split the topic.`);
+      // dry_run 也走同一条 cap 判定：超限在预演里就是 excluded，不是「会截断」。
+      if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
       for (const w of result.warnings ?? []) parts.push(w);
     } else if (result.status === 'deduped') {
       const mismatch = drift.length > 0 ? ` It kept the stored metadata (${drift.join('; ')}).` : '';
@@ -630,13 +649,24 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
         `supersedes: ["${result.id}"] to apply the metadata.`,
       );
     } else if (result.status === 'excluded' || result.status === 'redacted-empty') {
-      parts.push(`Not written: ${result.reason}`);
+      // 超限拒绝用统一四段回执（超限量 / 旧文档没动 / 溢出预览 / 两个出口）；
+      // 其余拒绝保持原样，理由本身已经含下一步。
+      if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
+      else parts.push(`Not written: ${result.reason}`);
     } else {
       const saved = result.path ? readEntryFile(result.path) : null;
       const domain = saved?.fm.domain ?? 'general';
       const savedType = saved?.fm.type ?? type;
       const replaced = supersedes.length > 0 ? ` Superseded: ${supersedes.join(', ')}.` : '';
       parts.push(`Saved (id: ${result.id}, ${domain}/${savedType}, confidence ${scored.confidence}). Unverified entry.${replaced}`);
+      // 把 verified 活文档换成 candidate 是「降级」，回执必须报代价（QA W4）：
+      // 只说 Saved/Unverified，调用方分不清「新写的」与「把 0.9 换成 0.55 的」。
+      for (const old of result.supersededVerified ?? []) {
+        parts.push(
+          `Previous verified status (${old.confidence}) was dropped: ${old.id} is now a superseded version. ` +
+          `The old file keeps its own verified flag, but only the new document is active — re-confirm it on the CLI if it still holds.`,
+        );
+      }
       // 锚定结果必须写出来：只报 confidence 时，「举证成功」与「根本没举证」看起来一模一样。
       const anchors = scored.anchors;
       if (anchors && anchors.total > 0 && anchors.matched.length > 0) {
@@ -658,7 +688,6 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
         // MCP 客户端执行不了 omem sync：把它交给用户，而不是给 Agent 一条跑不了的指令。
         parts.push(`session ${sessionId} is not in the collected set — check the id in PROCESS.md, or ask the user to run omem sync.`);
       }
-      if (truncated) parts.push(`Truncated: ${chars.length} -> ${ctx.config.process.max_content_chars} chars. Shorten content or split the topic.`);
       if (scored.tags.length > 0) parts.push(`Tags: ${scored.tags.join(', ')}.`);
       for (const w of result.warnings ?? []) parts.push(w);
     }
