@@ -6,9 +6,11 @@
 import { readFileSync, statSync } from 'node:fs';
 import { files } from '../core/paths.js';
 import { atomicWrite } from '../core/util.js';
+import { appendLog } from '../core/log.js';
 import { deriveTitle } from '../core/entry.js';
 import { listEntries } from '../core/store.js';
 import { readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
+import { RULE_EVIDENCE, RULE_VERIFIED } from '../context/instructions.js';
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 
@@ -64,9 +66,25 @@ export function loadSkipLedger(home: string): SkipRecord[] {
     return [];
   }
 }
+const NL = '\n';
+/** 渲染用反引号（避免在模板串里逐处转义）。 */
+const BT = '`';
 const LONG_BYTES = 100 * 1024;
-/** PROCESS.md 里列多少个既有主题。全量清单交给 `omem topic list`。 */
-const EXISTING_LIMIT = 15;
+
+/**
+ * PROCESS.md 的字节预算（beta.9 / T04，F3）。
+ *
+ * H3 的教训不是「文件大」，是**渲染没有任何预算**：同一批 1,101 会话，beta.8 渲染
+ * 7,221 B、HEAD 渲染 117,752 B（16.3×），最大单组一人占 478 行。没有预算，同型回归
+ * 会以另一种形式再来一次。超限按固定阶梯降级（见 renderGuide），每级都不删头部。
+ *
+ * 30,000 B 是「宿主 `Read` 一次读完」的余量：真实 tokenizer 对含 CJK 的文本约为
+ * 字符数的 1.2–1.5 倍，30 KB 远低于 20,000 token 的上限。
+ */
+export const GUIDE_MAX_BYTES = 30_000;
+
+/** 第二级降级的组内会话上限起点（V0.2 的 cursor 分页上线后由 T11 替换，不叠两层）。 */
+const GROUP_SESSION_CAP = 200;
 
 export interface ExistingTopic {
   name: string;
@@ -99,48 +117,76 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
   return [...byTopic.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
 }
 
-function renderExistingTopics(lines: string[], existing: ExistingTopic[]): void {
+/**
+ * 既有主题全量列出（beta.9 / T04）。
+ *
+ * 此前只列 15 条 + `…N more`，而这一段只占全文 1.6%——让 Agent 回 CLI 跑 `omem topic list`
+ * 发现名字，比直接把 43 条全列出来贵得多，且分页会让它看不到全量词表 → 新造 topic 名 →
+ * 加剧碎片化。预算超限时降级的第一级才是「只留名字、去掉 id 列」。
+ */
+function renderExistingTopics(lines: string[], existing: ExistingTopic[], withIds = true): void {
   if (existing.length === 0) return;
   lines.push('## Existing topics');
   lines.push('');
   lines.push('Reuse one of these names when the sessions belong to it. A new name starts a second living document for the same subject.');
   lines.push('');
-  for (const t of existing.slice(0, EXISTING_LIMIT)) {
-    lines.push(`- \`${t.name}\`  \`${t.docId}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
-  }
-  if (existing.length > EXISTING_LIMIT) {
-    lines.push(`- …${existing.length - EXISTING_LIMIT} more. List them with \`omem topic list\` or search_memory(topic="<name>").`);
+  for (const t of existing) {
+    lines.push(withIds
+      ? `- \`${t.name}\`  \`${t.docId}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`
+      : `- \`${t.name}\`  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
   }
   lines.push('');
 }
 
-export function renderGuide(
-  topics: GuideTopic[],
-  remaining: number,
-  unassigned: GuideSessionRef[] = [],
-  existing: ExistingTopic[] = [],
-  totals?: { sessions: number; shownSessions: number },
-): string {
-  const lines: string[] = [
+/** renderGuide 的可选行为：预算与降级回调（纯函数，落日志由调用方做）。 */
+export interface GuideRenderOpts {
+  /** 字节预算，默认 GUIDE_MAX_BYTES。 */
+  maxBytes?: number;
+  /** 发生降级时回调（refreshProcessGuide 用它 appendLog）。 */
+  onDegrade?: (info: { level: number; groupCap: number | null; bytes: number }) => void;
+}
+
+/** 一次渲染的形态参数：由预算决定，不由调用方决定。 */
+interface RenderShape {
+  /** 0 = 全量；1 = 既有主题去掉 id 列；2 = 再加上组内会话上限。 */
+  level: number;
+  /** level<2 时无上限。 */
+  groupCap: number | null;
+}
+
+/** 头部指令段：规则句只从 `context/instructions.ts` 取，不再手写第二份（AGENTS.md:23）。 */
+function renderHeader(): string[] {
+  return [
     '# omem topics waiting for an update',
     '',
     'Each topic has one living document. A new session updates that document; pass supersedes so the previous version stays on disk but drops out of search.',
     '- Read the session files. Keep short facts, drop the process. Do not invent anything that was not said.',
-    '- `evidence` must be at least 12 characters copied from a `## user` section. Do not quote `## assistant`.',
-    '- Pass `session_id` as the bare id from the session line, without the collector name or any path: from a line reading `claude-code` / `probe-fixture-0001`, pass `probe-fixture-0001`.',
-    '- Call `save_memory` with `topic`, `session_id`, and `evidence`. If a current document id is listed, `supersedes` must include it or the write is rejected.',
+    `- ${RULE_EVIDENCE}.`,
+    '- Sessions are listed as `agent` / `session_id` (no paths — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets.',
+    '- Call `save_memory` with `topic`, `session_id`, `evidence`, and `supersedes` (the current document id, when one is listed).',
     '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
     '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8 and does not set verified.',
-    '- `verified: true` comes only from `omem add` or `omem review --confirm`.',
+    `- ${RULE_VERIFIED}.`,
     '',
   ];
+}
+
+function buildGuide(
+  shape: RenderShape,
+  topics: GuideTopic[],
+  remaining: number,
+  unassigned: GuideSessionRef[],
+  existing: ExistingTopic[],
+  totals?: { sessions: number; shownSessions: number },
+): string {
+  const lines = renderHeader();
   if (topics.length === 0 && unassigned.length === 0) {
     lines.push('No topics are waiting.');
     lines.push('');
-    renderExistingTopics(lines, existing);
-    return lines.join('\n');
+    renderExistingTopics(lines, existing, shape.level < 1);
+    return lines.join(NL);
   }
   if (topics.length > 0) {
     // 三个口径分开说：本轮渲染了什么、还有多少组/会话没吸收、以及分工——
@@ -158,31 +204,88 @@ export function renderGuide(
     if (topic.docId) {
       const others = (topic.otherDocIds ?? []).filter((id) => id !== topic.docId);
       const more = others.length > 0
-        ? ` · other living document(s) in this group: ${others.map((id) => `\`${id}\``).join(', ')} — update the one matching the new session's topic`
+        ? ` · other living document(s) in this group: ${others.map((id) => BT + id + BT).join(', ')} — update the one matching the new session's topic`
         : (topic.otherDocs && topic.otherDocs > 0 ? ` · ${topic.otherDocs} more living document(s) in this group; update the one matching the new session's topic` : '');
-      lines.push(`- Current document: \`${topic.docId}\`${topic.docTitle ? ` ${topic.docTitle}` : ''}${more}`);
+      lines.push(`- Current document: ${BT}${topic.docId}${BT}${topic.docTitle ? ` ${topic.docTitle}` : ''}${more}`);
     } else {
       lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
     }
     lines.push('- Sessions not yet absorbed:');
-    for (const s of topic.sessions) {
+    const visible = shape.groupCap === null ? topic.sessions : topic.sessions.slice(0, shape.groupCap);
+    for (const s of visible) {
       let note = '';
       try {
         if (statSync(s.path).size > LONG_BYTES) note = ' (long; read in parts)';
       } catch { /* 刚写入时读不到长度就略过 */ }
       const copies = s.copies && s.copies > 1 ? ` (same-user-text: ${s.copies})` : '';
-      lines.push(`  - \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\`${note}${copies}`);
+      // 不再带绝对路径：它占旧体积 50.7%，而且会话正文要按 session_id 取（读取通道）。
+      lines.push(`  - ${BT}${s.agent}${BT} / ${BT}${s.sessionId}${BT}${note}${copies}`);
+    }
+    const hidden = topic.sessions.length - visible.length;
+    if (hidden > 0) {
+      // 每组各自标记 + 数字 + 取得方式。只说「…more」等于告诉 Agent「有东西你看不到但拿不到」，
+      // 比不提示更糟（它会把「只能这样了」当成结论）。
+      lines.push(`  - …${hidden} more in this group — hidden by the size budget. Narrow the topic, or run omem topic list / search_memory(topic="<name>") for the rest.`);
     }
     lines.push('');
   }
   if (unassigned.length > 0) {
     lines.push('## Unassigned sessions');
     lines.push('These have no project fingerprint. Name a topic when you save, and pass `session_id`.');
-    for (const s of unassigned) lines.push(`- \`${s.agent}\` / \`${s.sessionId}\` \`${s.path}\``);
+    const visibleUnassigned = shape.groupCap === null ? unassigned : unassigned.slice(0, shape.groupCap);
+    for (const s of visibleUnassigned) lines.push(`- ${BT}${s.agent}${BT} / ${BT}${s.sessionId}${BT}`);
+    const hiddenUnassigned = unassigned.length - visibleUnassigned.length;
+    if (hiddenUnassigned > 0) {
+      lines.push(`- …${hiddenUnassigned} more here — hidden by the size budget.`);
+    }
     lines.push('');
   }
-  renderExistingTopics(lines, existing);
-  return lines.join('\n');
+  renderExistingTopics(lines, existing, shape.level < 1);
+  return lines.join(NL);
+}
+
+const byteLength = (text: string): number => Buffer.byteLength(text, 'utf8');
+
+/**
+ * 渲染 PROCESS.md。
+ *
+ * 无损瘦身（beta.9 / T04）之后仍必须**有预算**：H3 的失败模式是「单组 478 行占全文 80%」，
+ * 没有预算的渲染器在数据变化后一定会再长成不可读。降级阶梯固定三级，每级都保留头部：
+ *   0. 全量（会话行无路径、topic 全列、规则句来自常量）
+ *   1. 既有主题去掉 id 列
+ *   2. 再加上组内会话上限，超出的每组输出一行 `hidden by the size budget`（含数字）
+ * 第 2 级仍超预算时上限对半折半——**永不硬截字符串**（截半行会让下一轮解析失败）。
+ */
+export function renderGuide(
+  topics: GuideTopic[],
+  remaining: number,
+  unassigned: GuideSessionRef[] = [],
+  existing: ExistingTopic[] = [],
+  totals?: { sessions: number; shownSessions: number },
+  opts: GuideRenderOpts = {},
+): string {
+  const budget = opts.maxBytes && opts.maxBytes > 0 ? opts.maxBytes : GUIDE_MAX_BYTES;
+  let shape: RenderShape = { level: 0, groupCap: null };
+  let text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+
+  if (byteLength(text) > budget) {
+    shape = { level: 1, groupCap: null };
+    text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+  }
+  if (byteLength(text) > budget) {
+    let cap = GROUP_SESSION_CAP;
+    shape = { level: 2, groupCap: cap };
+    text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+    while (byteLength(text) > budget && cap > 1) {
+      cap = Math.max(1, Math.floor(cap / 2));
+      shape = { level: 2, groupCap: cap };
+      text = buildGuide(shape, topics, remaining, unassigned, existing, totals);
+    }
+  }
+  if (shape.level > 0) {
+    opts.onDegrade?.({ level: shape.level, groupCap: shape.groupCap, bytes: byteLength(text) });
+  }
+  return text;
 }
 
 export function writeProcessGuide(home: string, text: string): string {
@@ -209,6 +312,9 @@ export function refreshProcessGuide(home: string, index: OmemIndex, config?: Ome
     renderGuide(topics, remaining, unassigned, collectExistingTopics(home), {
       sessions: counts.sessions,
       shownSessions: counts.shownSessions,
+    }, {
+      // 降级必须留痕：清单悄悄少了一半会话，正是 H3 那种「回归了但没人知道」的形状。
+      onDegrade: (info) => appendLog(home, 'guide', { degraded: true, ...info }),
     }),
   );
 }

@@ -98,7 +98,7 @@ describe('renderGuide: Existing topics 段', () => {
     expect(text).not.toContain('## Existing topics');
   });
 
-  it('超过 15 个时截断并提示 omem topic list', () => {
+  it('topic 全量列出（不再 slice 15），且每条都带 supersedes 要的 id', () => {
     const many: ExistingTopic[] = Array.from({ length: 20 }, (_, i) => ({
       name: `topic-${String(i).padStart(2, '0')}`,
       docId: `2026-10-doc${String(i).padStart(2, '0')}`,
@@ -108,10 +108,10 @@ describe('renderGuide: Existing topics 段', () => {
 
     const text = renderGuide([group], 0, [], many);
 
-    // 截断提示里不能只给 CLI 命令：MCP 客户端执行不了它。
-    expect(text).toContain('…5 more.');
-    expect(text).toContain('omem topic list');
-    expect(text).toContain('search_memory(topic=');
-    expect((text.match(/^- `topic-/gm) ?? []).length).toBe(15);
+    // T04：全量列出。旧行为（只列 15 条 + `…5 more`）会让 Agent 看不到词表 → 新造 topic 名。
+    expect(text).not.toContain('more. List them with');
+    expect((text.match(/^- `topic-/gm) ?? []).length).toBe(20);
+    expect(text).toContain('`2026-10-doc19`');
+    expect(text).toContain('A new name starts a second living document');
   });
 });

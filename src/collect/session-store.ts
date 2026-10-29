@@ -268,6 +268,74 @@ export function evidenceUserText(body: string): string {
   return parts.join('\n');
 }
 
+/** 一段可复制的 `## user` 原文及其在会话文件里的字符范围（code point 偏移）。 */
+export interface SessionUserSegment {
+  role: 'user';
+  /** 起始字符偏移（含），按 code point 计。 */
+  start: number;
+  /** 结束字符偏移（不含），按 code point 计。 */
+  end: number;
+  /** 剥净元数据后的原文。 */
+  text: string;
+}
+
+/**
+ * 按 `## user` 切出可引用的段落 + assistant 段计数（beta.9 / T04，读取通道）。
+ *
+ * 为什么需要它：清单不再带绝对路径，Agent 拿到的只有 `agent` / `session_id`。
+ * 而 `scope=sessions` 的关键词检索给的是"命中附近的一小段"——摘录越可读越可能是
+ * assistant 段（QA A3），既不能当证据、也不够长。按 id 直取段落 + 给出字符范围，
+ * 才能让调用方拿到「可直接粘贴进 evidence 的原文」。
+ *
+ * 偏移口径：整份会话正文的 code point 偏移，从 0 起。用 code point 而不是 UTF-16 单位，
+ * 是因为 evidence 门槛（12 字符）与截断都按 code point 数——两处口径不一致会让同一段
+ * 文本在两个地方长度不同。
+ */
+export function userSegments(body: string): { segments: SessionUserSegment[]; assistantSegments: number } {
+  const segments: SessionUserSegment[] = [];
+  let assistantSegments = 0;
+  let role: 'user' | 'assistant' | null = null;
+  let buf: string[] = [];
+  let sectionStart = 0;
+  let cp = 0;
+
+  const flush = (): void => {
+    if (!role) {
+      buf = [];
+      return;
+    }
+    const raw = buf.join('\n');
+    if (role === 'assistant') {
+      if (raw.trim()) assistantSegments++;
+    } else {
+      const stripped = stripLeadingMetadataFence(raw.trim());
+      if (stripped) {
+        // 段内起点：剥掉前缀后原文在 raw 里的位置（找不到就退回段首）。
+        const at = raw.indexOf(stripped);
+        const lead = at >= 0 ? [...raw.slice(0, at)].length : 0;
+        const start = sectionStart + lead;
+        segments.push({ role: 'user', start, end: start + [...stripped].length, text: stripped });
+      }
+    }
+    buf = [];
+  };
+
+  for (const line of body.split(/\r?\n/)) {
+    const lineCp = [...line].length;
+    const marker = line.match(/^##\s*(user|assistant)\s*$/);
+    if (marker) {
+      flush();
+      role = marker[1] as 'user' | 'assistant';
+      sectionStart = cp + lineCp + 1; // 下一行的第一个字符
+    } else if (role) {
+      buf.push(line);
+    }
+    cp += lineCp + 1;
+  }
+  flush();
+  return { segments, assistantSegments };
+}
+
 /**
  * 整文件重写。哈希未变时保留原 `api_state`（文档 §3.5 规则 1）：
  * `--session` 点名在内容未变时也会走到这里，不保状态会把已有 `ok` 先抹掉，

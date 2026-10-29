@@ -19,7 +19,7 @@ import { appendLog } from '../core/log.js';
 import { commitEntry, metadataDrift, normalizeTopic, overCapNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { applyAssent, scoreEvidence } from '../process/score.js';
-import { readSessionsById } from '../collect/session-store.js';
+import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
 import type { EntryRow } from '../core/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
@@ -54,6 +54,9 @@ export type ToolResponse = CallToolResult;
 
 /** 工具面显式 top_k 的上限。配文件的 search.top_k 可到 50，不走这个夹取。 */
 const TOP_K_MAX = 20;
+/** session_id 读取通道每次最多返回几段。 */
+const SEGMENT_LIMIT_MAX = 20;
+const SEGMENT_LIMIT_DEFAULT = 5;
 const MEMORY_TYPES: MemoryType[] = ['preference', 'fact', 'decision', 'experience'];
 const ENTRY_STATUSES = ['active', 'stale', 'superseded', 'archived'] as const;
 
@@ -110,6 +113,21 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
             maximum: TOP_K_MAX,
             description: `Number of entries to return, 1-${TOP_K_MAX}. Omit to use the configured default.`,
           },
+          session_id: {
+            type: 'string',
+            description: 'Bare session id from PROCESS.md (no collector prefix). Implies scope=sessions and returns that transcript\'s ## user text as quotable segments; `query` is then optional.',
+          },
+          offset: {
+            type: 'number',
+            minimum: 0,
+            description: 'scope=sessions + session_id: index of the first segment to return. Default 0.',
+          },
+          limit: {
+            type: 'number',
+            minimum: 1,
+            maximum: SEGMENT_LIMIT_MAX,
+            description: `scope=sessions + session_id: max segments per call, 1-${SEGMENT_LIMIT_MAX}. Default ${SEGMENT_LIMIT_DEFAULT}.`,
+          },
         },
         required: [],
       },
@@ -124,6 +142,22 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           topic: { type: 'string' },
           matched: { type: 'number', description: 'Total rows satisfying the filters, before top_k.' },
           showing: { type: 'number' },
+          session_id: { type: 'string', description: 'scope=sessions + session_id: the bare id that was read.' },
+          path: { type: 'string', description: 'scope=sessions + session_id: transcript file on disk.' },
+          segments: {
+            type: 'array',
+            description: 'scope=sessions + session_id only: quotable ## user segments.',
+            items: {
+              type: 'object',
+              properties: {
+                role: { type: 'string' },
+                chars: { type: 'array', items: { type: 'number' }, description: '[start, end) code point offsets in the transcript file.' },
+                text: { type: 'string' },
+              },
+            },
+          },
+          assistant_segments: { type: 'number', description: 'How many ## assistant segments exist (count only — never returned as text).' },
+          note: { type: 'string' },
           hits: {
             type: 'array',
             description: 'scope=conclusions fills the entry fields; scope=sessions fills the session fields. One schema covers both because `hits` means different things per scope.',
@@ -360,6 +394,87 @@ function parseStatus(raw: unknown): string[] | undefined {
   return list;
 }
 
+/**
+ * 按 session_id 取回可复制的 `## user` 段（beta.9 / T04 / P1-7）。
+ *
+ * 返回体的形状固定：`segments[{role:'user', chars:[start,end), text}]` + `assistant_segments` 计数
+ * + `note`。assistant 正文**永不返回**——它不是证据，给出来只会让调用方把它当原文引用
+ * （QA A3 的根因：摘录越"好读"越可能是 assistant 段）。
+ */
+function toolSessionSegments(
+  rawId: string,
+  args: Record<string, any>,
+  ctx: ToolCtx,
+  query: string,
+): { text: string; structured: Record<string, unknown> } {
+  const cited = readSessionsById(ctx.home, rawId);
+  if (cited.length === 0) {
+    const structured = {
+      scope: 'sessions' as const,
+      session_id: rawId,
+      matched: 0,
+      showing: 0,
+      segments: [] as unknown[],
+      assistant_segments: 0,
+      note: 'Session not found in the collected set; ask the user to run omem sync, or copy the id from PROCESS.md.',
+    };
+    return { text: `No transcript found for session "${rawId}".`, structured };
+  }
+  const target = cited[0];
+  const { segments, assistantSegments } = userSegments(target.body);
+  const needle = query.toLowerCase();
+  const matching = needle ? segments.filter((seg) => seg.text.toLowerCase().includes(needle)) : segments;
+  const rawOffset = Number(args.offset ?? 0);
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  const rawLimit = Number(args.limit ?? SEGMENT_LIMIT_DEFAULT);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(SEGMENT_LIMIT_MAX, Math.max(1, Math.floor(rawLimit)))
+    : SEGMENT_LIMIT_DEFAULT;
+  const page = matching.slice(offset, offset + limit);
+  const path = sessionFilePath(ctx.home, target.agent, target.sessionId);
+  appendLog(ctx.home, 'mcp.search', {
+    scope: 'sessions', session_id: rawId, query: query || undefined, segments: page.length, matched: matching.length,
+  });
+
+  const note = 'Only ## user text is returned; assistant text is never evidence.';
+  const lines: string[] = [];
+  const head = `session ${target.agent}/${target.sessionId} · ${matching.length} ## user segment(s) matched`
+    + ` · ${assistantSegments} ## assistant segment(s) not returned`;
+  lines.push(head);
+  lines.push('');
+  if (matching.length === 0) {
+    lines.push(needle
+      ? `No ## user segment contains "${query}". Try a shorter term, or read the whole transcript from the path below.`
+      : 'This transcript has no ## user segment.');
+  } else {
+    lines.push(`Segments ${offset + 1}-${offset + page.length} of ${matching.length} (offsets are code points in the transcript file):`);
+    lines.push('');
+    page.forEach((seg, i) => {
+      lines.push(`[${offset + i + 1}] chars ${seg.start}-${seg.end}`);
+      for (const l of seg.text.split('\n')) lines.push(l);
+      lines.push('');
+    });
+  }
+  lines.push(`File: ${path}`);
+  lines.push(note);
+
+  return {
+    text: lines.join('\n'),
+    structured: {
+      scope: 'sessions',
+      session_id: target.sessionId,
+      path,
+      matched: matching.length,
+      showing: page.length,
+      offset,
+      limit,
+      segments: page.map((seg) => ({ role: 'user', chars: [seg.start, seg.end], text: seg.text })),
+      assistant_segments: assistantSegments,
+      note,
+    },
+  };
+}
+
 async function toolSearch(
   args: Record<string, any>,
   ctx: ToolCtx,
@@ -367,6 +482,15 @@ async function toolSearch(
   const query = String(args.query ?? '').trim();
   const topicRaw = typeof args.topic === 'string' ? args.topic.trim() : '';
   const topic = topicRaw ? normalizeTopic(topicRaw) : undefined;
+  // 读取通道（beta.9 / T04）：给了 session_id 就按 id 直取，`query` 只在该会话内做子串过滤。
+  const sessionIdArg = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+  if (sessionIdArg) {
+    if (String(args.scope ?? '') === 'conclusions') {
+      // 两种语义打架时拒绝并提示，而不是猜调用方想要哪个（猜错=给一段 assistant 文本当证据）。
+      throw new Error('session_id implies scope=sessions; drop scope:"conclusions" (or omit scope) to read a transcript');
+    }
+    return toolSessionSegments(sessionIdArg, args, ctx, query);
+  }
   if (!query && !topic) throw new Error('pass query, or topic, or both');
   const detail = Boolean(args.detail);
   const limit = resolveTopK(args.top_k, ctx.config.search.top_k);
