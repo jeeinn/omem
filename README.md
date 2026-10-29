@@ -103,7 +103,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 - `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的 active 文档及其 id，更新活文档不再靠「盲写 → 被拒 → 从错误消息里抠 id」。`status` 可读回 `superseded` 的历史版本。
 - `top_k` 声明并夹取在 1-20（省略时用 `config.toml` 的 `search.top_k`，它可配到 50）；响应固定给 `matched M · showing N`，能看出还有多少没返回。
 
-`add` 和 `sync` 不自动 commit。`omem backup` 在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
+写入结论的路径（`save_memory` / `omem add`）默认各留**一笔本地提交**（`[process] auto_commit = "session"`，可设 `off` 关闭）；`omem sync` 一轮 run 一笔。只有 `omem backup` 才推送远端——它在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
 
 ## 采集器支持列表
 
@@ -248,7 +248,7 @@ schtasks /Create /TN "omem-collect" /SC MINUTE /MO 30 /F ^
 
 `scripts/collect.sh` 和 `collect.ps1` 只是 `omem sync` 的封装，不进 npm 包。定时任务会重写 `PROCESS.md`；Agent 正在读的那一版可能过期，间隔别短于 30 分钟。采集不写结论。
 
-`PROCESS.md` 也会在每次写入结论后（`save_memory` / `omem add`）立即重算，所以 Agent 读到的一定是最新待办，不会重复处理已吸收的会话。这两类写入都不自动 commit——记忆先留在工作区，`omem backup` 才把它提交进 git 历史。
+`PROCESS.md` 也会在每次写入结论后（`save_memory` / `omem add`）立即重算，所以 Agent 读到的一定是最新待办，不会重复处理已吸收的会话。这两类写入会各自留一笔本地 git 提交（`auto_commit = "session"`，默认开；数据仓不是 git 仓库时静默跳过并在回执里说明），`omem backup` 负责推送远端。
 
 ## 开发
 
