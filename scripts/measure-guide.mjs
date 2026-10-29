@@ -47,6 +47,9 @@ function measure(extraRefs) {
   const hidden = (text.match(/…(\d+) session\(s\)(?: \(\d+ line\(s\)\))? hidden by the size budget/g) ?? [])
     .reduce((n, m) => n + Number(/(\d+)/.exec(m)[1]), 0);
   const headerAt = lines.findIndex((l) => l.startsWith('This batch'));
+  const shownInHeader = Number(/\/ (\d+) session\(s\) shown/.exec(lines[headerAt] ?? '')?.[1] ?? 0);
+  const unassignedSessions = copies(unassignedRefs) - (text.slice(text.indexOf('## Unassigned')).match(/…(\d+) session\(s\)(?: \(\d+ line\(s\)\))? hidden/g) ?? [])
+    .reduce((n, m) => n + Number(/(\d+)/.exec(m)[1]), 0);
   return {
     extraRefs,
     bytes: Buffer.byteLength(text, 'utf8'),
@@ -56,7 +59,9 @@ function measure(extraRefs) {
     hiddenSessions: hidden,
     shownPlusHidden: sessionLines + hidden,
     windowSessions,
-    identityHolds: sessionLines + hidden === windowSessions,
+    // 会话维度恒等式：头部 shown + 各处 hidden + unassigned（含其自身 hidden）== 窗口会话数
+    identityHolds: shownInHeader + hidden + unassignedSessions === windowSessions,
+    identity: `${shownInHeader} + ${hidden} + ${unassignedSessions} = ${shownInHeader + hidden + unassignedSessions} (window ${windowSessions})`,
     markers: (text.match(/hidden by the size budget/g) ?? []).length,
     header: lines[headerAt],
     driveInSessionLines: lines.filter((l) => l.startsWith('  - `') && /[A-Za-z]:[\\/]/.test(l)).length,
