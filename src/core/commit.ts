@@ -4,7 +4,7 @@
 import type { OmemConfig } from './config.js';
 import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, MemoryType, Profile } from './entry.js';
-import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain } from './entry.js';
+import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain, normalizeTopic } from './entry.js';
 import { ASSENT_CAP } from './lifecycle.js';
 import { loadTopicPolicies } from './review-policy.js';
 import { findById, writeEntry } from './store.js';
@@ -492,11 +492,11 @@ function missingHint(index: OmemIndex, topic: string | undefined, caller?: 'mcp'
     : ' Check ids with `omem topic list` or `omem search --all`.';
 }
 
-/** 小写，空白收成连字符，避免热层把「knee rehab」切成两个标签。 */
-export function normalizeTopic(raw: string): string | undefined {
-  const topic = raw.trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  return topic || undefined;
-}
+/**
+ * 主题归一化已迁至 `core/entry.ts`（与 `normalizeDomain` 同处，二者共用一套字符政策）。
+ * 这里保留重导出，调用方（MCP / pipeline / topic 命令）无需改路径。
+ */
+export { normalizeTopic } from './entry.js';
 
 /**
  * frontmatter 里保留的会话 id 上限。长期活文档会累积几百个，frontmatter 跟着膨胀，

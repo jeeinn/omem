@@ -238,6 +238,34 @@ export function normalizeDomain(raw: string | undefined): string {
   return normalized || 'general';
 }
 
+/** topic 的长度上限（code point）。文件名要留在 Windows 260 字符路径内。 */
+export const MAX_TOPIC_CHARS = 64;
+
+/** Windows 保留设备名：不能直接做文件名，加前缀而不是拒绝（拒绝会打断写入）。 */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
+
+/**
+ * 主题归一化（D1-B′：topic 即身份 → 这里的规则同时是**路径安全规则**）。
+ *
+ * 历史教训：topic 曾经只是 frontmatter 字段，清洗随意；一旦它变成文件名，
+ * `../../x` 就能把文件写出知识库。所以字符政策与 `normalizeDomain` 对齐：
+ * 只保留字母（含 CJK）/数字/下划线/连字符，其余折叠为 '-'。
+ *
+ * 与 `normalizeDomain` 的差别只有两处，都是因为它是「身份」而非「分类」：
+ * 长度有上限（按 code point 截断，不硬切 surrogate）、Windows 保留名加前缀。
+ */
+export function normalizeTopic(raw: string): string | undefined {
+  const cleaned = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}_-]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const clipped = [...cleaned].slice(0, MAX_TOPIC_CHARS).join('').replace(/-+$/, '');
+  if (!clipped) return undefined;
+  return WINDOWS_RESERVED.test(clipped) ? `topic-${clipped}` : clipped;
+}
+
 /** 标题 = 正文首行（截断）；用于检索摘要行与 MEMORY-INDEX。 */
 export function deriveTitle(body: string, max = 60): string {
   const first = body.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
