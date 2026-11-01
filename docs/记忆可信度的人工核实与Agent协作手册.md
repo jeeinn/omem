@@ -104,7 +104,7 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 | `confidence` | 0~1，**唯一的信任数字**，描述当前这份正文 | 写入时按证据算；`review --confirm` 提到 0.9；MCP 侧只能到自动上限 0.8 |
 | `confirmations` | 人工过目次数，**无节流，可无限累加** | `review --confirm` / `memory_feedback(helpful=true)`（每次 +1） |
 | `last_confirmed` | 最近一次过目的时间 | 同上（刷新） |
-| `source` | 来源：`agent` / `manual` / `api` | 写入时确定 |
+| `source` | 来源：`agent`（自动写入）/ `manual`（`omem add` 手工写）/ `llm`（API 档）/ `rules`（v0.1 遗留） | 写入时确定 |
 
 排序：`MEMORY-INDEX.md` 与 `omem search` 都按 **confidence → last_confirmed** 排（V0.1 的「verified 优先」这一层没有了，因为 `verified` 字段本身没了）。
 
@@ -117,8 +117,25 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 
 因此，**用 `omem add` 手工补记是最快拿到高置信度的路径**——人写的就是可信的，这条默认值设计是对的。但注意它 `confirmations: 0`：**「人写的」不等于「人核对过的」**，两件事，别混。
 
----
+### 2.1 分数会漂移：`omem verify` 能查出来
 
+`confidence` 是**写入那一刻**按证据算的，但证据域会变——会话文件被删、原文被改、同一段话又出现了新的独立来源。落盘的分不会跟着变，于是它可能已经对不上账本。
+
+```bash
+omem verify
+# 预期：Confidence check: N checked / M skipped (manual, llm, human-reviewed)
+#       有差异时会逐条列出：stored 0.55 / ledger 0.35–0.35
+```
+
+三个要点：
+
+- **只报告，不改写。** 自动改写会在每次 verify 时抖动 git 历史，而且「谁该赢」不是机器能判的。
+- **比的是区间。** 落盘的分数算的时候排除自印证的会话集合 = 主来源会话 + 本次写入吸收的那几个；`source_sessions` 会继续累积，账本里已经分不出「当时是哪几个」，所以 verify 算 `[min, max]` 两个界，落在区间内就算没漂移。
+- **只有 `source: agent` 的条目参与比对。** `manual`（人写的 0.9）、`llm`（API 档 0.75 上限）、人工过目过（`confirmations > 0`，落盘 0.9）按设计不等价，跳过。
+
+最常见的一条漂移是「证据失效」：会话原文被删或被改之后，这条记忆的引文再也锚定不上，账本算出来是 0.35（未锚定），落盘还留着 0.55 或更高。这时候该重写这条记忆（重新写一遍，附上还在的来源），或者承认它过期了。
+
+---
 ## 3. 路径 A（推荐）：让终端 Agent 帮你核实
 
 ### 3.1 为什么推荐

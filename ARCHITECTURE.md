@@ -1,6 +1,6 @@
 # 技术架构
 
-omem 把个人记忆放在一个 git 仓库里。Markdown 是事实源，SQLite 只是可以删掉重建的索引。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。
+omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。
 
 命令对应关系：`omem sync` 采集会话，`omem backup` 备份数据仓（git；WebDAV / 本地目录后端尚未交付）。
 
@@ -26,6 +26,7 @@ flowchart TB
     BACKUP["omem backup<br/>git 备份"]
     INSTALL[omem install / serve]
     WUI["omem review --ui<br/>本地页面"]
+    VERIFY["omem verify<br/>重建 + 账本复算"]
   end
 
   subgraph collect [采集 只读]
@@ -34,11 +35,16 @@ flowchart TB
   end
 
   subgraph store [OMEM_HOME]
-    SESS["sessions/<br/>会话原文"]
-    KNOW["knowledge/<br/>主题活文档"]
-    PROC["PROCESS.md<br/>待写结论"]
-    ARCH["archive/"]
-    IDX[("index/omem.db<br/>FTS5")]
+    SESS["sessions/<agent>/<id>.md<br/>会话原文"]
+    KNOW["knowledge/<domain>/<topic>.md<br/>主题活文档"]
+    PROC["PROCESS.md<br/>待写结论清单"]
+    ARCH["archive/<domain>/<topic>.md"]
+    MIDX["MEMORY-INDEX.md<br/>人读视图"]
+  end
+
+  subgraph mem [内存派生视图 每次启动重建]
+    IDX["OmemIndex<br/>Map topic to row<br/>活文档每次 stat"]
+    SIDX["会话槽位<br/>只索引 user 证据域<br/>按需构建"]
   end
 
   subgraph write [写入]
@@ -63,15 +69,18 @@ flowchart TB
   ADD --> KNOW
   SAVE --> KNOW
   API --> KNOW
-  SESS --> IDX
-  KNOW --> IDX
+  SESS -.-> SIDX
+  KNOW -.-> IDX
   INSTALL --> MCP
   MCP --> SAVE
   MCP --> IDX
+  MCP --> SIDX
   KNOW --> BACKUP
   SESS --> BACKUP
   BACKUP --> GIT[(git remote)]
   KNOW -.-> ARCH
+  VERIFY --> IDX
+  VERIFY --> MIDX
 ```
 
 | 层 | 代码 | 职责 |
@@ -80,8 +89,8 @@ flowchart TB
 | 采集 | `src/collect/` | 只读扫描 9 个平台的会话目录，转成统一会话 |
 | 采集注册表 | `src/collect/registry.ts` | 采集器 id、config 字段、隔离 env 的唯一真相源 |
 | 加工 | `src/process/` | 默认只落原文并写 `PROCESS.md`；`--tier api` 才调用模型 |
-| 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、SQLite/FTS5 |
-| 审阅界面 | `src/web/` | `omem review --ui` 的本地页面与 HTTP 服务：只绑 127.0.0.1、一次性 token、已阅集合决定 `verified` |
+| 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、内存派生索引 |
+| 审阅界面 | `src/web/` | `omem review --ui` 的本地页面与 HTTP 服务：只绑 127.0.0.1、一次性 token |
 | 备份 | `src/sync/` | `SyncBackend`；本版只实现 GitBackend |
 | 安装 | `src/install/` | 只改客户端配置里的 omem 段，先备份、原子写 |
 
@@ -105,113 +114,131 @@ flowchart TB
 
 DeepSeek 的会话是 zstd 压缩的，解析时需要解压。这是本项目**唯一的原生运行时依赖**（`@toondepauw/node-zstd`，prebuilt，无需源码编译，覆盖 win32/darwin/linux 的 x64 与 arm64）。其余功能不依赖任何原生模块——检索索引是从 Markdown 派生的内存视图，没有数据库。
 
+## 索引：没有数据库，只有派生视图
+
+SQLite 在 v0.2 被删掉了（重构方案 D3）。理由是它带来的负担远大于收益：WAL、跨进程锁、迁移脚本、`(size, mtime)` 快路径 + 内容哈希慢路径的双 hash 对账——全是为了维护一个**随时可以从 Markdown 重建**的东西。
+
+现在的口径：
+
+| 对象 | 什么时候构建 | 成本 |
+| --- | --- | --- |
+| 活文档行（`Map<topic, row>`） | 每次启动 / 每次调用 | 每个文件一次 `stat`（实测 1100 文件 ≈ 131 ms） |
+| 活文档正文 | 命中后才读 | 只读命中的那几条 |
+| 会话槽位 | `sync` / `search --sessions` / `verify` 才构建 | 只索引 `## user` 证据域（实测 2.1 MB 全量扫描 ≈ 1.4 ms） |
+
+会话**只索引 `## user` 段**：助手的回答不能当证据，也不该出现在检索结果里。一条只命中助手段的会话等于「检索不到」——比给一条空摘录更诚实。
+
+检索是**线性扫描 + 确定性排序**：命中词数 → 置信度（stale × 0.5）→ `last_confirmed`。没有 bm25、没有 FTS、没有倒排表——这个体量下暴力子串匹配是 1–2 ms，而排序规则保持成一个可解释、可复算的纯函数。
+
+**分层对账**取代了跨进程锁：活文档每次 `stat`（便宜，能发现外部改动），会话只在需要时构建。写冲突从「写不进去」降级为「读到的可能是旧版本」。
 
 ## 数据怎么流
 
-事实源只有两类 Markdown：`sessions/` 是对话原文，`knowledge/` 是结论。`index/`、`PROCESS.md`、`MEMORY-INDEX.md`、`snapshots/` 都是派生文件，删掉可以重建。`logs/` 是追加日志。
+事实源只有两类 Markdown：`sessions/` 是对话原文，`knowledge/` 是结论。`PROCESS.md`、`MEMORY-INDEX.md`、`snapshots/` 都是派生文件，删掉可以重建。`logs/` 是追加日志。
 
 ```mermaid
 flowchart LR
-  subgraph ingest [采集 omem sync]
-    A[会话文件 jsonl] --> B[去掉系统包装和工具块]
-    B --> C[脱敏]
-    C --> D["sessions/agent/id.md"]
-    D --> E[sessions 表 + FTS]
-    E --> F[PROCESS.md 列出未吸收会话]
-  end
-
-  subgraph conclude [写结论]
-    F --> G[宿主 Agent 读 PROCESS.md]
-    G --> H["save_memory 或 omem add"]
-    I["可选 sync --tier api"] --> H
-    H --> J["knowledge/ 一份 topic 一份 active"]
-    J --> K[entries 表 + FTS]
-    J --> L["旧版 status=superseded<br/>留在磁盘、退出检索"]
-    J --> F
-  end
-
-  subgraph use [使用与备份]
-    K --> M[omem search / search_memory]
-    J --> N["omem backup<br/>git pull 然后 push"]
-    D --> N
-  end
+  A[会话文件 jsonl] --> B[去掉系统包装和工具块]
+  B --> C[脱敏]
+  C --> D["sessions/agent/id.md"]
+  D --> E[内存会话槽位]
+  E --> F["PROCESS.md 列出未吸收会话"]
+  F --> G[宿主 Agent 读 PROCESS.md]
+  G --> H["save_memory 或 omem add"]
+  I["可选 sync --tier api"] --> H
+  H --> J["knowledge/domain/topic.md"]
+  J --> K[内存活文档行]
+  J --> F
+  K --> M[omem search / search_memory]
+  J --> N["omem backup"]
+  D --> N
+  K --> V["omem verify"]
 ```
 
-采集不写 `knowledge/`。同一 `topic` 已有 active 文档时，再次写入必须带 `supersedes`，否则拒绝。冲突不自动合并：`omem backup` 遇到冲突时保留本地版，远端版另存 `.conflict.md`。
+采集不写 `knowledge/`。带同一个 `topic` 再写一次就是**覆盖**那份活文档——不再有「撞 topic 拒写 + 要求 supersedes」这道闸门（重构方案 D1-B′ / M2）。护栏只有一条：覆盖前先打快照（`snapshots/`，滚动保留 7 份）。git 历史是最终退路。
+
+冲突不自动合并：`omem backup` 遇到冲突时保留本地版，远端版另存 `.conflict.md`。
 
 `PROCESS.md` 有两条刷新路径：采集路径（`omem sync`）和写入路径（`save_memory` / `omem add` 落盘成功后立即重算）。写入路径这一条是必需的——MCP 的 `save_memory` 不经过 `omem sync`，若只在采集路径刷新，Agent 读到的待办清单会一直包含已吸收的会话。清单是派生物，刷失败不影响已经落盘的记忆（错误只记日志）。批量加工路径（API 档）传 `refreshGuide: false`，整轮结束时统一刷新一次。
+
+`PROCESS.md` 分两段（重构方案 A-6）：
+
+- `## Projects` —— 要干的活：待吸收会话按**项目指纹**分组（组标题是 `### <项目指纹>`）。项目指纹不是 topic 名。
+- `## Topics` —— 词表：所有活文档的主题名，外加它来自哪个项目。Agent 复用这里的名字就是覆盖同一份文档，而不是为同一主题再开一份。
 
 写入不自动 commit。记忆先留在工作区，`omem backup` 才把它提交进 git 历史。
 
 ## 一条记忆的状态
 
-检索默认只看 `active`。`stale` 仍可搜到，但权重减半。`superseded` 和 `archived` 默认不出现。
+检索默认只看 `active`。`stale` 仍可搜到，但权重减半。`archived` 默认不出现（归档 = 文件移到 `archive/`，不删）。
 
 ```mermaid
 stateDiagram-v2
   [*] --> active: add / save_memory / API 档
-  active --> active: review --confirm
-  active --> superseded: 新文档带 supersedes
-  active --> stale: gc 或 review --stale
+  active --> active: review --confirm 提到 0.9
+  active --> stale: review --gc 或 review --stale
   stale --> active: review --confirm
   active --> archived: review --dismiss
   archived --> [*]: redact 硬删
 ```
 
-硬删只有 `omem redact`，同时删 Markdown 和索引行。确认（`verified: true`，置信度 0.9）只来自 `omem add` 或 `omem review --confirm`。
+硬删只有 `omem redact --topic`，同时删 Markdown 和索引行。**没有 `verified` 布尔位**（重构方案 D2）：信任只有一个数字 `confidence`，它永远描述当前这份正文；「人看过」由 `confirmations > 0` + `last_confirmed` 表达。
+
+置信度五档（重构方案 M1）：
+
+| 档 | 值 | 条件 |
+| --- | --- | --- |
+| 未锚定 | 0.35 | 引文在会话原文里找不到 |
+| 待补会话 / 已锚定 | 0.55 起 | 锚定到 `## user` 原文 |
+| 印证加成 | +0.10 / +0.06 / +0.03…，封顶 +0.25 | **独立来源**数 + 跨项目加成 |
+| 自动上限 | 0.80 | 任何自动产出不得超过 |
+| 人工过目 | 0.90 | 人在 `omem review` 里看过正文之后 |
+
+印证的计数单位是**独立来源**，不是会话文件：两份会话文件如果用户说的话一样（归一化后同指纹），只算一个来源；被引用会话自己的指纹先占位，所以来源的副本也不算印证。否则「同一段话复制 5 份」就能把 0.55 刷到 0.80。
+
+MCP 侧**没有盖章通道**（重构方案 A-5）：`save_memory` 不接受 `confirm_ids`，过目只由人自己在 `omem review` 里做。
 
 ## 活文档与 topic
 
-**topic 只在 frontmatter 里，不进文件路径。** `knowledge/` 下的 `coding/`、`general/` 是 domain，不是 topic；一条带 topic 的记忆和其它记忆混在同一个目录里，文件名只有 id。所以 topic 的可见性必须由输出端保证（见下）。
+**topic 就是身份，就是文件名。** 路径是 `knowledge/<domain>/<topic>.md`，frontmatter 里**不写 topic**（`parseEntry` 从路径注入），所以主题名只有一个事实源，不存在「字段与路径漂移」。
 
-只有**显式传 `topic`** 才算活文档。`project` 只用于 `PROCESS.md` 归组，不会回落到 topic——两者是不同命名空间，`PROCESS.md` 里的 `## xxx` 是项目指纹，不是主题名。
-
-同一 topic 同时只有一份 `active`。再次写入必须带 `supersedes` 指向当前那份，否则 `commitEntry` 拒绝，`--force` 也不绕过。topic 归一化：小写、空白转连字符、合并连续连字符。
+- `coding` / `general` 是 **domain**，不是 topic。
+- 只有**显式传 `topic`** 才算活文档；一次性记忆也强制有 topic。
+- `project` 只用于 `PROCESS.md` 归组，不回落成 topic——两者是不同命名空间。
+- 同一 topic 同时只有一份 `active`。再写一次 = 整篇覆盖那份文件；版本链由 git 承担（没有 `superseded` 状态、没有 `superseded_by`）。
+- topic 归一化（`normalizeTopic`）：小写、非法字符折叠为连字符、合并连续连字符、≤ 64 code point、Windows 保留名加 `topic-` 前缀。CJK 合法。
 
 更新是**整篇覆盖**，不是增量合并：
 
 | 项目 | 行为 |
 | --- | --- |
-| 新版本 | 新 id、新文件、新正文 |
-| 旧版本 | 置 `superseded` + 回填 `superseded_by`，**文件留在 `knowledge/` 原路径**，默认检索不再返回 |
-| `source_sessions` | 继承并累积，保留最新 200 个 |
-| `evidence` | 继承并累积，去重后保留 8 条 / 2000 字符（本次的优先） |
-| `confidence` | 重算；若该主题策略为 `once` 且审过，提底 0.8 |
-| `verified` / `confirmations` | 重置（新内容需要重新核实） |
+| 同一个 topic 再写 | 覆盖同一路径，文件数不变（`git log` 多一笔） |
+| `created` | 沿用首次创建时间 |
+| `source_sessions` / `evidence` | 继承并累积（`evidence` 去重后保留 8 条 / 2000 字） |
+| `confidence` | **每次重算**（永远描述当前这份正文） |
+| `confirmations` / `last_confirmed` | 继承（「人看过这个主题」是主题级事实） |
+| 覆盖前 | 先打快照（`snapshots/<日期>/`） |
 
-**可见性**：`MEMORY-INDEX.md` 用 `topic:xxx` 标签、`omem search` 的命中行、`omem review` 的第三列、`omem topic list`。写入前 `PROCESS.md` 会附一份 `## Existing topics` 词表，让 Agent 复用已有名字而不是为同一主题再开一份。
+**可见性**：`MEMORY-INDEX.md` 用 `topic:xxx` 标签、`omem search` 的命中行、`omem review` 的第三列、`omem topics list`。写入前 `PROCESS.md` 会附一份 `## Topics` 词表。
 
-**两个护栏**（只在 `core/commit.ts` 里，所有写入路径共用）：
+**两个护栏**（只在 `core/commit.ts` 里，所有写入路径共用，产出**告警**而不是拒绝——拒绝会打断 Agent 写回）：
 
-- 近似主题：新 topic 与既有 topic 互为前缀或去掉分隔符后相同 → 告警，但不拒绝（拒绝会打断 Agent 写回）。
-- 跨主题合并：`supersedes` 指向的旧文档属于别的主题 → 告警并列出将要消失的主题名。合并允许，但操作者必须知道后果：那些名字此后只能 `omem search --all` 才看得到。
-
-**主题级审阅策略**（`~/.omem/review.toml`，`omem topic policy` 写入）：
-
-| 策略 | 行为 |
-| --- | --- |
-| `always`（默认） | 每次更新都进 review 队列 |
-| `once` | 该主题被人工审过（任一版本 `confirmations > 0`；`confirm` 与 `assent` 都计入）后，后续版本自动 `assent`（提底 0.8、不设 verified），不进队列 |
-| `never` | 永不进队列，也不自动提分 |
-
-`once` / `never` 都受安全阀约束：置信度 ≤0.35 或带 `ungrounded` 的条目始终回到队列。自动 assent 发生在 `commitEntry` 写入时（不是读队列时），所以落盘状态与队列显示一致。
-
-`review.toml` 独立于 `config.toml`：后者有文本级段合并的写入纪律，而 topic 策略是动态增长的高频写入，混在一起会破坏用户手写的注释与未知键。
+- 近似主题：新 topic 与既有 topic 互为前缀或去掉分隔符后相同 → 告警。
+- 跨主题合并：报告将要消失的主题名。
 
 ## 目录
 
 ```text
 ~/.omem/                      # OMEM_HOME，本身是一个 git 仓库
 ├── config.toml
-├── review.toml               # 主题级审阅策略（可选，随仓备份）
 ├── sessions/<agent>/<id>.md  # 原文，入库
-├── knowledge/<domain>/<YYYY>/<id>.md
-├── archive/                  # 归档，仍在仓库里
+├── knowledge/<domain>/<topic>.md
+├── archive/<domain>/<topic>.md   # 归档，仍在仓库里
 ├── PROCESS.md                # 派生，不入库
-├── MEMORY-INDEX.md           # 热层派生视图
-├── index/omem.db             # 派生，不入库
-├── snapshots/                # 不入库，滚动保留 7 份
+├── MEMORY-INDEX.md           # 派生视图
+├── skip.json                 # 被判定无价值的会话台账
+├── snapshots/<日期>/         # 不入库，滚动保留 7 份
 └── logs/                     # 不入库
 ```
 
-外部改了 Markdown（例如用 Obsidian）之后，下次打开索引会按文件哈希把改动吸回 SQLite。`omem rebuild` 可以删掉索引再全量重建。
+外部改了 Markdown（例如用 Obsidian）之后，下次打开索引会按文件内容哈希把改动吸回内存视图。`omem verify` 会重建整个视图、重渲染 `MEMORY-INDEX.md`，并**用账本重算每条自动分的条目、与落盘值比对**——只报告差异，不改写文件（自动改写会在每次 verify 时抖动 git 历史，而且「谁该赢」不是机器能判的）。

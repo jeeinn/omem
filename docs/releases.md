@@ -7,6 +7,25 @@
 | --- | --- | --- | --- |
 | `v0.1.0-beta.8` | `1da9d52` | — | 清单渲染回归（16.3×）、cap 截断、grounding 元数据可伪证 |
 | `v0.1.0-beta.9` | `a260812` | `4b824b0a1e1ef392106fa99b10f11bcb`（两次干净构建 dist 内容 hash 一致） | 见下 |
+| `v0.2.0-beta.1` | 见 tag | — | 重构路B：topic 即身份、去 SQLite、命令面 13 条（**不兼容**） |
+
+## v0.2.0-beta.1（重构路B：身份收口 + 去数据库 + 命令面收敛）
+
+**不兼容**：v0.1 的库直接 `omem init --force` 重来（重置 git 前自动打一份快照），**没有迁移脚本**。理由：这一版的目标是把项目变小，搬迁脚本会把旧模型原样搬进新模型。
+
+**用户可见变更**
+
+1. **topic 就是身份，就是文件名。** 路径改成 `knowledge/<domain>/<topic>.md`，frontmatter 里不再写 topic。删掉 `id` 命名空间、年份分桶、`superseded` 状态机与 `supersedes` 入参；`omem add` 与 `save_memory` 的 `topic` 变必填（一次性记忆也一样——它只是「只被写过一次的 topic」）。带同一个 topic 再写一次就是整篇覆盖那份文件，版本链交给 git。
+2. **没有索引数据库。** SQLite / FTS5 删除，索引是每次启动从 Markdown 重建的内存视图（`Map<topic, row>`）。会话只索引 `## user` 证据域、按需构建；检索从「SQLite + bm25」换成线性扫描 + 确定性排序（命中词数 → 置信度 → `last_confirmed`）。一并删掉 WAL、跨进程锁、迁移脚本与双 hash 对账。实测：1100 份会话冷启动 `stat` 131 ms、证据域全量扫描 1.4 ms、检索 1–2 ms。
+3. **信任只有一个数字。** `verified` 字段删除（D2）：原地更新下它会退化成「这个主题曾被人看过」，而信任只该描述当前这份正文。过目改由 `confirmations > 0` + `last_confirmed` 表达。`save_memory` 的 `confirm_ids` 一并删除（A5）——MCP 侧不再有盖章通道，过目只由人在 `omem review` 里做（提到 0.9）。
+4. **命令面收敛到 13 条。** 删 `eval` / `api` / `audit` / `context` / `gc` / `snapshot` / 主题级审阅策略；`rebuild` → `verify`；`gc` 并入 `review --gc`；`snapshot` 并入 `backup`；`redact --id` → `redact --topic`。
+5. **`omem verify` 做账本复算。** 重建内存视图 + 重渲染 `MEMORY-INDEX.md`，并用账本重算每条自动分条目、与落盘值比对：只报告差异，不改写（自动改写会在每次 verify 时抖动 git 历史，而且「谁该赢」不是机器能判的）。
+6. **`PROCESS.md` 拆两段。** `## Projects` 收待办（按项目指纹分组，组标题降为 `###`），`## Topics` 收词表并带所属项目——两个轴在这里接上，Agent 不再把项目指纹当主题名用。
+7. **印证按独立来源计数。** 同一段用户输入被同步两次、或两个采集器收了同一次对话，只算一份（来源会话自己的指纹先占位，所以副本也不算印证）；两次不同的表达里出现同一句引文，仍算两份。
+8. **写前快照。** 覆盖一份已有活文档之前自动打快照（`snapshots/`，滚动保留 7 份）；`init --force` 重置 git 前也打一份。git 历史仍是最终退路。
+9. **没有 `review.toml`。** 主题级审阅策略（`once` / `never`）删除——它压不住「置信度 ≤0.35 或带 `ungrounded`」的条目，却让「过目」这件事多出一个状态位。人工动作只剩过目 / 归档 / 冷却。
+
+**验证口径**：`npm test` 全绿（69 files / 691 tests）；`npm run build` 干净；`npm run smoke` 75 passed；`node scripts/release-check.mjs` 在打 tag 后通过（dist 与 src 一一对应、无孤儿、包内容精确）。
 
 ## v0.1.0-beta.9（正确性止血）
 

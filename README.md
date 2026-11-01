@@ -15,25 +15,18 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 ## 状态
 
-V0.1，公开测试版 `0.1.0-beta.7`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。尚未用真实会话做完质量验证。
+V0.2 公开测试版 `0.2.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。
 
-从 beta.6 升级时：
+**v0.2 与 v0.1 不兼容**：这一版重写了身份模型，老库直接 `omem init --force` 重来，不要试图迁移——`--force` 会先自动打一份快照再重建 git 仓。
 
-- 新增 `omem review --ui`：浏览器里勾选、右栏看正文与来源会话，一次提交（见「图形化审阅」）
-- `omem review --confirm` 支持逗号列表，一条命令确认一批
-- 新增 `omem topics list`：主题可见性（主题名 / 项目 / 最近更新 / 置信度 / 标题）
-- 活文档更新现在**继承证据链**：`evidence` 不再清零，与 `source_sessions` 一样累积（各有限额）
-- `domain` 会被归一化：以前写成 `Coding`、`My Project` 的条目，下次写入会落到 `coding`、`my-project` 目录
-- `omem review` 末尾会报告被 `review.toml` 策略静默的条数
+这一版的主要变化：
 
-从 beta.4 升级时命令名变了：
-
-- 采集会话用 `omem sync`。`omem run` 已删除
-- 备份数据仓用 `omem backup`。它不再叫 `omem sync`
-- `omem pause` / `omem resume` 已删除
-- `omem review` 默认只列出最近 10 条；`omem review <id>` 打开正文
-
-备份只交付 git。WebDAV 与本地目录后端还没有。从 beta.1 升级时：规则抽取已移除，`knowledge/` 只放结论；`omem install` 在非交互环境必须带 `--target`；`omem redact --source` 默认只预览。旧规则碎片用 `omem redact --source rules --yes` 删掉。
+- **topic 就是身份**：路径是 `knowledge/<domain>/<topic>.md`，frontmatter 不再写 topic，也不再有 id、年份分桶、`superseded` 状态机
+- **没有索引数据库**：SQLite 删掉了，索引是每次启动从 Markdown 重建的内存视图；会话只索引 `## user` 证据域，检索是线性扫描 + 确定性排序
+- **信任只有一个数字**：`confidence`。`verified` 字段删了——原地更新下它会退化成「这个主题曾被人看过」；MCP 侧也没有盖章通道，过目只由人自己在 `omem review` 里做
+- **命令面收敛到 13 条**：`gc` 并入 `review --gc`，`rebuild` 改名 `verify`，`snapshot` 并入 `backup`，删掉 `eval` / `api` / `audit` / `context` / 主题级审阅策略
+- **印证按独立来源算**：同一段用户输入被同步两次、或两个采集器收了同一次对话，只算一份——复制粘贴刷不了分
+- **写前快照**：覆盖一份已有活文档之前先打快照（`snapshots/`，滚动保留 7 份），git 历史是最终退路
 
 包名带 scope 是因为 npm 认为裸名 `omem` 与已有包太像。安装后命令名仍是 `omem`。CLI 输出是英文，本文和 `docs/` 是中文。
 
@@ -84,8 +77,8 @@ Windows 上若 MCP 起不来，把客户端配置改成用 node 直接启动：`
 omem install
 omem sync --since 30d
 omem review --ui                # 浏览器里勾选，一次提交
-omem review --confirm <id>      # 也可以命令行确认单条（支持 id1,id2 批量）
-omem add "部署时 docker 镜像构建失败，改用国内源后恢复" --type experience
+omem review --confirm <topic>   # 也可以命令行过目单条（支持 topic1,topic2 批量）
+omem add "部署时 docker 镜像构建失败，改用国内源后恢复" --topic docker-build --type experience
 omem search "镜像拉取"
 omem backup remote git@github.com:you/omem-memory.git
 omem backup
@@ -99,8 +92,8 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 
 MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
-- `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径、四步写回循环、纠错通道），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖额外的导出命令。
-- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的活文档（topic 本身就是句柄）。历史版本在 git 里，不在检索结果里。
+- `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径与写回循环），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖额外的导出命令。
+- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的活文档（topic 本身就是句柄）。历史版本在 git 里，不在检索结果里。搜会话只认 `## user` 段——助手的回答不是证据，也不该被检索到。
 - `top_k` 声明并夹取在 1-20（省略时用 `config.toml` 的 `search.top_k`，它可配到 50）；响应固定给 `matched M · showing N`，能看出还有多少没返回。
 
 写入结论的路径（`save_memory` / `omem add`）默认各留**一笔本地提交**（`[process] auto_commit = "session"`，可设 `off` 关闭）；`omem sync` 一轮 run 一笔。只有 `omem backup` 才推送远端——它在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
@@ -127,7 +120,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 | 命令 | 作用 |
 | --- | --- |
-| `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`）。采集用 `omem sync` |
+| `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`；重置前自动打一份快照）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
 | `omem sync [--since 7d] [--collectors id,id] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。不带 `--collectors` 时扫全部已有目录 |
 | `omem skip <session-id>` | 把会话标记为「不必沉淀」，从 `PROCESS.md` 的待办里移出（`list` / `remove` 可回看） |
@@ -140,7 +133,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | `omem backup` | git pull 然后 push。子命令：`status` / `pull` / `push` / `remote` / `use` |
 | `omem profile [home\|work]` | work 档默认禁止备份和导出 |
 | `omem redact --topic <name>` | 唯一硬删。`--source` 默认只预览，`--yes` 才删 |
-| `omem verify` | 从 Markdown 重建内存视图并重渲染 `MEMORY-INDEX.md` |
+| `omem verify` | 从 Markdown 重建内存视图、重渲染 `MEMORY-INDEX.md`，并用账本重算每条自动分的条目与落盘值比对（只报告差异，不改写） |
 | `omem serve` | MCP server，由 install 写好的配置拉起 |
 
 退出码：`0` 成功（冲突已处理也算成功），`1` 用法错误，`2` 后端不可用或策略拒绝。
@@ -149,7 +142,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 默认不调用模型。`omem sync` 只把原文放进 `sessions/`，并在 `PROCESS.md` 里列出还没写进活文档的会话。Agent 读这份文件，用 `save_memory` 或 `omem add --topic` 写回。写同一个 topic 就是覆盖同一份文件，不需要额外的 id。
 
-置信度按证据打：对得上 user 原文从 0.55 起，两个会话印证到 0.75，对不上封顶 0.35。`omem review --confirm` 把人工过目的文档提到 0.9——这套分数不写 `verified` 字段（v0.2.0 起取消），MCP 侧也没有盖章通道：过目只由人自己在 `omem review` 里做。
+置信度按证据打：对得上 user 原文从 0.55 起，独立来源印证到 0.8，对不上封顶 0.35。`omem review --confirm` 把人工过目的文档提到 0.9——这套分数不写 `verified` 字段（v0.2.0 起取消），MCP 侧也没有盖章通道：过目只由人自己在 `omem review` 里做。
 
 证据门槛是 12 个连续字符，且必须来自会话文件里的 `## user` 段（引模型自己的话不算）。`session_id` 用裸 id——`claude-code:probe-0001` 这种带前缀的写法会自动剥掉前缀再找，不会因此掉到 0.35。没给 `session_id` 只给 `evidence` 时，第一个命中的会话可能是证据的来源本身，因此不计入「独立印证」：指名与不指名同分，指名不会更亏。印证按**独立来源**算，不按会话文件算：同一段用户输入被同步两次、或两个采集器收了同一次对话，只算一份——复制粘贴刷不了分。
 
@@ -163,7 +156,9 @@ omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 
 ## 主题（topic）
 
-`topic` 是活文档的标识，**可选**，只写在 frontmatter 里，不影响文件路径——`knowledge/coding/2026/` 下既有 `coding` 这个 domain，也可能放着十几个不同主题的文档。
+`topic` 是活文档的**身份**，也就是文件名：路径是 `knowledge/<domain>/<topic>.md`，frontmatter 里不写它——主题名只有一个事实源，不会出现「字段和路径对不上」。`coding` / `general` 是 domain，不是主题。
+
+主题名**必填**，一次性记忆也一样（它只是「只被写过一次的 topic」）。
 
 ```bash
 omem add "连接池上限 20，超过就排队" --topic pool-tuning
@@ -171,19 +166,21 @@ omem topics               # 有哪些主题
 omem topics rename old new  # 改名 = 移动文件，历史由 git 保留
 ```
 
-同一主题同时只有一份 active 文档。要更新它，必须指向当前那份：
+同一主题同时只有一份 active 文档。要更新它，带同一个 topic 再写一次：
 
 ```bash
 omem add "连接池上限 20，超过排队（补充：不要盲调大）" --topic pool-tuning
 ```
 
-更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。
+更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。覆盖前自动打一次快照。
 
 继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。
 
-### 主题级审阅策略
+主题名规范：建议英文小写连字符（`knee-rehab`、`pool-tuning`），专有名词保留原文。中文等 CJK 主题名合法，但同一件事换个说法就会变成第二个主题——名字是唯一身份，没有第二种归并机制。
 
-同一个主题反复更新会让它反复回到队列。`review.toml` 可以按主题关掉这种打扰：
+### 人工过目、归档与冷却
+
+队列里的条目只有三个动作：
 
 ```bash
 omem review --confirm pool-tuning      # 人工过目：置信度提到 0.9
@@ -191,15 +188,14 @@ omem review --dismiss noisy-topic      # 归档：移出队列，可逆
 omem review --stale pool-tuning        # 冷却：排在 active 之后
 ```
 
-策略文件在 `~/.omem/review.toml`，随 git 备份。「审过」指该主题任一版本有过确认动作——`confirm` 与 `assent` 都算，两者都会累加 `confirmations`。`once` 与 `never` 都有安全阀：置信度 ≤0.35 或带 `ungrounded` 的条目**始终**会回到队列，策略压不住它。被策略静默的条数会在 `omem review` 末尾报告，不会是无声消失。
+过目的产出物只有两个数字：`confidence = 0.9` 与 `confirmations` 递增。没有 `verified` 布尔位——它会随原地更新退化成「这个主题曾被人看过」，而信任只该描述当前这份正文。
 
-**三种「看不见」的补救**：
+**两种「看不见」的补救**：
 
 | 情况 | 现在会怎样 |
 | --- | --- |
 | 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 的 `## Topics` 段每行给出主题名 **+ 所属项目**；MCP 用 `search_memory(topic="<name>")` 直接取 |
 | 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，并说明「确属不同主题就保留新主题」，照常写入 |
-| 用新主题取代了别的主题的文档 | 写入时告警「Merged N topic(s) into "xxx"」，并列出消失的主题名 |
 
 
 ## 图形化审阅（`review --ui`）
@@ -254,13 +250,13 @@ npm test
 npm run smoke
 ```
 
-行为以源码和 `docs/omem-V0.1技术规格草案.md` 为准。已落地的旧规划在 `docs/archive/`。
+行为以源码和 `docs/omem-重构方案-路B.md`（决策记录 + 实施进度表）为准。已落地的旧规划在 `docs/archive/`。
 
 ## 安全
 
 - 写入前按通用形态脱敏：API key、token、JWT、PEM、口令。身份证、手机号、薪资这类内容不会自动过滤
 - `exclude_paths` 跳过路径。`exclude_keywords` 已删除
-- work 档默认禁止 `omem backup` 和 `context` 导出，退出码 2。`OMEM_ALLOW_WORK_EXPORT=1` 临时放行，`OMEM_PROFILE_LOCKED=1` 锁定档案
+- work 档默认禁止 `omem backup` 与上下文导出，退出码 2。`OMEM_ALLOW_WORK_EXPORT=1` 临时放行，`OMEM_PROFILE_LOCKED=1` 锁定档案
 
 ## 配置文件
 

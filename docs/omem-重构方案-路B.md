@@ -46,6 +46,7 @@ OpenViking 原生具备 omem 最痛的两块能力：活文档维护（两层摘
 | **D9** | 老数据仓 | **不兼容，`omem init --force` 重来** | 本版目标是变小；不写产品内迁移脚本 |
 | **M1** | 置信度 | **单一数值 + 固定五档**（见 §4） | 数值只用于排序，解释靠 tags + evidence |
 | **M2** | AI 维护活文档 | **AI 直接整篇更新**，护栏只有写前 snapshot | 活文档本来就是沉淀记忆用的，加 patch 协议是把简单事情做复杂 |
+| **D10** | 印证的计数单位 | **独立来源**，不是会话文件：同一段用户输入（归一化后同指纹）只算一份；被引用会话自己的指纹先占位 | 2026-11-01 用户拍板。去 SQLite 之后「磁盘上有几个副本就算几份印证」被放大成刷分漏洞（复制 5 份 → 0.55 变 0.80）。两次**不同**表达里的同一句引文仍算两份印证（见 §4） |
 
 ### 1.2 待定
 
@@ -246,13 +247,15 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | 身份（A） | 同 topic 连写 3 次：磁盘 1 个文件、`git log` 3 笔、检索不返回历史版本；`rg "\bid\b" src/core/entry.ts` 无 id 字段 |
 | 路径安全（A） | topic 含 `/`、`\`、`..`、`CON` 时落盘仍在该 domain 目录内 |
 | M2 | 带 topic 二次写入成功；写前存在 snapshot |
-| `verified`（A） | `rg "\bverified\b" src/` 仅剩注释；排序仍有确定结果 |
+| `verified`（A） | `rg "\bverified\b" src/` 仅剩注释（`install/clients/prompt.ts` 里那个 `verified` 是「客户端配置路径已核实」，同形异义）；排序仍有确定结果 |
 | 置信度（M1） | 0.35/0.55/+加成/0.80/0.90 五档各有单测；`omem verify` 报告差异不改文件 |
 | 搜索等价（B） | golden 查询集全等；零结果文案不变 |
 | 检索性能（B） | 1100 会话规模下单查询 < 10ms（不含冷启动）；冷启动 < 500ms（见 §12） |
 | 一致性（B） | 3 进程并发写零失败；外部改 md 后下次调用可见 |
 | 命令面（C） | `README` / `AGENTS.md` / `cli.ts` / `smoke.sh` 四处命令清单一致 |
 | 初始化（D） | `init --force` 先 snapshot 再重建；旧目录内容不被删除 |
+| 账本复算（F） | `omem verify` 报告落盘值与账本区间 `[min, max]` 的差异，且**不改写文件**（`tests/unit/verify-confidence.test.ts`） |
+| 印证口径（G） | 同一段用户输入的副本不算独立印证；两次不同表达里的同一句引文算两份印证（`tests/unit/score-ladder.test.ts`、`session-ingest.test.ts`） |
 
 ---
 
@@ -301,7 +304,7 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | --- | --- | --- |
 | A-1 | topic 归一化成为路径安全规则（字符政策、CJK、保留名、64 code point 上限） | ✅ |
 | A-2 | 路径模型 `knowledge/<domain>/<topic>.md` + 目录扫描变浅 | ✅ 代码完成 |
-| A-3 | 删除 `id` 与 supersede 状态机，写入即覆盖 | ✅ 代码完成（写前快照仍待补） |
+| A-3 | 删除 `id` 与 supersede 状态机，写入即覆盖 | ✅（写前快照已补：`core/commit.ts` 在覆盖前调 `runSnapshot`） |
 | A-3t | 测试迁移：断言从 id 改为 topic，删除 supersede 相关用例，`omem add` 补 `--topic` | ✅（68/68 文件绿） |
 | A-4 | 取消 `verified` + 置信度五档固化 | ✅（`verified` 全线删除；五档由 `tests/unit/score-ladder.test.ts` 钉住） |
 | A-5 | MCP/CLI 合同同步（topic 必填、删 `supersedes`/`confirm_ids`、`redact --topic`） | ✅（MCP 只剩 search/save；install 的 marker 段同步） |
@@ -311,6 +314,8 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | C-2 | 删 `review.toml` + `review-policy.ts` + `autoAssent` 分支 | ✅ |
 | C-3 | README / AGENTS / package.json 文案对齐（已随 C-1 完成主体） | ✅ |
 | D | `init --force` 前置快照 + 版本号 0.2.0-beta.1 | ✅（搬迁脚本按 D9 不写：不兼容，直接 re-init） |
-| E | `tests/smoke.sh` 重写 + `tests/mcp-probe.mjs` 同步到 v0.2 | ✅（75/75 检查绿） |
+| E | ``tests/smoke.sh`` 重写 + ``tests/mcp-probe.mjs`` 同步到 v0.2 | ✅（75/75 检查绿） |
+| F | ``omem verify`` 账本复算（§11「置信度」验收项的后半条一直没实现） | ✅（``process/score.ts`` 的 ``verifyConfidence``，只报告不改写） |
+| G | 印证按独立来源计数（同一段用户输入的副本只算一份） | ✅（``session-store.ts`` 的 ``evidenceUserKey`` + ``score.ts`` 的 ``buildSourceSkip``） |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。
