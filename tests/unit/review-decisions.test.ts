@@ -179,7 +179,7 @@ describe('applyReviewDecisions: 批量语义', () => {
       { topic: '2026-10-27-p4', action: 'confirm' },
     ]);
 
-    expect(out.map((o) => o.id)).toEqual(['2026-10-27-p1', '2026-10-27-p2', '2026-10-27-p3', '2026-10-27-p4']);
+    expect(out.map((o) => o.topic)).toEqual(['2026-10-27-p1', '2026-10-27-p2', '2026-10-27-p3', '2026-10-27-p4']);
     expect(out.map((o) => o.applied)).toEqual(['confirm', 'dismiss', 'stale', 'assent']);
     expect(out.every((o) => o.status === 'ok')).toBe(true);
   });

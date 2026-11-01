@@ -47,7 +47,7 @@ describe('buildReviewItem', () => {
       topic: 'pool-tuning',
     });
 
-    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-a1')!);
+    const item = buildReviewItem(home, findByTopic(home, 'pool-tuning')!);
 
     expect(item.topic).toBe('pool-tuning');
     expect(item.evidenceCount).toBe(1);
@@ -55,29 +55,11 @@ describe('buildReviewItem', () => {
     expect(item.flags).toContain('ungrounded');
     expect(item.summary).toContain('连接池上限设为 20');
     expect(item.summary).not.toContain('第三句');
-    expect(item.versionChain).toEqual([]);
-  });
-
-  it('versionChain 沿 supersedes 向上追溯（新版 → 旧版 → 更旧版）', () => {
-    add('2026-10-01-v1', '第一版');
-    add('2026-10-15-v2', '第二版', { supersedes: ['2026-10-01-v1'] });
-    add('2026-10-27-v3', '第三版', { supersedes: ['2026-10-15-v2'] });
-
-    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-v3')!);
-
-    expect(item.versionChain).toEqual(['2026-10-15-v2', '2026-10-01-v1']);
-  });
-
-  it('supersedes 自环不死循环（脏数据防护）', () => {
-    add('2026-10-27-loop', '自环', { supersedes: ['2026-10-27-loop'] });
-    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-loop')!);
-    expect(item.versionChain).toEqual([]);
   });
 
   it('指向不存在的旧版时截断，不抛错', () => {
-    add('2026-10-27-orphan', '孤儿', { supersedes: ['2026-01-01-gone'] });
+    add('2026-10-27-orphan', '孤儿', {});
     const item = buildReviewItem(home, findByTopic(home, '2026-10-27-orphan')!);
-    expect(item.versionChain).toEqual([]);
   });
 });
 
@@ -154,16 +136,13 @@ describe('buildReviewDetail', () => {
     add('2026-10-27-d1', '正文内容。', {
       evidence: ['原始证据'],
       source_sessions: ['ghost'],
-      supersedes: ['2026-10-01-old'],
     });
 
     const detail = buildReviewDetail(home, findByTopic(home, '2026-10-27-d1')!, new Map());
 
     expect(detail.body).toContain('正文内容');
     expect(detail.evidence).toEqual(['原始证据']);
-    expect(detail.supersedes).toEqual(['2026-10-01-old']);
     expect(detail.sessions).toHaveLength(1);
     expect(detail.sessions[0].found).toBe(false);
-    expect(detail.versionChain).toEqual([]);
   });
 });

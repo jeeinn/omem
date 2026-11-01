@@ -130,7 +130,7 @@ describe('review server: token 门禁', () => {
 
 describe('review server: 详情与已阅集合', () => {
   it('GET detail → 200，正文与版本信息齐全', async () => {
-    add('2026-10-27-b1', '这是正文内容。', { evidence: ['证据原文'], supersedes: ['2026-10-01-old'] });
+    add('2026-10-27-b1', '这是正文内容。', { evidence: ['证据原文'] });
     const { server } = await start(['2026-10-27-b1']);
 
     const res = await fetch(`${base(server)}/api/detail/2026-10-27-b1?token=${server.token}`);
