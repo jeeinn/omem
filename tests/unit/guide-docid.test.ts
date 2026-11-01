@@ -42,7 +42,7 @@ function put(id: string, project: string): void {
   }, `## user\n${id}`);
 }
 
-describe('docId: the document project field is the primary match path', () => {
+describe('docTopic: the document project field is the primary match path', () => {
   it('resolves the current document by project even without an absorbed session link', () => {
     // 关键场景：活文档带 project 字段，但没有任何会话被它吸收过。
     // 旧实现只能靠会话反查，这里必然为空；新实现直接按 project 命中。
@@ -57,12 +57,12 @@ describe('docId: the document project field is the primary match path', () => {
       confidence: 0.55,
       verified: false,
     });
-    expect(doc.id).toBeTruthy();
+    expect(doc.topic).toBeTruthy();
 
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-x');
+    const group = topics.find((t) => t.project === 'proj-x');
     expect(group).toBeTruthy();
-    expect(group!.docId).toBe(doc.id);
+    expect(group!.docTopic).toBe(doc.topic);
     expect(group!.docTitle).toBeTruthy();
   });
 
@@ -80,18 +80,18 @@ describe('docId: the document project field is the primary match path', () => {
       verified: false,
     });
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-y');
+    const group = topics.find((t) => t.project === 'proj-y');
     expect(group).toBeTruthy();
-    expect(group!.docId).toBe(doc.id);
+    expect(group!.docTopic).toBe(doc.topic);
   });
 
   it('reports none when the group genuinely has no document', () => {
     // 不该编造一个 docId——分组确实没有任何活文档。
     put('pending-4', 'proj-z');
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-z');
+    const group = topics.find((t) => t.project === 'proj-z');
     expect(group).toBeTruthy();
-    expect(group!.docId).toBeUndefined();
+    expect(group!.docTopic).toBeUndefined();
   });
 
   it('picks the newest document when the project has several', () => {
@@ -116,11 +116,11 @@ describe('docId: the document project field is the primary match path', () => {
       verified: false,
     });
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-m');
+    const group = topics.find((t) => t.project === 'proj-m');
     expect(group).toBeTruthy();
     // 最新的那份是默认 supersede 对象。
-    expect([older.id, newer.id]).toContain(group!.docId);
-    expect(group!.otherDocs).toBeGreaterThanOrEqual(1);
+    expect([older.topic, newer.topic]).toContain(group!.docTopic);
+    expect((group!.otherTopics ?? []).length).toBeGreaterThanOrEqual(1);
   });
 
   it('does not leak documents across projects', () => {
@@ -137,10 +137,10 @@ describe('docId: the document project field is the primary match path', () => {
       verified: false,
     });
     const [topics] = pendingTopics(home, index);
-    const groupB = topics.find((t) => t.topic === 'proj-b');
+    const groupB = topics.find((t) => t.project === 'proj-b');
     expect(groupB).toBeTruthy();
-    expect(groupB!.docId).toBeUndefined();
-    const groupA = topics.find((t) => t.topic === 'proj-a');
-    expect(groupA!.docId).toBe(docA.id);
+    expect(groupB!.docTopic).toBeUndefined();
+    const groupA = topics.find((t) => t.project === 'proj-a');
+    expect(groupA!.docTopic).toBe(docA.topic);
   });
 });

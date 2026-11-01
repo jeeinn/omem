@@ -50,7 +50,7 @@ describe('片段级去重（user_hash）', () => {
     addSession('solo-c', 'local:aaa', QUOTE_B);
     index.catchUp();
     const [topics, , , counts] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'local:aaa');
+    const group = topics.find((t) => t.project === 'local:aaa');
     expect(group?.sessions).toHaveLength(2); // dup 对 + solo
     const dup = group?.sessions.find((s) => s.sessionId === 'dup-a');
     expect(dup?.copies).toBe(2);
@@ -74,7 +74,7 @@ describe('片段级去重（user_hash）', () => {
     });
     index.catchUp();
     const [topics, , , counts] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'local:aaa');
+    const group = topics.find((t) => t.project === 'local:aaa');
     // 反例（beta.8 的行为）：吸收 1 份 → 同指纹的其余会话一起退出待办，最多静默丢单 24 份。
     const survivor = group?.sessions.find((s) => s.sessionId === 'dup-b');
     expect(survivor).toBeTruthy();
@@ -97,13 +97,13 @@ describe('skip 台账', () => {
       expect(await cmdSkip({ _: ['skip-me'], flags: { reason: 'duplicate' } })).toBe(0);
       expect(loadSkipLedger(home)).toHaveLength(1);
       const [topics] = pendingTopics(home, index);
-      const group = topics.find((t) => t.topic === 'local:bbb');
+      const group = topics.find((t) => t.project === 'local:bbb');
       expect(group?.sessions.map((s) => s.sessionId)).toEqual(['keep-me']);
       expect(await cmdSkip({ _: ['list'], flags: {} })).toBe(0);
       expect(await cmdSkip({ _: ['remove', 'skip-me'], flags: {} })).toBe(0);
       expect(loadSkipLedger(home)).toHaveLength(0);
       const [restored] = pendingTopics(home, index);
-      expect(restored.find((t) => t.topic === 'local:bbb')?.sessions).toHaveLength(2);
+      expect(restored.find((t) => t.project === 'local:bbb')?.sessions).toHaveLength(2);
     } finally {
       if (prev === undefined) delete process.env.OMEM_HOME;
       else process.env.OMEM_HOME = prev;
@@ -116,7 +116,7 @@ describe('skip 台账', () => {
     writeFileSync(files.skipLedger(home), '{not json', 'utf8');
     index.catchUp();
     const [topics] = pendingTopics(home, index);
-    expect(topics.find((t) => t.topic === 'local:ccc')?.sessions).toHaveLength(1);
+    expect(topics.find((t) => t.project === 'local:ccc')?.sessions).toHaveLength(1);
   });
 });
 
@@ -131,14 +131,14 @@ describe('排序与可配 batch', () => {
 
   it('组按未吸收会话数降序进窗口：big(3) > mid(2) > small(1)', () => {
     const [topics] = pendingTopics(home, index);
-    expect(topics.map((t) => t.topic)).toEqual(['local:big', 'local:mid', 'local:small']);
+    expect(topics.map((t) => t.project)).toEqual(['local:big', 'local:mid', 'local:small']);
   });
 
   it('guide_batch=1 只渲染一组，remaining 正确', () => {
     const config = { ...defaultConfig(), process: { ...defaultConfig().process, guide_batch: 1 } };
     const [topics, remaining, , counts] = pendingTopics(home, index, config);
     expect(topics).toHaveLength(1);
-    expect(topics[0].topic).toBe('local:big');
+    expect(topics[0].project).toBe('local:big');
     expect(remaining).toBe(2);
     expect(counts.sessions).toBe(6);
   });
@@ -186,7 +186,7 @@ describe('T13: same-user-text 只说「用户原话相同」', () => {
     addSibling('sib-3', '回答三：这个预算建议看插混，省油优先。');
     index.catchUp();
     const [topics, , , counts] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'local:siblings');
+    const group = topics.find((t) => t.project === 'local:siblings');
     expect(group?.sessions).toHaveLength(1); // 显示层折叠
     expect(group?.sessions[0].copies).toBe(3);
     expect(counts.sessions).toBe(3); // 账本仍是三份
@@ -220,7 +220,7 @@ describe('T13: same-user-text 只说「用户原话相同」', () => {
     index.catchUp();
 
     const [topics, , , counts] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'local:siblings');
+    const group = topics.find((t) => t.project === 'local:siblings');
     expect(group?.sessions).toHaveLength(1);
     // 另外两份必须还在（否则就是账本级静默丢单）
     expect(counts.sessions).toBe(2);

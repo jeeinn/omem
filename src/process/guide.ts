@@ -171,10 +171,10 @@ function renderHeader(): string[] {
   return [
     '# omem topics waiting for an update',
     '',
-    'Each topic has one living document. A new session updates that document; pass supersedes so the previous version stays on disk but drops out of search.',
+    'Each topic has one living document, and the topic is also the document name. Writing to an existing topic overwrites it (git keeps the previous version); do not invent a second name for the same subject.',
     '- Read the session files. Keep short facts, drop the process. Do not invent anything that was not said.',
     `- ${RULE_EVIDENCE}.`,
-    '- Sessions are listed by bare `session_id` (no paths, no collector prefix — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets. Pass the same bare id as `session_id` when you save, and the current document id as `supersedes` when one is listed.',
+    '- Sessions are listed by bare `session_id` (no paths, no collector prefix — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets. Pass the same bare id as `session_id` when you save, plus the topic shown above — writing to that topic overwrites its document.',
     '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',

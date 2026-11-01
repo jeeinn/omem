@@ -134,7 +134,7 @@ describe('PROCESS.md refresh after a write', () => {
       confidence: 0.55,
       verified: false,
     });
-    expect(first.id).toBeTruthy();
+    expect(first.topic).toBeTruthy();
     const second = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-c 的第二版活文档，覆盖第一版',
       type: 'fact',
@@ -145,10 +145,10 @@ describe('PROCESS.md refresh after a write', () => {
       verified: false,
       supersedes: [first.id!],
     });
-    expect(second.id).toBeTruthy();
+    expect(second.topic).toBeTruthy();
     const text = guideText();
     expect(text).toContain('sess-pending');
-    expect(text).toContain(second.id!);
+    expect(text).toContain(second.topic!);
     expect(text).not.toContain('Current document: none');
   });
 });

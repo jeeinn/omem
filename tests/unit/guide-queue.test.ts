@@ -41,8 +41,8 @@ describe('pendingTopics', () => {
     put('u', 'unknown');
     const [topics, remaining, unassigned] = pendingTopics(home, index);
     expect(remaining).toBe(0);
-    expect(topics.map((t) => t.topic).sort()).toEqual(['proj-a', 'proj-b']);
-    expect(topics.find((t) => t.topic === 'proj-a')!.sessions.map((s) => s.sessionId).sort()).toEqual(['a', 'b']);
+    expect(topics.map((t) => t.project).sort()).toEqual(['proj-a', 'proj-b']);
+    expect(topics.find((t) => t.project === 'proj-a')!.sessions.map((s) => s.sessionId).sort()).toEqual(['a', 'b']);
     expect(unassigned.map((s) => s.sessionId)).toEqual(['u']);
   });
 
@@ -71,7 +71,7 @@ describe('pendingTopics', () => {
     const ids = topics.flatMap((t) => t.sessions.map((s) => s.sessionId));
     expect(ids).not.toContain('old-sess');
     expect(ids).toContain('fresh');
-    expect(topics[0].docId).toBeTruthy();
+    expect(topics[0].docTopic).toBeTruthy();
   });
 
   it('resolves the current document through absorbed sessions when topic != project fingerprint', () => {
@@ -89,11 +89,11 @@ describe('pendingTopics', () => {
       verified: false,
     });
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-c')!;
+    const group = topics.find((t) => t.project === 'proj-c')!;
     expect(group.sessions.map((s) => s.sessionId)).toEqual(['fresh']);
-    expect(group.docId).toBe(doc.id);
+    expect(group.docTopic).toBe(doc.topic);
     const text = renderGuide([group], 0, []);
-    expect(text).toContain(doc.id!);
+    expect(text).toContain(doc.topic!);
     expect(text).not.toContain('Current document: none');
   });
 
@@ -120,32 +120,32 @@ describe('pendingTopics', () => {
       verified: false,
     });
     const [topics] = pendingTopics(home, index);
-    const group = topics.find((t) => t.topic === 'proj-d')!;
-    expect([older.id, newer.id]).toContain(group.docId);
-    expect(group.otherDocs).toBe(1);
-    // 「还有 N 份」现在是 id 列表——只说数量等于死信息，调用方仍拿不到 supersedes 要的 id。
+    const group = topics.find((t) => t.project === 'proj-d')!;
+    expect([older.topic, newer.topic]).toContain(group.docTopic);
+    expect((group.otherTopics ?? []).length).toBe(1);
+    // 「还有 N 份」现在列的是 topic 名——只说数量等于死信息，调用方仍不知道改哪个。
     const guide = renderGuide([group], 0, []);
-    expect(guide).toContain('other living document(s) in this group');
-    const otherId = [older.id, newer.id].find((id) => id !== group.docId)!;
-    expect(guide).toContain(otherId);
+    expect(guide).toContain('other living documents in this project');
+    const otherTopic = [older.topic, newer.topic].find((t) => t !== group.docTopic)!;
+    expect(guide).toContain(otherTopic);
   });
 
   it('renderGuide tells the agent to pass supersedes', () => {
     const text = renderGuide([
       {
-        topic: 'proj-a',
-        docId: 'id-1',
+        project: 'proj-a',
+        docTopic: 'topic-1',
         docTitle: '第一版',
         sessions: [{ path: '/tmp/a.md', sessionId: 'a', agent: 'cursor' }],
       },
       {
-        topic: 'proj-b',
+        project: 'proj-b',
         sessions: [{ path: '/tmp/b.md', sessionId: 'b', agent: 'cursor' }],
       },
     ], 0, [{ path: '/tmp/u.md', sessionId: 'u', agent: 'cursor' }]);
-    expect(text).toContain('supersedes');
-    expect(text).toContain('id-1');
+    expect(text).not.toContain('supersedes');
+    expect(text).toContain('topic-1');
     expect(text).toContain('## Unassigned sessions');
-    expect(text).toContain('Project grouping is not a topic');
+    expect(text).toContain('The project name is not a topic');
   });
 });
