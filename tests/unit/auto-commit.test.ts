@@ -55,7 +55,8 @@ function ctx(config: OmemConfig = defaultConfig()) {
 }
 
 async function save(args: Record<string, any>, config: OmemConfig = defaultConfig()) {
-  const r = await handleTool('save_memory', args, ctx(config));
+  // D1-B′：topic 必填。这组用例只关心提交行为，名字默认给一个即可。
+  const r = await handleTool('save_memory', { topic: 'auto-commit-topic', ...args }, ctx(config));
   return { text: r.content.map((c) => c.text).join('\n'), sc: r.structuredContent as Record<string, any> };
 }
 

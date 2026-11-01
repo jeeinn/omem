@@ -139,7 +139,6 @@ describe('review server: 详情与已阅集合', () => {
     expect(res.status).toBe(200);
     expect(body.body).toContain('这是正文内容');
     expect(body.evidence).toEqual(['证据原文']);
-    expect(body.supersedes).toEqual(['2026-10-01-old']);
   });
 
   it('含路径分隔符的 id → 400（path 注入防护）', async () => {

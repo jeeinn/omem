@@ -162,8 +162,9 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
           const decisions: ReviewDecision[] = [];
           const raw = Array.isArray(body.decisions) ? body.decisions : [];
           for (const entry of raw) {
-            const rec = entry as { id?: unknown; action?: unknown };
-            const id = String(rec?.id ?? '');
+            // 身份是 topic（D1-B′）；旧页面若还传 id，等同传 topic 名。
+            const rec = entry as { topic?: unknown; id?: unknown; action?: unknown };
+            const id = String(rec?.topic ?? rec?.id ?? '');
             const action = String(rec?.action ?? '');
             if (!ID_RE.test(id)) continue;
             if (!ACTIONS.includes(action as ReviewAction)) continue;
