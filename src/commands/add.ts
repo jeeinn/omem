@@ -5,7 +5,7 @@
 import { openCtx } from '../core/ctx.js';
 import { autoCommit, commitEntry, metadataDrift, overCapNotice, vcsNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
-import { flagBool, flagStr } from '../cli-args.js';
+import { flagBool, flagList, flagStr } from '../cli-args.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { MemoryType } from '../core/entry.js';
@@ -25,7 +25,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     const type: MemoryType = (['preference', 'fact', 'decision', 'experience'] as MemoryType[]).includes(typeArg as MemoryType)
       ? (typeArg as MemoryType)
       : 'fact';
-    const tags = (flagStr(args.flags, 'tags') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const tags = flagList(args.flags, 'tags');
     const force = flagBool(args.flags, 'force');
     beginWriteJournal();
     const result = commitEntry(ctx.home, ctx.config, ctx.index, {

@@ -63,7 +63,7 @@ export class GitBackend {
     if (!GitBackend.available()) {
       throw new BackendUnavailableError(
         'git command not found.',
-        'Please install git first; the non-developer path (WebDAV) ships in V0.2: omem backup use webdav',
+        'Please install git first — git is the only delivered sync backend in this version: omem backup use git',
       );
     }
   }

@@ -121,6 +121,25 @@ export interface SessionHit {
 }
 
 /**
+ * 统计 `needle` 在 `hay` 中出现的次数（非重叠，与 `split(needle).length - 1` 等价）。
+ *
+ * 为什么不用 split：split 会为每次出现分配一个子串数组，会话槽位一多就是纯粹的垃圾。
+ * indexOf 循环零分配，热路径（每会话 × 每 token）上差别是数量级的。
+ */
+function countOccurrences(hay: string, needle: string): number {
+  if (!needle) return 0;
+  let n = 0;
+  let from = 0;
+  for (;;) {
+    const i = hay.indexOf(needle, from);
+    if (i === -1) break;
+    n++;
+    from = i + needle.length;
+  }
+  return n;
+}
+
+/**
  * 只查会话原文，不返回 knowledge 结论。
  *
  * 匹配与摘录都只走证据域：assistant 段是最"好读"的那一段，
@@ -140,7 +159,7 @@ export function searchSessions(index: OmemIndex, query: string, limit = 3): Sess
         all = false;
         break;
       }
-      best += lowerUserText.split(t).length - 1;
+      best += countOccurrences(lowerUserText, t);
     }
     if (!all) continue;
     scored.push({

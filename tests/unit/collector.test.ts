@@ -1,6 +1,7 @@
 // 采集器测试：Claude Code JSONL 解析、过滤规则、项目指纹，以及三采集器扫描（评估 4.5 采集器）。
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseSessionFile, listSessionFiles, resolveProjectFp } from '../../src/collect/claude-code.js';
@@ -74,6 +75,25 @@ describe('collector: Claude Code JSONL', () => {
     expect(resolveProjectFp(undefined)).toBe('unknown');
     const fp = resolveProjectFp(tmpdir());
     expect(fp.startsWith('local:')).toBe(true);
+  });
+
+  // P2-3：加了「向上找不到 .git 就不 fork git 子进程」的前检，前提是它不能改变结果。
+  // 这个用例把两条分支的结果都钉住：仓库内 → remote 哈希；仓库外 → local: 前缀。
+  it('resolveProjectFp: inside a git repo it still uses the remote-origin hash', () => {
+    const dir = join(tmpdir(), `omem-fp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: dir, stdio: ['ignore', 'ignore', 'ignore'] });
+      execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/demo.git'], {
+        cwd: dir,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      const fp = resolveProjectFp(dir);
+      expect(fp.startsWith('local:')).toBe(false);
+      expect(fp).toMatch(/^[0-9a-f]{12}$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

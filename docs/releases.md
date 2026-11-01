@@ -27,6 +27,23 @@
 
 **验证口径**：`npm test` 全绿（69 files / 691 tests）；`npm run build` 干净；`npm run smoke` 75 passed；`node scripts/release-check.mjs` 在打 tag 后通过（dist 与 src 一一对应、无孤儿、包内容精确）。
 
+### v0.2.0-beta.1 补丁轮（beta.1 打 tag 后的真实命令基准测试）
+
+beta.1 打上 tag 之后用真实 `omem` 命令做了一轮端到端基准测试，发现 6 个问题。本轮修完，并把 annotated tag `v0.2.0-beta.1` 移到修复后的提交（**版本号不变**，tag 内容被替换——beta 阶段允许；未 push、未 publish）。
+
+**用户可见变更**
+
+1. **列表型旗标在 Windows 的 PowerShell shim 下不再坏掉。** `--target` / `--collectors` / `--confirm` / `--tags` 原本只按逗号切分。npm 生成的 `omem.ps1` 由 PowerShell 解析，`a,b` 会被当成数组再用**空格**连接传给脚本（`$args` = `"a b"`），于是 `omem install --target claude-code,cursor` 报的是 `Unknown client: claude-code cursor`——错误信息还看不出真实原因。新增 `flagList()`，按 `[,\s]+` 切分，逗号与空格两种壳子都认。
+2. **`omem --help` 的文档链接指向实际存在的文件**（`docs/omem-重构方案-路B.md`；原链接指向已归档的 V0.1 规格草案，点了是死链）。
+3. **同步后端的文案不再承诺「V0.2 会交付 WebDAV」。** 那是对未交付功能的承诺。当前口径：git 是本版本唯一可用的后端，`webdav` / `dir` 被调用时给出可操作提示（`omem backup use git`）。
+4. **启动成本降了一半。** MCP SDK（单独 import 实测 **252 ms**）与 web 面板（**49 ms**）改为按需加载，只有 `omem serve` / `omem review --ui` 才付这份钱。实测 `omem --version` / `omem topics` / `omem review` 从约 490 ms 降到 **230 ms**（node 裸启动 116 ms）。
+5. **会话检索的命中计数零分配。** 热路径上的 `split(t).length - 1` 换成 `indexOf` 循环（每次出现不再分配一个子串数组）；排序语义不变，有专门用例钉住「出现次数多的会话仍排前面」。
+6. **采集器不再为「明显不是仓库」的目录 fork git 子进程。** cwd 向上找不到 `.git`（含 worktree / submodule 的 `.git` 文件）就直接用本地指纹兜底，判定口径与 git 自己的仓库发现一致。合成语料 1100 份、cwd 分散时，`omem sync` 从 88 s 降到秒级。
+7. **`omem review --ui` 的等待提示按真实超时显示**（3 秒超时不再写成 "timeout 1m"）。
+8. **`tests/smoke.sh` 在 Windows 检出下也能真跑。** 新增 `.gitattributes`，强制 `*.sh` 与 `bin/omem.js` 以 LF 落盘。此前在 `core.autocrlf=true` 的检出里，脚本第 8 行就死在 CRLF 上（`set -u\r` → "invalid option"），`npm run smoke` 看着 exit 0，实际一行业务都没跑。
+
+**验证口径**：`npm test` 全绿（69 files / 699 tests）；`npm run build` 干净；`npm run smoke` 75 passed；`node scripts/release-check.mjs` 在 tag 移动后通过。
+
 ## v0.1.0-beta.9（正确性止血）
 
 **用户可见变更**

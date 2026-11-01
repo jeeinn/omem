@@ -79,3 +79,19 @@ export function flagNum(flags: Record<string, string | true>, key: string): numb
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
+
+/**
+ * 列表型旗标：把旗标值拆成数组。
+ *
+ * 分隔符是逗号**或空白**。只认逗号会在 Windows 上直接坏掉：npm 生成的 `omem.ps1`
+ * shim 由 PowerShell 解析，`a,b` 会被当成数组再用**空格**连接传给脚本
+ * （实测 `$args` = `"a b"`），于是 `omem install --target claude-code,cursor`
+ * 报的是 `Unknown client: claude-code cursor`。认空白就两种壳子都对。
+ *
+ * 用它的地方：`--target` / `--collectors` / `--confirm` / `--tags`。
+ */
+export function flagList(flags: Record<string, string | true>, key: string): string[] {
+  const v = flags[key];
+  if (typeof v !== 'string') return [];
+  return v.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+}

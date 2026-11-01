@@ -12,7 +12,7 @@ import type { ChoiceItem } from '../install/prompt.js';
 import { loadConfig } from '../core/config.js';
 import { omemHome } from '../core/paths.js';
 import { UsageError } from '../core/util.js';
-import { flagBool, flagStr } from '../cli-args.js';
+import { flagBool, flagList, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 
 const GENERIC_IDS = new Set(['other', 'generic']);
@@ -52,7 +52,7 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
   }
 
   // 目标：--target 指定；否则交互选择（TTY）或报错（非交互）
-  let targets = (flagStr(args.flags, 'target') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  let targets = flagList(args.flags, 'target');
   let printGeneric = false;
   if (targets.some((t) => GENERIC_IDS.has(t))) {
     printGeneric = true;

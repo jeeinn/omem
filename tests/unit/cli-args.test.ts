@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, flagStr, flagBool, VALUE_FLAGS } from '../../src/cli-args.js';
+import { parseArgs, flagStr, flagBool, flagList, VALUE_FLAGS } from '../../src/cli-args.js';
 
 describe('cli-args', () => {
   it('--key=value form', () => {
@@ -84,7 +84,7 @@ describe('cli-args: registered value flags', () => {
     expect(a.flags['future-flag']).toBe('1');
   });
 
-  it('anti-drift: every flagStr/flagNum key used in src/ is registered in VALUE_FLAGS', () => {
+  it('anti-drift: every flagStr/flagNum/flagList key used in src/ is registered in VALUE_FLAGS', () => {
     const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
     const files: string[] = [];
     const walk = (d: string) => {
@@ -98,11 +98,42 @@ describe('cli-args: registered value flags', () => {
     const used = new Set<string>();
     for (const f of files) {
       const text = readFileSync(f, 'utf8');
-      for (const m of text.matchAll(/flag(?:Str|Num)\(\s*(?:args\.)?flags\s*,\s*'([^']+)'/g)) used.add(m[1]);
+      for (const m of text.matchAll(/flag(?:Str|Num|List)\(\s*(?:args\.)?flags\s*,\s*'([^']+)'/g)) used.add(m[1]);
     }
     expect(used.size).toBeGreaterThan(10); // 确认扫描到了全部命令
     for (const key of used) {
-      expect(VALUE_FLAGS.has(key), `flag "${key}" is used via flagStr/flagNum but not registered in VALUE_FLAGS`).toBe(true);
+      expect(VALUE_FLAGS.has(key), `flag "${key}" is used via flagStr/flagNum/flagList but not registered in VALUE_FLAGS`).toBe(true);
     }
+  });
+});
+
+describe('cli-args: flagList (defect: Windows npm .ps1 shim joins array args with spaces)', () => {
+  it('splits on commas', () => {
+    expect(flagList(parseArgs(['install', '--target', 'claude-code,cursor']).flags, 'target'))
+      .toEqual(['claude-code', 'cursor']);
+  });
+
+  it('splits on whitespace (what the PowerShell shim actually delivers)', () => {
+    expect(flagList(parseArgs(['install', '--target', 'claude-code cursor']).flags, 'target'))
+      .toEqual(['claude-code', 'cursor']);
+  });
+
+  it('splits on mixed commas and whitespace, and trims', () => {
+    expect(flagList(parseArgs(['sync', '--collectors', 'cursor, qwenwork  codebuddy']).flags, 'collectors'))
+      .toEqual(['cursor', 'qwenwork', 'codebuddy']);
+  });
+
+  it('drops empty fragments', () => {
+    expect(flagList(parseArgs(['add', 'x', '--tags', 'a,,b,']).flags, 'tags')).toEqual(['a', 'b']);
+  });
+
+  it('returns an empty list for a boolean flag or a missing flag', () => {
+    expect(flagList(parseArgs(['sync', '--collectors']).flags, 'collectors')).toEqual([]);
+    expect(flagList(parseArgs(['sync']).flags, 'collectors')).toEqual([]);
+  });
+
+  it('is equivalent to split(",") for the plain-comma case', () => {
+    const raw = 'a,b,c';
+    expect(flagList({ tags: raw }, 'tags')).toEqual(raw.split(','));
   });
 });

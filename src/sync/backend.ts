@@ -36,11 +36,11 @@ export interface BackendConfig {
   sync: { git: { remote: string }; auto_snapshot: boolean };
 }
 
-/** 后端注册表：V0.1 只交付 git；webdav/dir 为 V0.2（接口已预留，调用给可操作提示）。 */
+/** 后端注册表：当前版本只交付 git；webdav/dir 的接口已预留，调用给可操作提示。 */
 export function getBackend(id: SyncBackendId, home: string, config: BackendConfig): SyncBackend {
   if (id === 'git') return new GitBackend(home, config);
   throw new BackendUnavailableError(
-    `Sync backend ${id} is not yet delivered (V0.2: webdav first, dir alongside).`,
-    'For V0.1, use the git backend: omem backup use git',
+    `Sync backend ${id} is not yet delivered.`,
+    'The only delivered backend is git: omem backup use git',
   );
 }

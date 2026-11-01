@@ -50,12 +50,12 @@ async function syncBody(args: ParsedArgs, ctx: ReturnType<typeof openCtx>): Prom
   if (sub === 'use') {
     const id = args._[1];
     if (!id || !['git', 'webdav', 'dir'].includes(id)) {
-      throw new UsageError('Usage: omem backup use <git|webdav|dir> (only git is delivered in V0.1)');
+      throw new UsageError('Usage: omem backup use <git|webdav|dir> (only git is delivered in this version)');
     }
     config.sync.backend = id as 'git' | 'webdav' | 'dir';
     saveConfig(home, config);
     if (id !== 'git') {
-      console.log(`Backend setting switched to ${id}. Note: this backend ships in V0.2 (webdav first); V0.1 still uses git.`);
+      console.log(`Backend setting switched to ${id}. Note: this backend is not yet delivered — git is the only working backend in this version.`);
       return 0;
     }
     console.log('Sync backend switched: git');

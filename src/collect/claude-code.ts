@@ -2,7 +2,7 @@
 // 只读解析 ~/.claude/projects/<encoded-cwd>/<session>.jsonl；SQLite 类源一律读副本（lore 教训——此处本就是 JSONL 只读）。
 // 过滤：sidechain（子 agent）条目、summary 条目、纯 tool_use/tool_result 的 assistant 轮次。
 import { existsSync, readdirSync, statSync, readFileSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { join, basename, dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { expandHome } from '../core/paths.js';
 import { sha256hex } from '../core/util.js';
@@ -36,6 +36,26 @@ export function listSessionFiles(root: string, opts: { since?: Date } = {}): Ses
   return out.sort((a, b) => a.mtimeMs - b.mtimeMs);
 }
 
+/**
+ * 向上找 `.git`，命中目录（普通仓库）或文件（worktree / submodule 的 `.git` 指针）都算。
+ * 找不到就是「这个 cwd 不在任何 git 仓库里」——与 git 自己的发现逻辑同口径。
+ */
+function findRepoRoot(cwd: string): string | null {
+  let dir = resolve(cwd);
+  for (;;) {
+    if (existsSync(join(dir, '.git'))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** git 是否可能认这个 cwd 为仓库根：显式 GIT_DIR / GIT_WORK_TREE 优先，其次看 `.git` 是否在向上链路上。 */
+function mayBeInRepo(cwd: string): boolean {
+  if (process.env.GIT_DIR || process.env.GIT_WORK_TREE) return true;
+  return findRepoRoot(cwd) !== null;
+}
+
 /** git remote origin URL 归一化 → sha256 前 12 位；无 git 回退 local:hash(cwd)（规格 5.3.2，V0.1 只用 remote hash）。 */
 const fpCache = new Map<string, string>();
 export function resolveProjectFp(cwd?: string): string {
@@ -47,14 +67,18 @@ export function resolveProjectFp(cwd?: string): string {
     fp = 'unknown';
   } else {
     let remote: string | null = null;
-    try {
-      remote = execFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 3000,
-      }).trim() || null;
-    } catch {
-      remote = null;
+    // P2-3：先自问「这个 cwd 在不在 git 仓库里」，再决定要不要 fork 子进程。
+    // 一次 execFileSync ≈ 80ms；cwd 分散的上千个会话目录会让它从秒级掉到分钟级。
+    if (mayBeInRepo(cwd)) {
+      try {
+        remote = execFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 3000,
+        }).trim() || null;
+      } catch {
+        remote = null;
+      }
     }
     if (remote) {
       const norm = remote

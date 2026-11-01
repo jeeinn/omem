@@ -124,8 +124,11 @@ export async function runReviewUi(args: RunReviewUiArgs): Promise<number> {
   } else {
     openBrowser(server.url);
   }
-  const minutes = Math.max(1, Math.round(args.timeoutMs / 60_000));
-  console.log(`Waiting for your decisions in the browser… (timeout ${minutes}m)`);
+  // 小于 1 分钟时显示秒数：`Math.max(1, ...)` 那个下限会把 3s 说成 1m，是错的。
+  const timeoutLabel = args.timeoutMs >= 60_000
+    ? `${Math.round(args.timeoutMs / 60_000)}m`
+    : `${Math.max(1, Math.round(args.timeoutMs / 1000))}s`;
+  console.log(`Waiting for your decisions in the browser… (timeout ${timeoutLabel})`);
 
   // 等待阶段也要接住 Ctrl+C：默认行为是直接退出（退出码 130），虽然同样零写入，
   // 但会让「任何时刻 Ctrl+C 都是干净退出」这句承诺只兑现一半。

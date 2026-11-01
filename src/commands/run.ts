@@ -8,7 +8,7 @@ import { UsageError } from '../core/util.js';
 import { findRemovedConfigKeys, type OmemConfig } from '../core/config.js';
 import { files } from '../core/paths.js';
 import { createRunProgress } from '../cli-progress.js';
-import { flagBool, flagStr, flagNum } from '../cli-args.js';
+import { flagBool, flagStr, flagNum, flagList } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { Tier } from '../core/config.js';
 import { COLLECTOR_IDS, getCollector, type CollectorId } from '../collect/collector.js';
@@ -67,7 +67,7 @@ function parseCollectors(flags: ParsedArgs['flags']): CollectorId[] | undefined 
     }
     return undefined;
   }
-  const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+  const ids = [...new Set(flagList(flags, 'collectors'))];
   if (ids.length === 0) throw new UsageError(`--collectors needs a list (${COLLECTOR_IDS.join(', ')})`);
   const unknown = ids.filter((id) => !(COLLECTOR_IDS as readonly string[]).includes(id));
   if (unknown.length > 0) {

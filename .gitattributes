@@ -1,0 +1,10 @@
+# Shell 脚本必须以 LF 落盘。
+#
+# 为什么要显式写：仓库里的 blob 本来就是 LF，但在 `core.autocrlf=true` 的 Windows
+# 检出里，*.sh 会被转成 CRLF，bash 直接读不懂——`set -u` 变成 `set -u\r` 报
+# "invalid option"，脚本在第 8 行就死了，`npm run smoke` 看起来像"跑通了"（exit 0）
+# 其实一行业务都没跑。git 的 autocrlf 是全局机器设置，不该由仓库的行为依赖它。
+*.sh text eol=lf
+
+# 带 shebang 的入口脚本同理。
+bin/omem.js text eol=lf

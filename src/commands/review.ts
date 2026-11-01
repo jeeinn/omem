@@ -9,16 +9,11 @@ import { truncate } from '../core/util.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
-import { flagBool, flagNum, flagStr } from '../cli-args.js';
+import { flagBool, flagList, flagNum, flagStr } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
-import { DEFAULT_UI_TIMEOUT_MS, runReviewUi } from './review-ui.js';
 
 const PAGE = 10;
 const RECENT_DAYS = 14;
-
-function topicList(raw: string | undefined): string[] {
-  return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-}
 
 /** 抽检队列：近两周的未过目文档，加上锚不上证据的（不随时间退出队列）。 */
 export function inReviewInbox(fm: Frontmatter, now = Date.now()): boolean {
@@ -46,7 +41,7 @@ async function reviewBody(
   config: ReturnType<typeof openCtx>['config'],
   index: ReturnType<typeof openCtx>['index'],
 ): Promise<number> {
-  const confirmTopics = topicList(flagStr(args.flags, 'confirm'));
+  const confirmTopics = flagList(args.flags, 'confirm');
   const dismissTopic = flagStr(args.flags, 'dismiss');
   const staleTopic = flagStr(args.flags, 'stale');
   if (flagStr(args.flags, 'supersedes')) {
@@ -151,6 +146,8 @@ async function reviewBody(
       return 0;
     }
     const timeoutSec = flagNum(args.flags, 'timeout');
+    // P2-1：web 面板（含 HTTP 服务）只在这条分支上加载——普通 `omem review` 不该为它付启动成本。
+    const { DEFAULT_UI_TIMEOUT_MS, runReviewUi } = await import('./review-ui.js');
     return runReviewUi({
       home,
       index,

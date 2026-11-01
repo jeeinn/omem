@@ -72,4 +72,26 @@ describe('searchSessions LIKE 兜底路径', () => {
     expect(hits[0].snippet).toBeTruthy();
     expect(hits[0].snippet).not.toContain('『');
   });
+
+  // P2-2：命中计数从 split() 改成 indexOf 循环（零分配），排序语义必须不变：
+  // 同一个词出现更多的会话仍然排前面。
+  it('命中次数更多的会话排在前面（计数改零分配后排序语义不变）', () => {
+    const dir = join(home, 'sessions', 'claude-code');
+    writeFileSync(
+      join(dir, 'sess-snip-2.md'),
+      [
+        '---', 'agent: claude-code', 'session_id: sess-snip-2', 'project: local:cafe1234',
+        'started: 2026-10-17T00:00:00.000Z', 'ended: 2026-10-17T00:00:00.000Z',
+        'messages: 1', 'content_hash: snip-2', '---', '',
+        '## user',
+        '灰度 灰度 灰度 灰度发布先跑满二十四小时。',
+        '',
+      ].join('\n'),
+    );
+    index.catchUp();
+    index.rebuild();
+    const hits = searchSessions(index, '灰度', 5);
+    expect(hits.length).toBeGreaterThanOrEqual(2);
+    expect(hits[0].session_key).toBe('claude-code:sess-snip-2');
+  });
 });
