@@ -58,7 +58,7 @@ describe('mergeEvidence', () => {
 
 describe('commitEntry: 活文档更新继承证据链', () => {
   function write(content: string, evidence: string[], supersedes?: string[]): string {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content,
       type: 'fact',
       source: 'agent',
@@ -89,11 +89,11 @@ describe('commitEntry: 活文档更新继承证据链', () => {
   });
 
   it('并合同一主题的多份旧文档时，各自治证据都被收上来', () => {
-    const a = commitEntry(home, defaultConfig(), index, {
+    const a = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '旧文档 A', type: 'fact', source: 'agent', confidence: 0.55, verified: false,
       topic: 'merge-a', evidence: ['A 的原话'],
     }, { refreshIndex: false, refreshGuide: false });
-    const b = commitEntry(home, defaultConfig(), index, {
+    const b = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '旧文档 B', type: 'fact', source: 'agent', confidence: 0.55, verified: false,
       topic: 'merge-b', evidence: ['B 的原话'],
     }, { refreshIndex: false, refreshGuide: false });

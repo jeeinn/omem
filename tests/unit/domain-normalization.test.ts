@@ -15,7 +15,7 @@ let home: string;
 let index: OmemIndex;
 
 function add(id: string, body: string, fm: Partial<Frontmatter> = {}): void {
-  const e = { fm: newFrontmatter({ id, type: 'fact', domain: 'coding', ...fm }), body };
+  const e = { fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding', ...fm }), body };
   const { path, content } = writeEntry(home, e);
   index.upsert(e, path, content);
 }
@@ -53,7 +53,7 @@ describe('normalizeDomain', () => {
 
 describe('entryPath: 脏 domain 不会写出知识库', () => {
   it('domain 含 ../ 时路径仍在 knowledge/ 内', () => {
-    const fm = newFrontmatter({ id: '2026-10-27-x1', type: 'fact', domain: '../../escape' });
+    const fm = newFrontmatter({ topic: '2026-10-27-x1', type: 'fact', domain: '../../escape' });
     const path = entryPath(home, fm);
     const root = dirs.knowledge(home) + sep;
 

@@ -688,6 +688,11 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       ? args.evidence.filter((e) => typeof e === 'string')
       : (typeof args.evidence === 'string' && args.evidence ? [args.evidence] : []);
     const topic = typeof args.topic === 'string' ? args.topic.trim() : '';
+    // D1-B′：topic 是身份，缺了就没有文件名可写。给工具级错误而不是「静默生成一个名字」——
+    // 自动生成正是近重复主题的来源。
+    if (!topic) {
+      throw new Error('topic is required: every memory is a living document and the topic is its document name. Pick a short lowercase name (e.g. "knee-rehab") or reuse one from PROCESS.md.');
+    }
     const scored = scoreEvidence(ctx.home, {
       content,
       sessionId: sessionId || undefined,

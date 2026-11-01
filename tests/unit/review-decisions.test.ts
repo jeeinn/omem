@@ -19,7 +19,7 @@ let home: string;
 let index: OmemIndex;
 
 function add(id: string, body: string, fm: Partial<Frontmatter> = {}): void {
-  const e = { fm: newFrontmatter({ id, type: 'fact', domain: 'coding', ...fm }), body };
+  const e = { fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding', ...fm }), body };
   const { path, content } = writeEntry(home, e);
   index.upsert(e, path, content);
 }

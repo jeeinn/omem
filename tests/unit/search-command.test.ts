@@ -8,7 +8,7 @@ import { makeHome, cleanupHome } from './helpers.js';
 let home: string;
 
 function addEntry(id: string, body: string): void {
-  writeEntry(home, { fm: newFrontmatter({ id, type: 'fact', domain: 'coding' }), body });
+  writeEntry(home, { fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding' }), body });
 }
 
 function capture(): string[] {
@@ -57,7 +57,7 @@ describe('cli: omem search output', () => {
 
   it('prints the topic on the hit line so it is visible without opening the file', async () => {
     writeEntry(home, {
-      fm: newFrontmatter({ id: '2026-10-15-e1b2c3', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      fm: newFrontmatter({ topic: '2026-10-15-e1b2c3', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
       body: 'Doris 连接池上限的笔记',
     });
     const out = capture();
@@ -73,8 +73,8 @@ describe('cli: omem search output', () => {
   });
 
   it('--all shows the concrete superseding id on a superseded entry (defect: stale label)', async () => {
-    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-old', type: 'fact', domain: 'coding', status: 'superseded', superseded_by: '2026-10-16-new' }), body: 'Doris 旧约定' });
-    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-16-new', type: 'fact', domain: 'coding' }), body: 'Doris 新约定' });
+    writeEntry(home, { fm: newFrontmatter({ topic: '2026-10-15-old', type: 'fact', domain: 'coding', status: 'superseded', superseded_by: '2026-10-16-new' }), body: 'Doris 旧约定' });
+    writeEntry(home, { fm: newFrontmatter({ topic: '2026-10-16-new', type: 'fact', domain: 'coding' }), body: 'Doris 新约定' });
     const out = capture();
     await main(['search', 'Doris', '--all']);
     const text = out.join('\n');

@@ -271,8 +271,8 @@ export class OmemIndex {
     ).get(topic) as unknown as EntryRow) ?? null;
   }
 
-  private touchMeta(id: string, size: number, mtime: number): void {
-    this.db.prepare('UPDATE entries SET size = ?, mtime_ms = ? WHERE id = ?').run(size, mtime, id);
+  private touchMeta(topic: string, size: number, mtime: number): void {
+    this.db.prepare('UPDATE entries SET size = ?, mtime_ms = ? WHERE topic = ?').run(size, mtime, topic);
   }
 
   allTopics(): string[] {

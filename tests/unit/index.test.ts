@@ -16,7 +16,7 @@ let index: OmemIndex;
 function add(id: string, body: string, opts: Partial<{ domain: string; verified: boolean; status: 'active' | 'stale' | 'archived'; confidence: number; tags: string[] }> = {}) {
   const e = {
     fm: newFrontmatter({
-      id,
+      topic: id,
       type: 'fact',
       domain: opts.domain ?? 'coding',
       verified: opts.verified ?? false,
@@ -46,14 +46,14 @@ describe('index: FTS5 trigram search', () => {
     add('2026-10-15-e2', '用户偏好用 Postgres 而非 MySQL 处理数据库');
     const hits = searchEntries(index, { query: '手写 SQL' });
     expect(hits).toHaveLength(1);
-    expect(hits[0].id).toBe('2026-10-15-e1');
+    expect(hits[0].topic).toBe('2026-10-15-e1');
   });
 
   it('LIKE ranks confidence ahead of verified', () => {
     add('2026-10-15-low', '短词检索甲已确认', { verified: true, confidence: 0.35 });
     add('2026-10-15-high', '短词检索乙未确认', { verified: false, confidence: 0.8 });
     const hits = searchEntries(index, { query: '短', limit: 5 });
-    expect(hits[0].id).toBe('2026-10-15-high');
+    expect(hits[0].topic).toBe('2026-10-15-high');
   });
 
   it('<3-char query falls back to LIKE', () => {
@@ -62,7 +62,7 @@ describe('index: FTS5 trigram search', () => {
     expect(hits.length).toBeGreaterThan(0);
     const hits2 = searchEntries(index, { query: '写' }); // 1 字符 → LIKE
     expect(hits2.length).toBeGreaterThan(0);
-    expect(hits2[0].id).toBe('2026-10-15-e1');
+    expect(hits2[0].topic).toBe('2026-10-15-e1');
   });
 
   it('multi-word LIKE AND retry', () => {
@@ -75,7 +75,7 @@ describe('index: FTS5 trigram search', () => {
     add('2026-10-15-active', '手写 SQL 的约定 active', { status: 'active' });
     add('2026-10-15-stale', '手写 SQL 的约定 stale', { status: 'stale' });
     const hits = searchEntries(index, { query: '手写 SQL', limit: 5 });
-    expect(hits[0].id).toBe('2026-10-15-active');
+    expect(hits[0].topic).toBe('2026-10-15-active');
   });
 
   it('archived excluded by default, --all includes archive', () => {
@@ -88,13 +88,13 @@ describe('index: FTS5 trigram search', () => {
     add('2026-10-15-c', 'coding 域的手写 SQL', { domain: 'coding' });
     add('2026-10-15-g', 'general 域的手写 SQL', { domain: 'general' });
     expect(searchEntries(index, { query: '手写 SQL', domain: 'general' })).toHaveLength(1);
-    expect(searchEntries(index, { query: '手写 SQL', domain: 'general' })[0].id).toBe('2026-10-15-g');
+    expect(searchEntries(index, { query: '手写 SQL', domain: 'general' })[0].topic).toBe('2026-10-15-g');
   });
 
   it('content-hash dedup lookup', () => {
     add('2026-10-15-e1', '手写 SQL 约定');
-    const row = index.getById('2026-10-15-e1')!;
-    expect(index.getByHash(row.hash)!.id).toBe('2026-10-15-e1');
+    const row = index.getByTopic('2026-10-15-e1')!;
+    expect(index.getByHash(row.hash)!.topic).toBe('2026-10-15-e1');
     expect(index.getByHash('deadbeef')).toBeNull();
   });
 
@@ -110,7 +110,7 @@ describe('index: consistency (catch-up / rebuild)', () => {
     expect(searchEntries(index, { query: 'handedit' })).toHaveLength(0);
 
     // 模拟 Obsidian 外部编辑
-    const path = join(home, 'knowledge', 'coding', '2026', '2026-10-15-e1.md');
+    const path = join(home, 'knowledge', 'coding', '2026-10-15-e1.md');
     writeFileSync(path, `---\nid: 2026-10-15-e1\ntype: fact\ndomain: coding\n---\n\n外部追加 handedit-marker 内容\n`, 'utf8');
 
     const r = index.catchUp();
@@ -121,10 +121,10 @@ describe('index: consistency (catch-up / rebuild)', () => {
 
   it('externally deleted file → catch-up removes the index row', () => {
     add('2026-10-15-e1', '待删除条目');
-    rmSync(join(home, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'), { force: true });
+    rmSync(join(home, 'knowledge', 'coding', '2026-10-15-e1.md'), { force: true });
     const r = index.catchUp();
     expect(r.removed).toBe(1);
-    expect(index.getById('2026-10-15-e1')).toBeNull();
+    expect(index.getByTopic('2026-10-15-e1')).toBeNull();
   });
 
   it('full recovery via rebuild after deleting the db', () => {

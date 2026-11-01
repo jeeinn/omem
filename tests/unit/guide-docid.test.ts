@@ -48,7 +48,7 @@ describe('docId: the document project field is the primary match path', () => {
     // 旧实现只能靠会话反查，这里必然为空；新实现直接按 project 命中。
     put('pending-1', 'proj-x');
     put('pending-2', 'proj-x');
-    const doc = commitEntry(home, defaultConfig(), index, {
+    const doc = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-x 分组的活文档，project 字段与分组指纹一致',
       type: 'fact',
       topic: 'a-meaningful-topic',
@@ -70,7 +70,7 @@ describe('docId: the document project field is the primary match path', () => {
     // 补充路径：文档没有 project 字段，但吸收过同组的某个会话。
     put('old-sess', 'proj-y');
     put('pending-3', 'proj-y');
-    const doc = commitEntry(home, defaultConfig(), index, {
+    const doc = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-y 分组的活文档，没有 project 字段',
       type: 'fact',
       topic: 'topic-y',
@@ -97,7 +97,7 @@ describe('docId: the document project field is the primary match path', () => {
   it('picks the newest document when the project has several', () => {
     put('p-old', 'proj-m');
     put('p-new', 'proj-m');
-    const older = commitEntry(home, defaultConfig(), index, {
+    const older = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-m 的第一份活文档',
       type: 'fact',
       topic: 'm-one',
@@ -106,7 +106,7 @@ describe('docId: the document project field is the primary match path', () => {
       confidence: 0.55,
       verified: false,
     });
-    const newer = commitEntry(home, defaultConfig(), index, {
+    const newer = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-m 的第二份活文档，created 更晚',
       type: 'fact',
       topic: 'm-two',
@@ -127,7 +127,7 @@ describe('docId: the document project field is the primary match path', () => {
     // proj-a 的文档不能被挂到 proj-b 的分组上。
     put('a-pending', 'proj-a');
     put('b-pending', 'proj-b');
-    const docA = commitEntry(home, defaultConfig(), index, {
+    const docA = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '只属于 proj-a 的活文档',
       type: 'fact',
       topic: 'only-a',

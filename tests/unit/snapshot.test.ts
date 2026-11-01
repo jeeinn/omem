@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe('snapshot: daily snapshot', () => {
   it("creates today's snapshot (knowledge + config)", () => {
-    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
+    writeEntry(home, { fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
     const dest = createSnapshot(home);
     expect(dest).toContain(new Date().toISOString().slice(0, 10));
     expect(existsSync(join(dest, 'knowledge'))).toBe(true);
@@ -42,7 +42,7 @@ describe('snapshot: daily snapshot', () => {
   });
 
   it('runSnapshot = create + prune', () => {
-    writeEntry(home, { fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
+    writeEntry(home, { fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'fact', domain: 'coding' }), body: '内容' });
     const { path, pruned } = runSnapshot(home);
     expect(existsSync(path)).toBe(true);
     expect(pruned).toEqual([]);

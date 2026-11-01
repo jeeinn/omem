@@ -49,7 +49,7 @@ describe('pendingTopics', () => {
   it('drops sessions absorbed by a superseded document via source_sessions', () => {
     put('old-sess', 'proj-a');
     put('fresh', 'proj-a');
-    const first = commitEntry(home, defaultConfig(), index, {
+    const first = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-a 的第一版活文档记下旧会话',
       type: 'fact',
       topic: 'proj-a',
@@ -58,7 +58,7 @@ describe('pendingTopics', () => {
       confidence: 0.55,
       verified: false,
     });
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-a 的第二版活文档继承旧会话',
       type: 'fact',
       topic: 'proj-a',
@@ -79,7 +79,7 @@ describe('pendingTopics', () => {
     // 二者不同命名空间，只能靠「同组里已被吸收的会话 → 它当年写出的文档」反查。
     put('old-sess', 'proj-c');
     put('fresh', 'proj-c');
-    const doc = commitEntry(home, defaultConfig(), index, {
+    const doc = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-c 分组里第一份活文档，topic 名与分组名无关',
       type: 'fact',
       topic: 'a-topic-name-that-is-not-the-fingerprint',
@@ -101,7 +101,7 @@ describe('pendingTopics', () => {
     put('s1', 'proj-d');
     put('s2', 'proj-d');
     put('pending', 'proj-d');
-    const older = commitEntry(home, defaultConfig(), index, {
+    const older = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-d 的第一份活文档',
       type: 'fact',
       topic: 'proj-d-one',
@@ -110,7 +110,7 @@ describe('pendingTopics', () => {
       confidence: 0.55,
       verified: false,
     });
-    const newer = commitEntry(home, defaultConfig(), index, {
+    const newer = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-d 的第二份活文档，topic 不同',
       type: 'fact',
       topic: 'proj-d-two',

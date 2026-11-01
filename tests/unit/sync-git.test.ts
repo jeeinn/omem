@@ -22,7 +22,7 @@ function makeHome(): string {
 }
 
 function addEntry(home: string, id: string, body: string): void {
-  writeEntry(home, { fm: newFrontmatter({ id, type: 'fact', domain: 'coding' }), body });
+  writeEntry(home, { fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding' }), body });
 }
 
 function report(): SyncReport {

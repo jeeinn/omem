@@ -11,7 +11,7 @@ let home: string;
 
 function add(id: string, topic: string | undefined, fm: Partial<Frontmatter> = {}): void {
   writeEntry(home, {
-    fm: newFrontmatter({ id, type: 'fact', domain: 'coding', topic, ...fm }),
+    fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding', topic, ...fm }),
     body: `正文 ${id}`,
   });
 }

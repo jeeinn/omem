@@ -132,7 +132,7 @@ function activeEntry(topics?: string[]) {
 describe('entry: evidence 原文落盘（V15）', () => {
   it('evidence with commas / quotes / newlines round-trips unchanged', () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-21-abc123', type: 'fact' as const, domain: 'coding' }),
+      fm: newFrontmatter({ topic: '2026-10-21-abc123', type: 'fact' as const, domain: 'coding' }),
       body: '正文',
     };
     const quote = 'please deploy the new release, "thanks"\nsecond line';

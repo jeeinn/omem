@@ -170,7 +170,7 @@ describe('evidence score', () => {
 
   it('confirm_ids stops at 0.8 and review --confirm reaches 0.9', () => {
     const config = defaultConfig();
-    const saved = commitEntry(home, config, index, {
+    const saved = commitEntry(home, config, index, { topic: 'test-topic',
       content: '待确认的结论条目内容足够长',
       type: 'fact',
       domain: 'general',

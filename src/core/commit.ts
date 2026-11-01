@@ -376,7 +376,9 @@ export function commitEntry(
     fm: newFrontmatter({
       topic,
       type: input.type,
-      domain: normalizeDomain(input.domain || inferDomain(text)),
+      // domain 是 topic 的属性，不是本次正文的属性：覆盖时沿用既有 domain，
+      // 否则同一主题会因为「这次内容看起来像代码」而搬到另一个目录，留下两份文件。
+      domain: normalizeDomain(input.domain || existingFm?.domain || inferDomain(text)),
       profile,
       status: 'active',
       confidence: autoAssent ? Math.max(input.confidence, ASSENT_CAP) : input.confidence,
@@ -393,10 +395,9 @@ export function commitEntry(
     body: text,
   };
   const written = writeEntry(home, entry);
-  // 归档主题被重写：搬回 knowledge/，避免同一 topic 留下两份文件。
-  if (existingLoc && existingLoc.location === 'archive' && existingLoc.path !== written.path) {
-    rmSync(existingLoc.path, { force: true });
-  }
+  // 路径变了（归档主题被重写搬回 knowledge/，或 domain 显式改过）：删旧文件，
+  // 否则同一 topic 会在磁盘上留下两份，"一个主题一份活文档"就不成立了。
+  if (existingLoc && existingLoc.path !== written.path) rmSync(existingLoc.path, { force: true });
   index.upsert(entry, written.path, written.content);
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
   // 吸收了会话就要把 PROCESS.md 里的待办减掉。save_memory 走 MCP，不经过

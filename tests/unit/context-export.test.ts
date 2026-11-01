@@ -15,7 +15,7 @@ beforeEach(() => {
   home = makeHome();
   index = new OmemIndex(home);
   const e = {
-    fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
+    fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
     body: '手写 SQL 的约定',
   };
   const { path, content } = writeEntry(home, e);

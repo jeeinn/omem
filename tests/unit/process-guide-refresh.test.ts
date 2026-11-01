@@ -51,7 +51,7 @@ describe('PROCESS.md refresh after a write', () => {
   it('is rewritten after save_memory absorbs a session', () => {
     put('sess-1', 'proj-a');
     // 先跑一次采集路径，让清单存在并包含待办会话。
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '一个还没吸收任何会话的占位结论',
       type: 'fact',
       source: 'agent',
@@ -61,7 +61,7 @@ describe('PROCESS.md refresh after a write', () => {
     expect(guideText()).toContain('sess-1');
 
     // 现在吸收它——清单必须立刻不再列出这个会话。
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '吸收 sess-1 的结论',
       type: 'fact',
       session_id: 'sess-1',
@@ -74,7 +74,7 @@ describe('PROCESS.md refresh after a write', () => {
 
   it('creates PROCESS.md on the first write when it does not exist yet', () => {
     expect(existsSync(files.processGuide(home))).toBe(false);
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '第一条结论',
       type: 'fact',
       source: 'agent',
@@ -88,7 +88,7 @@ describe('PROCESS.md refresh after a write', () => {
   it('refreshGuide: false leaves the guide untouched (batch path)', () => {
     put('sess-batch', 'proj-b');
     const before = guideText();
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '批量路径写入的结论',
       type: 'fact',
       session_id: 'sess-batch',
@@ -106,7 +106,7 @@ describe('PROCESS.md refresh after a write', () => {
     const guidePath = files.processGuide(home);
     const { mkdirSync, rmSync } = require('node:fs') as typeof import('node:fs');
     mkdirSync(guidePath, { recursive: true });
-    const result = commitEntry(home, defaultConfig(), index, {
+    const result = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '清单刷新会失败的结论',
       type: 'fact',
       source: 'agent',
@@ -125,7 +125,7 @@ describe('PROCESS.md refresh after a write', () => {
     // 此时 Current document 应指向最新那份活文档（不是被 supersede 掉的旧版）。
     put('sess-old', 'proj-c');
     put('sess-pending', 'proj-c');
-    const first = commitEntry(home, defaultConfig(), index, {
+    const first = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-c 的第一版活文档',
       type: 'fact',
       topic: 'proj-c-topic',
@@ -135,7 +135,7 @@ describe('PROCESS.md refresh after a write', () => {
       verified: false,
     });
     expect(first.id).toBeTruthy();
-    const second = commitEntry(home, defaultConfig(), index, {
+    const second = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: 'proj-c 的第二版活文档，覆盖第一版',
       type: 'fact',
       topic: 'proj-c-topic',

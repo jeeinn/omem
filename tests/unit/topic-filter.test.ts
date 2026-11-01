@@ -16,7 +16,7 @@ let index: OmemIndex;
 let ctx: ToolCtx;
 
 function add(id: string, topic: string | undefined, body: string, fm: Partial<Frontmatter> = {}): void {
-  const e = { fm: newFrontmatter({ id, type: 'fact', domain: 'coding', topic, ...fm }), body };
+  const e = { fm: newFrontmatter({ topic: id, type: 'fact', domain: 'coding', topic, ...fm }), body };
   const { path, content } = writeEntry(home, e);
   index.upsert(e, path, content);
 }

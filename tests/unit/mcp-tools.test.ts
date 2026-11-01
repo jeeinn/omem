@@ -106,7 +106,7 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
 
   it('covers conclusions search, including bm25 rank', async () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-15-decl1', type: 'fact', domain: 'coding', topic: 'decl-topic' }),
+      fm: newFrontmatter({ topic: '2026-10-15-decl1', type: 'fact', domain: 'coding', topic: 'decl-topic' }),
       body: '声明覆盖检查的内容 marker-decl',
     };
     const { path, content } = writeEntry(home, e);
@@ -144,7 +144,7 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
 describe('mcp: handleTool', () => {
   it('search_memory hits with freshness labels and a disclaimer frame', async () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-15-e1', type: 'decision', domain: 'coding', verified: true }),
+      fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'decision', domain: 'coding', verified: true }),
       body: '该项目禁用 ORM，必须手写 SQL',
     };
     const { path, content } = writeEntry(home, e);
@@ -159,7 +159,7 @@ describe('mcp: handleTool', () => {
 
   it('search_memory exposes the topic so the agent reuses it instead of inventing one', async () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-15-e2', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      fm: newFrontmatter({ topic: '2026-10-15-e2', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
       body: '手写 SQL 连接池上限设为 20',
     };
     const { path, content } = writeEntry(home, e);
@@ -174,7 +174,7 @@ describe('mcp: handleTool', () => {
 
   it('search_memory detail=true returns full text and file path', async () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
+      fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
       body: '第一行摘要\n第二行全文内容 detail-marker',
     };
     const { path, content } = writeEntry(home, e);
@@ -323,7 +323,7 @@ describe('mcp: handleTool', () => {
 
   it('memory_feedback helpful → reconfirm', async () => {
     const e = {
-      fm: newFrontmatter({ id: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
+      fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'fact', domain: 'coding' }),
       body: '被反馈的条目',
     };
     const { path, content } = writeEntry(home, e);

@@ -13,8 +13,8 @@ import { makeHome, cleanupHome } from './helpers.js';
 let home: string;
 let index: OmemIndex;
 
-function add(id: string, fm: Partial<Frontmatter> = {}): string {
-  const e = { fm: newFrontmatter({ id, type: 'fact', domain: 'coding', ...fm }), body: `正文 ${id}` };
+function add(topic: string, fm: Partial<Frontmatter> = {}): string {
+  const e = { fm: newFrontmatter({ topic, type: 'fact', domain: 'coding', ...fm }), body: `正文 ${topic}` };
   const { path, content } = writeEntry(home, e);
   index.upsert(e, path, content);
   return path;
@@ -45,7 +45,7 @@ describe('findTopicIndexed', () => {
   it('索引里没有该条目时回落全库扫描（手工新增的 md 也能找到）', () => {
     add('2026-10-27-a2');
     // 模拟「索引陈旧」：清掉索引行，文件仍在磁盘
-    index.db.prepare('DELETE FROM entries WHERE id = ?').run('2026-10-27-a2');
+    index.db.prepare('DELETE FROM entries WHERE topic = ?').run('2026-10-27-a2');
 
     const loc = findTopicIndexed(home, index, '2026-10-27-a2', { includeArchived: true });
 
@@ -80,7 +80,7 @@ describe('pathById', () => {
   it('返回索引里的路径，未索引时返回 null', () => {
     const path = add('2026-10-27-b1');
 
-    expect(index.pathById('2026-10-27-b1')).toBe(path);
-    expect(index.pathById('2026-10-27-nope')).toBeNull();
+    expect(index.pathByTopic('2026-10-27-b1')).toBe(path);
+    expect(index.pathByTopic('2026-10-27-nope')).toBeNull();
   });
 });

@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function write(content: string, source: 'rules' | 'manual') {
-  return commitEntry(home, defaultConfig(), index, {
+  return commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
     content,
     type: 'fact',
     source,

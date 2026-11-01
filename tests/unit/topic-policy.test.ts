@@ -20,7 +20,7 @@ function write(opts: {
   tags?: string[];
   supersedes?: string[];
 }): string {
-  const r = commitEntry(home, defaultConfig(), index, {
+  const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
     content: opts.content,
     type: 'fact',
     source: 'agent',

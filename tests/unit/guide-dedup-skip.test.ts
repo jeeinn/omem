@@ -63,7 +63,7 @@ describe('片段级去重（user_hash）', () => {
     addSession('dup-a', 'local:aaa', QUOTE_A);
     addSession('dup-b', 'local:aaa', QUOTE_A);
     index.catchUp();
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '吸收了片段甲的结论 absorption-by-fingerprint',
       type: 'fact',
       source: 'agent',
@@ -208,7 +208,7 @@ describe('T13: same-user-text 只说「用户原话相同」', () => {
       })(),
     );
 
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '吸收了第一份兄弟会话的结论 sibling-absorbed-marker',
       type: 'fact',
       source: 'agent',

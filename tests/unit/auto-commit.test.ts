@@ -129,7 +129,7 @@ describe('非 git 仓库：静默跳过 + 回执给 warning', () => {
   });
 
   it('CLI omem add 在非 git 仓也只说明、不失败', async () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '非 git 仓的 CLI 写入 cli-no-git-marker',
       type: 'fact',
       source: 'manual',
@@ -197,7 +197,7 @@ describe('P1-B 写入台账：写过的都提交、没写过的不碰', () => {
   it('PROCESS.md（已跟踪但被 ignore）+ 结论 + 热层索引全部提交，提交后工作区为空', () => {
     initRepoWithTrackedGuide();
     beginWriteJournal();
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '台账测试：写入的每个文件都要进提交 journal-marker-1',
       type: 'fact', topic: 'journal-topic', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
     });
@@ -223,7 +223,7 @@ describe('P1-B 写入台账：写过的都提交、没写过的不碰', () => {
     writeFileSync(join(home, 'notes.txt'), "someone else's work\n", 'utf8');
 
     beginWriteJournal();
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '台账测试：只提交自己写过的 journal-marker-2',
       type: 'fact', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
     });
