@@ -42,6 +42,15 @@ beta.1 打上 tag 之后用真实 `omem` 命令做了一轮端到端基准测试
 7. **`omem review --ui` 的等待提示按真实超时显示**（3 秒超时不再写成 "timeout 1m"）。
 8. **`tests/smoke.sh` 在 Windows 检出下也能真跑。** 新增 `.gitattributes`，强制 `*.sh` 与 `bin/omem.js` 以 LF 落盘。此前在 `core.autocrlf=true` 的检出里，脚本第 8 行就死在 CRLF 上（`set -u\r` → "invalid option"），`npm run smoke` 看着 exit 0，实际一行业务都没跑。
 
+### v0.2.0-beta.1 补丁轮二（真实库端到端验收抓到的缺陷）
+
+在**真实库**（`~/.omem`，102 条 v0.1 条目 + 1128 份真实会话）上跑完整命令面验收，抓到一个单测与冒烟都没覆盖到的静默缺陷。
+
+1. **`omem skip <id> --reason <理由>` 静默丢掉旗标值。** `'reason'` 没注册进 `VALUE_FLAGS`，于是 `parseArgs` 把它当布尔旗标，值 `duplicate` 落到位置参数被丢弃；`skip.ts` 里 `typeof flags.reason === 'string'` 不成立，回退到默认的 `no-value`。**四种合法理由（noise / duplicate / no-value / agent-authored）形同虚设**，而命令行看着完全正常——只有翻台账才发现记错了。
+   修法：注册 `'reason'`；**防漂移守卫加第二条腿**——扫 `typeof flags.X === 'string'` 这种「我要旗标的字符串值」的读法，要求这些 key 都在 `VALUE_FLAGS` 里。原来只扫 `flagStr`/`flagNum`/`flagList`，布尔型读法漏在守卫外面，这正是该缺陷能溜过去的原因。补 2 个单测。
+
+**验证口径**：`npm test` 全绿（69 files / 702 tests）；`npm run build` 干净；`npm run smoke` 75 passed；`node scripts/release-check.mjs` 在 tag 移动后通过。
+
 **验证口径**：`npm test` 全绿（69 files / 699 tests）；`npm run build` 干净；`npm run smoke` 75 passed；`node scripts/release-check.mjs` 在 tag 移动后通过。
 
 ## v0.1.0-beta.9（正确性止血）

@@ -105,6 +105,31 @@ describe('cli-args: registered value flags', () => {
       expect(VALUE_FLAGS.has(key), `flag "${key}" is used via flagStr/flagNum/flagList but not registered in VALUE_FLAGS`).toBe(true);
     }
   });
+
+  // 防漂移的第二条腿：`typeof flags.X === 'string'` 是「我要的是旗标的字符串值」，
+  // 不是布尔判断。这类 key 不注册进 VALUE_FLAGS 就会退化成布尔——旗标值被当成下一个
+  // token 丢掉，命令默默用上默认值（真实库验收抓到的就是 `omem skip --reason`）。
+  it('anti-drift: every flag read as a string value is registered in VALUE_FLAGS', () => {
+    const srcDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const name of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, name.name);
+        if (name.isDirectory()) walk(p);
+        else if (name.name.endsWith('.ts')) files.push(p);
+      }
+    };
+    walk(srcDir);
+    const used = new Set<string>();
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8');
+      for (const m of text.matchAll(/typeof\s+(?:args\.)?flags\.(\w+)\s*===\s*'string'/g)) used.add(m[1]);
+    }
+    expect(used.size).toBeGreaterThan(0); // 确认扫描到了取值型读法
+    for (const key of used) {
+      expect(VALUE_FLAGS.has(key), `flag "${key}" is read as a string value but not registered in VALUE_FLAGS`).toBe(true);
+    }
+  });
 });
 
 describe('cli-args: flagList (defect: Windows npm .ps1 shim joins array args with spaces)', () => {
@@ -135,5 +160,21 @@ describe('cli-args: flagList (defect: Windows npm .ps1 shim joins array args wit
   it('is equivalent to split(",") for the plain-comma case', () => {
     const raw = 'a,b,c';
     expect(flagList({ tags: raw }, 'tags')).toEqual(raw.split(','));
+  });
+});
+
+describe('cli-args: 带值旗标必须注册（真实库验收抓到的缺陷）', () => {
+  it('--reason keeps its value instead of dropping it into a positional', () => {
+    // 未注册时：`--reason` 被当布尔，值 "duplicate" 落到位置参数被丢弃，
+    // `omem skip` 于是记成默认的 no-value——四种合法理由形同虚设。
+    const a = parseArgs(['skip', 'sess-1', '--reason', 'duplicate']);
+    expect(flagStr(a.flags, 'reason')).toBe('duplicate');
+    expect(a._).toEqual(['skip', 'sess-1']);
+  });
+
+  it('--reason=value form works too', () => {
+    const a = parseArgs(['skip', 'sess-1', '--reason=agent-authored']);
+    expect(flagStr(a.flags, 'reason')).toBe('agent-authored');
+    expect(a._).toEqual(['skip', 'sess-1']);
   });
 });

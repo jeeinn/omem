@@ -19,6 +19,11 @@ export const VALUE_FLAGS = new Set([
   'confirm', 'dismiss', 'stale', 'port', 'timeout',
   // redact
   'id', 'source',
+  // skip
+  // 'reason' 必须注册：`omem skip <id> --reason duplicate` 要读到的是字符串。
+  // 不注册的话它被当成布尔旗标，值 `duplicate` 落到位置参数被丢弃，
+  // 台账里只会记成默认的 no-value——四种合法理由形同虚设。
+  'reason',
   // install
   'command', 'print-config', 'target',
   // gc
