@@ -60,7 +60,8 @@ function addSession(sessionId: string, body: string): void {
 }
 
 async function save(content: string, sessionId: string, evidence: string) {
-  const r = await handleTool('save_memory', { content, session_id: sessionId, evidence }, {
+  // D1-B′：topic 必填。这组用例只关心 evidence 锚定，名字沿用会话 id 即可。
+  const r = await handleTool('save_memory', { content, topic: `n1-${sessionId}`, session_id: sessionId, evidence }, {
     home, config: defaultConfig(), index,
   });
   return { text: r.content.map((c) => c.text).join('\n'), sc: r.structuredContent as Record<string, any> };
@@ -123,7 +124,7 @@ describe('N1 回归：元数据围栏不能当证据', () => {
     expect(sc.tags).toContain('ungrounded');
     expect(text).toContain('Evidence did not match any ## user section');
     // 回执与落盘一致（0355873 的护栏）
-    expect(findByTopic(home, sc.id)!.entry.fm.confidence).toBe(0.35);
+    expect(findByTopic(home, sc.topic)!.entry.fm.confidence).toBe(0.35);
   });
 
   it('只引 message_id 的单键片段也拿不到 grounding', async () => {
@@ -146,7 +147,7 @@ describe('N1 回归：元数据围栏不能当证据', () => {
     expect(sc.confidence).toBe(0.55);
     expect(sc.tags).not.toContain('ungrounded');
     expect(text).toContain('Grounded 1/1');
-    expect(findByTopic(home, sc.id)!.entry.fm.confidence).toBe(0.55);
+    expect(findByTopic(home, sc.topic)!.entry.fm.confidence).toBe(0.55);
   });
 });
 

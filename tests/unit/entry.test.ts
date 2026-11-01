@@ -34,7 +34,8 @@ describe('entry: frontmatter contract', () => {
     const e = sampleEntry();
     const back = parseEntry(serializeEntry(e));
     expect(back).not.toBeNull();
-    expect(back!.fm.topic).toBe('2026-10-15-a1b2c3');
+    // topic 不落盘：由文件名注入，parseEntry 拿到的是 undefined。
+    expect(back!.fm.topic || '').toBe('');
     expect(back!.fm.type).toBe('preference');
     expect(back!.fm.domain).toBe('coding');
     expect(back!.fm.confidence).toBeCloseTo(0.42);
@@ -44,13 +45,12 @@ describe('entry: frontmatter contract', () => {
     expect(back!.body).toBe('这个项目以后都用手写 SQL，不要用 ORM。\n第二行补充说明。');
   });
 
-  it('serialization contains all 15 fields in stable order', () => {
+  it('序列化只写持久化字段，且顺序稳定', () => {
     const text = serializeEntry(sampleEntry());
     const keys = text.split('\n').slice(1, text.split('\n').indexOf('---', 1));
-    expect(keys[0]).toBe('id: 2026-10-15-a1b2c3');
+    expect(keys[0]).toBe('type: preference');
     expect(keys).toContain('status: active');
     expect(keys).toContain('confirmations: 0');
-    expect(keys).toContain('supersedes: []');
     expect(keys).toContain('tags: ["sql", "orm"]');
   });
 

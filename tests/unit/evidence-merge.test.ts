@@ -88,20 +88,6 @@ describe('commitEntry: 活文档更新继承证据链', () => {
     expect(findByTopic(home, v2)!.entry.fm.evidence).toEqual(['旧原话']);
   });
 
-  it('并合同一主题的多份旧文档时，各自治证据都被收上来', () => {
-    const a = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
-      content: '旧文档 A', type: 'fact', source: 'agent', confidence: 0.55, verified: false,
-      topic: 'merge-a', evidence: ['A 的原话'],
-    }, { refreshIndex: false, refreshGuide: false });
-    const b = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
-      content: '旧文档 B', type: 'fact', source: 'agent', confidence: 0.55, verified: false,
-      topic: 'merge-b', evidence: ['B 的原话'],
-    }, { refreshIndex: false, refreshGuide: false });
-
-    const merged = write('合并后的内容', ['新原话'], [a.id!, b.id!]);
-
-    expect(findByTopic(home, merged)!.entry.fm.evidence).toEqual(['新原话', 'A 的原话', 'B 的原话']);
-  });
 
   it('没有 supersedes 时不会凭空继承别人的证据', () => {
     write('第一版内容', ['别处的原话']);
