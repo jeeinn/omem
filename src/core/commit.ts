@@ -6,8 +6,7 @@ import type { OmemIndex } from './index.js';
 import type { Entry, EntrySource, Frontmatter, MemoryType, Profile } from './entry.js';
 import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain, normalizeTopic } from './entry.js';
 import { rmSync } from 'node:fs';
-import { ASSENT_CAP } from './lifecycle.js';
-import { loadTopicPolicies } from './review-policy.js';
+
 import { findByTopic, writeEntry } from './store.js';
 import { contentHash } from './util.js';
 import { redactSecrets } from './redact.js';
@@ -345,11 +344,8 @@ export function commitEntry(
   const existingLoc = findByTopic(home, topic, { includeArchived: true });
   const existingFm = existingLoc?.entry.fm;
 
-  // `once` 策略：该主题被人工审过之后，后续版本自动落 assent（提底 0.8、不设 verified），
-  // 于是不再回到 review 队列。低置信或未锚定的条目不参与——那是安全阀，必须留给人看。
-  const policy = loadTopicPolicies(home).get(topic);
-  const lowTrust = input.confidence <= 0.35 || (input.tags ?? []).includes('ungrounded');
-  const autoAssent = policy === 'once' && !lowTrust && index.topicReviewedBefore(topic);
+  // D5：主题级审阅策略（review.toml）已删除——「这个主题我信得过」不再折算成自动提分。
+  // 置信度只由本次证据决定（M1），人工动作只剩过目/归档/冷却。
 
   // 只在新建主题时查近似：命中不拒绝（拒绝会让 Agent 卡住），而是提示可能应当并入既有主题。
   if (!existingFm && !activeRow) {
@@ -382,7 +378,7 @@ export function commitEntry(
       domain: normalizeDomain(input.domain || existingFm?.domain || inferDomain(text)),
       profile,
       status: 'active',
-      confidence: autoAssent ? Math.max(input.confidence, ASSENT_CAP) : input.confidence,
+      confidence: input.confidence,
       verified: input.verified,
       source: input.source,
       session_id: input.session_id,
@@ -394,7 +390,7 @@ export function commitEntry(
       ...(existingFm ? { confirmations: existingFm.confirmations, last_confirmed: existingFm.last_confirmed } : {}),
       source_sessions: collectSourceSessions(input, existingFm),
       evidence: mergeEvidence(input.evidence ?? [], existingFm ? [existingFm.evidence] : []),
-      tags: autoAssent ? [...new Set([...(input.tags ?? []), 'assent'])] : (input.tags ?? []),
+      tags: input.tags ?? [],
     }),
     body: text,
   };

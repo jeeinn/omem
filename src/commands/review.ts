@@ -6,7 +6,6 @@ import { findTopicIndexed, listEntries, moveToArchive, updateTopic } from '../co
 import { applyReviewDecisions, formatStaleness, gcScan } from '../core/lifecycle.js';
 import { deriveTitle } from '../core/entry.js';
 import { truncate } from '../core/util.js';
-import { loadTopicPolicies } from '../core/review-policy.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
 import { UsageError } from '../core/util.js';
@@ -124,28 +123,13 @@ async function reviewBody(
   const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
   const inbox = unverified.filter((l) => inReviewInbox(l.entry.fm));
 
-  // 主题级策略（review.toml）。低置信 / 未锚定的条目不静默——那是安全阀，
-  // 无论策略怎么写都要人看一眼。
-  const policies = loadTopicPolicies(home);
-  const silenced = (fm: Frontmatter): boolean => {
-    const policy = policies.get(fm.topic);
-    if (!policy || policy === 'always') return false;
-    if (fm.confidence <= 0.35 || fm.tags.includes('ungrounded')) return false;
-    if (policy === 'never') return true;
-    return index.topicReviewedBefore(fm.topic);
-  };
-  const silencedCount = inbox.filter((l) => silenced(l.entry.fm)).length;
-  let queue = inbox.filter((l) => !silenced(l.entry.fm));
-  // 只统计 14 天窗口外的旧条目。被策略静默的数量单独报告（printSilenced）：
-  // 把两者混进一个数字，会让「older」这个形容词变成错的。
+  // D5：主题级策略（review.toml）已删除。队列只按「未过目 + 在时间窗口内或低置信」收，
+  // 没有第二条静默通道——静默就是把「要不要看一眼」交给配置文件决定，那正是要删的东西。
+  let queue = inbox;
+  // 只统计 14 天窗口外的旧条目（「older」这个词必须准确）。
   const olderParked = unverified.length - inbox.length;
 
-  const printSilenced = (): void => {
-    if (silencedCount === 0) return;
-    console.log(
-      `${silencedCount} entr${silencedCount === 1 ? 'y' : 'ies'} silenced by review.toml policy (not a defect; check omem topics list).`,
-    );
-  };
+  const printSilenced = (): void => { /* 策略已删，保留调用点以免大改结构 */ };
   const source = flagStr(args.flags, 'source');
   const topic = flagStr(args.flags, 'topic');
   if (source) queue = queue.filter((l) => l.entry.fm.source === source);
@@ -203,9 +187,6 @@ async function reviewBody(
   }
   if (stale.length > 0) {
     console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <topic>.`);
-  }
-  if (silencedCount > 0) {
-    printSilenced();
   }
   return 0;
 }
