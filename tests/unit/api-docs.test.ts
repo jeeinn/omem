@@ -310,12 +310,12 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     const actives = activeEntry(['release-doc']);
     expect(actives).toHaveLength(1);
     expect(actives[0].entry.body).toContain('version 2');
-    expect(actives[0].entry.fm.supersedes).toEqual([first.entry.fm.id]);
+    expect(actives[0].entry.fm.supersedes).toEqual([first.entry.fm.topic]);
     // 旧版仍在磁盘
-    expect(first.entry.fm.id).toBeTruthy();
+    expect(first.entry.fm.topic).toBeTruthy();
     // 退出检索
     const hits = searchEntries(index, { query: 'conclusion version 1', limit: 10, staleWeight: 0.5 });
-    expect(hits.filter((h) => h.id === first.entry.fm.id)).toHaveLength(0);
+    expect(hits.filter((h) => h.id === first.entry.fm.topic)).toHaveLength(0);
   });
 
   it('V28: slug variant (case/space) reuses the existing topic, no new doc', async () => {
@@ -403,7 +403,7 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     index.catchUp();
     const stub = await startStub(() => docReply([{ topic: 'release-doc', content: 'conclusion text', type: 'fact', domain: 'coding', evidence: ['please deploy the new release thanks'], tags: [] }]));
     await runPipelineAsync(home, cfgFor(stub.base), index, {});
-    const id = activeEntry(['release-doc'])[0].entry.fm.id;
+    const id = activeEntry(['release-doc'])[0].entry.fm.topic;
     vi.stubEnv('OMEM_HOME', home);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
@@ -413,7 +413,7 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
       vi.unstubAllEnvs();
       vi.restoreAllMocks();
     }
-    const after = listEntries(home).find((l) => l.entry.fm.id === id)!;
+    const after = listEntries(home).find((l) => l.entry.fm.topic === id)!;
     expect(after.entry.fm.confidence).toBe(0.9);
     expect(after.entry.fm.verified).toBe(true);
   });

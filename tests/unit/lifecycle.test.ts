@@ -49,7 +49,7 @@ describe('lifecycle: gc (mark stale only)', () => {
     const { marked, total } = gcScan(home, index, { staleAfterDays: 180, apply: true });
     expect(total).toBe(2);
     expect(marked).toHaveLength(1);
-    expect(marked[0].entry.fm.id).toBe('2026-01-01-old');
+    expect(marked[0].entry.fm.topic).toBe('2026-01-01-old');
     expect(index.getById('2026-01-01-old')!.status).toBe('stale');
     // 不删除文件
     expect(index.getById('2026-01-01-old')!.path).toContain('2026-01-01-old');

@@ -11,8 +11,12 @@ import { sha256hex, contentHash } from './util.js';
 import { allEntryFiles } from './store.js';
 import { listStoredSessionFiles, readStoredSession } from '../collect/session-store.js';
 
+/** 条目表结构版本（见 ensureEntriesSchema）。 */
+const SCHEMA_VERSION = '2';
+
 export interface EntryRow {
-  id: string;
+  /** 身份 = topic（D1-B′）。列名与字段名统一为 topic，不再有 id。 */
+  topic: string;
   path: string;
   hash: string;
   body_hash: string;
@@ -25,7 +29,6 @@ export interface EntryRow {
   verified: number;
   session_id: string | null;
   project: string | null;
-  topic: string | null;
   source_sessions: string | null;
   created: string;
   last_confirmed: string;
@@ -108,32 +111,6 @@ export class OmemIndex {
 
   private initSchema(): void {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS entries (
-        id TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        hash TEXT NOT NULL,
-        body_hash TEXT NOT NULL DEFAULT '',
-        domain TEXT NOT NULL,
-        type TEXT NOT NULL,
-        profile TEXT NOT NULL,
-        status TEXT NOT NULL,
-        source TEXT NOT NULL,
-        confidence REAL NOT NULL,
-        verified INTEGER NOT NULL,
-        session_id TEXT,
-        project TEXT,
-        created TEXT NOT NULL,
-        last_confirmed TEXT NOT NULL,
-        confirmations INTEGER NOT NULL,
-        tags TEXT NOT NULL DEFAULT '',
-        title TEXT NOT NULL DEFAULT '',
-        summary TEXT NOT NULL DEFAULT '',
-        size INTEGER NOT NULL DEFAULT 0,
-        mtime_ms INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-        id UNINDEXED, title, content, tags, tokenize='trigram'
-      );
       CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
         value TEXT
@@ -149,12 +126,59 @@ export class OmemIndex {
         session_key UNINDEXED, content, tokenize='trigram'
       );
     `);
+    this.ensureEntriesSchema();
     this.addColumn('sessions', 'agent', 'TEXT');
     this.addColumn('sessions', 'path', 'TEXT');
     this.addColumn('sessions', 'content_hash', 'TEXT');
     this.addColumn('sessions', 'api_state', 'TEXT');
-    this.addColumn('entries', 'topic', 'TEXT');
-    this.addColumn('entries', 'source_sessions', 'TEXT');
+  }
+
+  /**
+   * 条目表结构版本。
+   *
+   * D1-B′ 把主键从 `id` 换成 `topic`，`CREATE TABLE IF NOT EXISTS` 不会迁移旧库——
+   * 旧库读出来会是一堆空列。这里显式比对版本并**重建条目表**（md 是真相源，重建无损）。
+   * D9 已定不兼容，所以不做逐列迁移；这一步的代价只是下次 `catchUp` 全量解析一遍。
+   */
+  private ensureEntriesSchema(): void {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
+      | { value: string }
+      | undefined;
+    if (row?.value !== SCHEMA_VERSION) {
+      this.db.exec('DROP TABLE IF EXISTS entries; DROP TABLE IF EXISTS entries_fts;');
+      this.db
+        .prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(SCHEMA_VERSION);
+    }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS entries (
+        topic TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        body_hash TEXT NOT NULL DEFAULT '',
+        domain TEXT NOT NULL,
+        type TEXT NOT NULL,
+        profile TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        verified INTEGER NOT NULL,
+        session_id TEXT,
+        project TEXT,
+        source_sessions TEXT,
+        created TEXT NOT NULL,
+        last_confirmed TEXT NOT NULL,
+        confirmations INTEGER NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        size INTEGER NOT NULL DEFAULT 0,
+        mtime_ms INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
+        topic UNINDEXED, title, content, tags, tokenize='trigram'
+      );
+    `);
   }
 
   private addColumn(table: string, name: string, decl: string): void {
@@ -184,29 +208,29 @@ export class OmemIndex {
       size = st.size;
       mtime = st.mtimeMs;
     } catch { /* 文件尚未落盘的极端情况 */ }
-    this.db.prepare('DELETE FROM entries WHERE id = ?').run(fm.id);
+    this.db.prepare('DELETE FROM entries WHERE topic = ?').run(fm.topic);
     this.db.prepare(`INSERT INTO entries
-      (id,path,hash,body_hash,domain,type,profile,status,source,confidence,verified,session_id,project,topic,source_sessions,created,last_confirmed,confirmations,tags,title,summary,size,mtime_ms)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      fm.id, path, hash, bodyHash, fm.domain, fm.type, fm.profile, fm.status, fm.source,
+      (topic,path,hash,body_hash,domain,type,profile,status,source,confidence,verified,session_id,project,source_sessions,created,last_confirmed,confirmations,tags,title,summary,size,mtime_ms)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      fm.topic, path, hash, bodyHash, fm.domain, fm.type, fm.profile, fm.status, fm.source,
       fm.confidence, fm.verified ? 1 : 0, fm.session_id ?? null, fm.project ?? null,
-      fm.topic ?? null, JSON.stringify(fm.source_sessions ?? []),
+      JSON.stringify(fm.source_sessions ?? []),
       fm.created, fm.last_confirmed, fm.confirmations, fm.tags.join(' '),
       title, summary, size, mtime,
     );
-    this.db.prepare('DELETE FROM entries_fts WHERE id = ?').run(fm.id);
-    this.db.prepare('INSERT INTO entries_fts (id, title, content, tags) VALUES (?,?,?,?)').run(
-      fm.id, title, entry.body, fm.tags.join(' '),
+    this.db.prepare('DELETE FROM entries_fts WHERE topic = ?').run(fm.topic);
+    this.db.prepare('INSERT INTO entries_fts (topic, title, content, tags) VALUES (?,?,?,?)').run(
+      fm.topic, title, entry.body, fm.tags.join(' '),
     );
   }
 
-  remove(id: string): void {
-    this.db.prepare('DELETE FROM entries WHERE id = ?').run(id);
-    this.db.prepare('DELETE FROM entries_fts WHERE id = ?').run(id);
+  remove(topic: string): void {
+    this.db.prepare('DELETE FROM entries WHERE topic = ?').run(topic);
+    this.db.prepare('DELETE FROM entries_fts WHERE topic = ?').run(topic);
   }
 
-  getById(id: string): EntryRow | null {
-    return (this.db.prepare('SELECT * FROM entries WHERE id = ?').get(id) as unknown as EntryRow) ?? null;
+  getByTopic(topic: string): EntryRow | null {
+    return (this.db.prepare('SELECT * FROM entries WHERE topic = ?').get(topic) as unknown as EntryRow) ?? null;
   }
 
   getByHash(hash: string): EntryRow | null {
@@ -226,9 +250,9 @@ export class OmemIndex {
     ).all() as { topic: string }[]).map((r) => r.topic);
   }
 
-  /** 按 id 取文件路径（单次 SQL）。未索引时返回 null，调用方应回落到全库扫描。 */
-  pathById(id: string): string | null {
-    const row = this.db.prepare('SELECT path FROM entries WHERE id = ?').get(id) as { path: string } | undefined;
+  /** 按 topic 取文件路径（单次 SQL）。未索引时返回 null，调用方应回落到目录查找。 */
+  pathByTopic(topic: string): string | null {
+    const row = this.db.prepare('SELECT path FROM entries WHERE topic = ?').get(topic) as { path: string } | undefined;
     return row?.path ?? null;
   }
 
@@ -240,12 +264,10 @@ export class OmemIndex {
     return (row?.n ?? 0) > 0;
   }
 
+  /** 该主题当前的活文档。D1-B′ 之后同 topic 只有一份文件，这里至多命中一行。 */
   findActiveByTopic(topic: string): EntryRow | null {
-    // 按 created 而非 last_confirmed：版次由创建时间定义。用 last_confirmed 时，
-    // 对旧版跑一次 review --confirm 就会让它在 topic 检查里盖过真正的最新版，
-    // 下次写入 supersede 错对象，新版反被孤立。与 guide.ts 的 fillDocSlot 口径一致。
     return (this.db.prepare(
-      `SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY created DESC LIMIT 1`,
+      "SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY created DESC LIMIT 1",
     ).get(topic) as unknown as EntryRow) ?? null;
   }
 
@@ -253,8 +275,8 @@ export class OmemIndex {
     this.db.prepare('UPDATE entries SET size = ?, mtime_ms = ? WHERE id = ?').run(size, mtime, id);
   }
 
-  allIds(): string[] {
-    return (this.db.prepare('SELECT id FROM entries').all() as { id: string }[]).map((r) => r.id);
+  allTopics(): string[] {
+    return (this.db.prepare('SELECT topic FROM entries').all() as { topic: string }[]).map((r) => r.topic);
   }
 
   // ── 一致性：catch-up / rebuild ──
@@ -279,24 +301,24 @@ export class OmemIndex {
       } catch {
         continue;
       }
-      const entry = parseEntry(text);
+      const entry = parseEntry(text, path);
       if (!entry) continue;
       scanned++;
-      seen.add(entry.fm.id);
+      seen.add(entry.fm.topic);
       const st = statSync(path);
-      const row = this.getById(entry.fm.id);
+      const row = this.getByTopic(entry.fm.topic);
       if (row && row.size === st.size && row.mtime_ms === st.mtimeMs) continue; // 快路径：未变
       const hash = sha256hex(text).slice(0, 32);
       if (row && row.hash === hash) {
-        this.touchMeta(entry.fm.id, st.size, st.mtimeMs); // 内容未变只更新时间戳
+        this.touchMeta(entry.fm.topic, st.size, st.mtimeMs); // 内容未变只更新时间戳
         continue;
       }
       this.upsert(entry, path, text);
       reindexed++;
     }
-    for (const id of this.allIds()) {
-      if (!seen.has(id)) {
-        this.remove(id);
+    for (const topic of this.allTopics()) {
+      if (!seen.has(topic)) {
+        this.remove(topic);
         removed++;
       }
     }
@@ -317,7 +339,7 @@ export class OmemIndex {
       } catch {
         continue;
       }
-      const entry = parseEntry(text);
+      const entry = parseEntry(text, path);
       if (!entry) continue;
       this.upsert(entry, path, text);
       total++;

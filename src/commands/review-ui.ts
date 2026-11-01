@@ -77,12 +77,12 @@ function printOutcomes(outcomes: ReviewOutcome[]): void {
     if (o.status === 'ok') {
       ok++;
       const tail = o.verified ? 'verified' : o.confidence != null ? String(o.confidence) : '';
-      console.log(`  ${o.applied.padEnd(8)} ${o.id}${tail ? `  ${tail}` : ''}`);
+      console.log(`  ${o.applied.padEnd(8)} ${o.topic}${tail ? `  ${tail}` : ''}`);
       continue;
     }
     if (o.status === 'missing') missing++;
     else skipped++;
-    console.log(`  skipped  ${o.id}  — ${o.reason ?? o.status}`);
+    console.log(`  skipped  ${o.topic}  — ${o.reason ?? o.status}`);
   }
   console.log('');
   console.log(`Applied ${ok} · skipped ${skipped} · missing ${missing}.`);

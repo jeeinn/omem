@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
-import { findById, writeEntry } from '../../src/core/store.js';
+import { findByTopic, writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import type { Frontmatter } from '../../src/core/entry.js';
 import { dirs } from '../../src/core/paths.js';
@@ -47,7 +47,7 @@ describe('buildReviewItem', () => {
       topic: 'pool-tuning',
     });
 
-    const item = buildReviewItem(home, findById(home, '2026-10-27-a1')!);
+    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-a1')!);
 
     expect(item.topic).toBe('pool-tuning');
     expect(item.evidenceCount).toBe(1);
@@ -63,20 +63,20 @@ describe('buildReviewItem', () => {
     add('2026-10-15-v2', '第二版', { supersedes: ['2026-10-01-v1'] });
     add('2026-10-27-v3', '第三版', { supersedes: ['2026-10-15-v2'] });
 
-    const item = buildReviewItem(home, findById(home, '2026-10-27-v3')!);
+    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-v3')!);
 
     expect(item.versionChain).toEqual(['2026-10-15-v2', '2026-10-01-v1']);
   });
 
   it('supersedes 自环不死循环（脏数据防护）', () => {
     add('2026-10-27-loop', '自环', { supersedes: ['2026-10-27-loop'] });
-    const item = buildReviewItem(home, findById(home, '2026-10-27-loop')!);
+    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-loop')!);
     expect(item.versionChain).toEqual([]);
   });
 
   it('指向不存在的旧版时截断，不抛错', () => {
     add('2026-10-27-orphan', '孤儿', { supersedes: ['2026-01-01-gone'] });
-    const item = buildReviewItem(home, findById(home, '2026-10-27-orphan')!);
+    const item = buildReviewItem(home, findByTopic(home, '2026-10-27-orphan')!);
     expect(item.versionChain).toEqual([]);
   });
 });
@@ -157,7 +157,7 @@ describe('buildReviewDetail', () => {
       supersedes: ['2026-10-01-old'],
     });
 
-    const detail = buildReviewDetail(home, findById(home, '2026-10-27-d1')!, new Map());
+    const detail = buildReviewDetail(home, findByTopic(home, '2026-10-27-d1')!, new Map());
 
     expect(detail.body).toContain('正文内容');
     expect(detail.evidence).toEqual(['原始证据']);

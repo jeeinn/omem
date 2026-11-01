@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
-import { findById } from '../../src/core/store.js';
+import { findByTopic } from '../../src/core/store.js';
 import { mergeEvidence } from '../../src/core/entry.js';
 import { makeHome, cleanupHome } from './helpers.js';
 
@@ -69,14 +69,14 @@ describe('commitEntry: 活文档更新继承证据链', () => {
       supersedes,
     }, { refreshIndex: false, refreshGuide: false });
     expect(r.status).toBe('written');
-    return r.id!;
+    return r.topic!;
   }
 
   it('新版文档带上旧版 evidence（新的在前）', () => {
     const v1 = write('第一版内容', ['第一版引用的原话']);
     const v2 = write('第二版内容', ['第二版引用的原话'], [v1]);
 
-    const fm = findById(home, v2)!.entry.fm;
+    const fm = findByTopic(home, v2)!.entry.fm;
 
     expect(fm.evidence).toEqual(['第二版引用的原话', '第一版引用的原话']);
   });
@@ -85,7 +85,7 @@ describe('commitEntry: 活文档更新继承证据链', () => {
     const v1 = write('第一版内容', ['旧原话']);
     const v2 = write('第二版内容', [], [v1]);
 
-    expect(findById(home, v2)!.entry.fm.evidence).toEqual(['旧原话']);
+    expect(findByTopic(home, v2)!.entry.fm.evidence).toEqual(['旧原话']);
   });
 
   it('并合同一主题的多份旧文档时，各自治证据都被收上来', () => {
@@ -100,13 +100,13 @@ describe('commitEntry: 活文档更新继承证据链', () => {
 
     const merged = write('合并后的内容', ['新原话'], [a.id!, b.id!]);
 
-    expect(findById(home, merged)!.entry.fm.evidence).toEqual(['新原话', 'A 的原话', 'B 的原话']);
+    expect(findByTopic(home, merged)!.entry.fm.evidence).toEqual(['新原话', 'A 的原话', 'B 的原话']);
   });
 
   it('没有 supersedes 时不会凭空继承别人的证据', () => {
     write('第一版内容', ['别处的原话']);
     const independent = write('另一条的独立内容', []);
 
-    expect(findById(home, independent)!.entry.fm.evidence).toEqual([]);
+    expect(findByTopic(home, independent)!.entry.fm.evidence).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { request as httpRequest } from 'node:http';
 import { OmemIndex } from '../../src/core/index.js';
-import { findById, writeEntry } from '../../src/core/store.js';
+import { findByTopic, writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import type { Frontmatter } from '../../src/core/entry.js';
 import { applyReviewDecisions } from '../../src/core/lifecycle.js';
@@ -32,7 +32,7 @@ interface Harness {
 }
 
 async function start(ids: string[], timeoutMs = 5000): Promise<Harness> {
-  const items = ids.map((id) => buildReviewItem(home, findById(home, id)!));
+  const items = ids.map((id) => buildReviewItem(home, findByTopic(home, id)!));
   let applied: ReviewDecision[] = [];
   handle = await startReviewServer({
     home,
@@ -173,7 +173,7 @@ describe('review server: 提交与分级落章', () => {
 
     expect(res.status).toBe(200);
     expect(body.outcomes[0]).toMatchObject({ status: 'ok', requested: 'confirm', applied: 'assent' });
-    expect(findById(home, '2026-10-27-c1')!.entry.fm.verified).toBe(false);
+    expect(findByTopic(home, '2026-10-27-c1')!.entry.fm.verified).toBe(false);
     expect(applied()[0].read).toBe(false);
   });
 
@@ -195,7 +195,7 @@ describe('review server: 提交与分级落章', () => {
     const body = await res.json();
 
     expect(body.outcomes[0]).toMatchObject({ status: 'ok', applied: 'confirm' });
-    expect(findById(home, '2026-10-27-c2')!.entry.fm.verified).toBe(true);
+    expect(findByTopic(home, '2026-10-27-c2')!.entry.fm.verified).toBe(true);
   });
 
   it('重复提交 → 409，且不二次写入', async () => {
@@ -216,7 +216,7 @@ describe('review server: 提交与分级落章', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(409);
-    expect(findById(home, '2026-10-27-c3')!.entry.fm.confirmations).toBe(1);
+    expect(findByTopic(home, '2026-10-27-c3')!.entry.fm.confirmations).toBe(1);
   });
 
   it('非法 action 被丢弃，不产生决议', async () => {
@@ -255,7 +255,7 @@ describe('review server: 超时与取消', () => {
     const result = await server.waitForResult();
 
     expect(result).toBeNull();
-    expect(findById(home, '2026-10-27-d1')!.entry.fm.verified).toBe(false);
+    expect(findByTopic(home, '2026-10-27-d1')!.entry.fm.verified).toBe(false);
   });
 
   it('close() 立刻唤醒等待方，不必等满超时（Ctrl+C 路径）', async () => {

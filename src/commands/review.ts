@@ -1,9 +1,9 @@
-// omem review：短队列 + 按 id 打开正文。
+// omem review：短队列 + 按 topic 打开正文。
 // 默认只收「近 14 天写下的」和「置信度 ≤0.35 或带 ungrounded」的未确认活文档。
-// --confirm / --dismiss / --stale 仍是原来的三个动作。
+// --confirm / --dismiss / --stale 仍是原来的三个动作；身份是 topic（D1-B′）。
 import { openCtx } from '../core/ctx.js';
-import { findByIdIndexed, listEntries, moveToArchive, updateEntry } from '../core/store.js';
-import { applyReviewDecisions, applySupersedes, formatStaleness, generateMemoryIndex, reconfirm } from '../core/lifecycle.js';
+import { findTopicIndexed, listEntries, moveToArchive, updateTopic } from '../core/store.js';
+import { applyReviewDecisions, formatStaleness, generateMemoryIndex } from '../core/lifecycle.js';
 import { loadTopicPolicies } from '../core/review-policy.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
@@ -15,7 +15,7 @@ import { DEFAULT_UI_TIMEOUT_MS, runReviewUi } from './review-ui.js';
 const PAGE = 10;
 const RECENT_DAYS = 14;
 
-function idList(raw: string | undefined): string[] {
+function topicList(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
@@ -44,87 +44,63 @@ async function reviewBody(
   config: ReturnType<typeof openCtx>['config'],
   index: ReturnType<typeof openCtx>['index'],
 ): Promise<number> {
-  const confirmIds = idList(flagStr(args.flags, 'confirm'));
-  const dismissId = flagStr(args.flags, 'dismiss');
-  const staleId = flagStr(args.flags, 'stale');
-  const supersedes = idList(flagStr(args.flags, 'supersedes'));
-  if (supersedes.length > 0 && confirmIds.length === 0) {
-    throw new UsageError('Usage: omem review --confirm <id> --supersedes <old-id>');
-  }
-  // 批量确认无法表达「哪个新文档取代哪个旧文档」：supersedes 是 N 个旧 id 对 1 个新文档，
-  // 天然只属于单条确认。这里拒绝而不是猜测归属。
-  if (supersedes.length > 0 && confirmIds.length > 1) {
-    throw new UsageError('--supersedes requires a single --confirm id');
+  const confirmTopics = topicList(flagStr(args.flags, 'confirm'));
+  const dismissTopic = flagStr(args.flags, 'dismiss');
+  const staleTopic = flagStr(args.flags, 'stale');
+  if (flagStr(args.flags, 'supersedes')) {
+    throw new UsageError('--supersedes has been removed: writing to a topic overwrites its document (git keeps the history).');
   }
 
   const uiMode = flagBool(args.flags, 'ui');
-  if (uiMode && (confirmIds.length > 0 || dismissId || staleId || args._[0]?.trim())) {
-    throw new UsageError('--ui cannot be combined with --confirm / --dismiss / --stale / <id>');
+  if (uiMode && (confirmTopics.length > 0 || dismissTopic || staleTopic || args._[0]?.trim())) {
+    throw new UsageError('--ui cannot be combined with --confirm / --dismiss / --stale / <topic>');
   }
 
-  if (confirmIds.length > 0) {
-    if (supersedes.length > 0) {
-      const confirmId = confirmIds[0];
-      const missing = supersedes.filter((id) => !findByIdIndexed(home, index, id, { includeArchived: true }));
-      if (missing.length > 0) throw new UsageError(`Old entries not found: ${missing.join(', ')}`);
-      const loc = reconfirm(home, index, confirmId);
-      if (!loc) throw new UsageError(`Entry not found: ${confirmId}`);
-      const updated = updateEntry(home, confirmId, (fm) => {
-        fm.supersedes = supersedes;
-      });
-      if (!updated) throw new UsageError(`Entry not found: ${confirmId}`);
-      index.upsert(updated.entry, updated.path, serializeEntry(updated.entry));
-      const n = applySupersedes(home, index, updated);
-      generateMemoryIndex(home, index);
-      console.log(`Confirmed: ${confirmId} (verified=true, confirmations=${updated.entry.fm.confirmations})`);
-      console.log(`Superseded ${n} entries: ${supersedes.join(', ')}`);
-      return 0;
-    }
-
+  if (confirmTopics.length > 0) {
     // 终端里敲 --confirm 是显式动作。没有「展开详情」的概念，所以不降级为 assent，
     // 保持 verified=true / confidence=0.9 的既有语义。
     const outcomes = applyReviewDecisions(
       home,
       index,
-      confirmIds.map((id) => ({ id, action: 'confirm' as const })),
+      confirmTopics.map((topic) => ({ topic, action: 'confirm' as const })),
       { requireReadForVerified: false },
     );
     const ok = outcomes.filter((o) => o.status === 'ok');
     const failed = outcomes.filter((o) => o.status !== 'ok');
     if (ok.length === 0) {
-      throw new UsageError(`Entry not found: ${failed.map((f) => f.id).join(', ')}`);
+      throw new UsageError(`Topic not found: ${failed.map((f) => f.topic).join(', ')}`);
     }
     for (const o of ok) {
-      const loc = findByIdIndexed(home, index, o.id, { includeArchived: true });
-      console.log(`Confirmed: ${o.id} (verified=true, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
+      const loc = findTopicIndexed(home, index, o.topic, { includeArchived: true });
+      console.log(`Confirmed: ${o.topic} (verified=true, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
     }
-    if (confirmIds.length > 1) {
-      console.log(`Confirmed ${ok.length} of ${confirmIds.length} entries.`);
+    if (confirmTopics.length > 1) {
+      console.log(`Confirmed ${ok.length} of ${confirmTopics.length} entries.`);
     }
     for (const f of failed) {
-      console.log(`Skipped: ${f.id} — ${f.reason ?? f.status}`);
+      console.log(`Skipped: ${f.topic} — ${f.reason ?? f.status}`);
     }
     return 0;
   }
-  if (dismissId) {
-    const loc = moveToArchive(home, dismissId);
-    if (!loc) throw new UsageError(`Entry not found: ${dismissId}`);
+  if (dismissTopic) {
+    const loc = moveToArchive(home, dismissTopic);
+    if (!loc) throw new UsageError(`Topic not found: ${dismissTopic}`);
     index.upsert(loc.entry, loc.path, serializeEntry(loc.entry));
-    console.log(`Archived (reversible; still searchable with --all under archive/): ${dismissId}`);
+    console.log(`Archived (reversible; still searchable with --all under archive/): ${dismissTopic}`);
     return 0;
   }
-  if (staleId) {
-    const loc = updateEntry(home, staleId, (fm) => {
+  if (staleTopic) {
+    const loc = updateTopic(home, staleTopic, (fm) => {
       fm.status = 'stale';
     });
-    if (!loc) throw new UsageError(`Entry not found: ${staleId}`);
+    if (!loc) throw new UsageError(`Topic not found: ${staleTopic}`);
     index.upsert(loc.entry, loc.path, serializeEntry(loc.entry));
-    console.log(`Manually cooled down: ${staleId}`);
+    console.log(`Manually cooled down: ${staleTopic}`);
     return 0;
   }
 
-  const openId = args._[0]?.trim();
-  if (openId) return showEntry(home, index, openId);
+  const openTopic = args._[0]?.trim();
+  if (openTopic) return showEntry(home, index, openTopic);
 
   const all = listEntries(home);
   const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
@@ -134,7 +110,6 @@ async function reviewBody(
   // 无论策略怎么写都要人看一眼。
   const policies = loadTopicPolicies(home);
   const silenced = (fm: Frontmatter): boolean => {
-    if (!fm.topic) return false;
     const policy = policies.get(fm.topic);
     if (!policy || policy === 'always') return false;
     if (fm.confidence <= 0.35 || fm.tags.includes('ungrounded')) return false;
@@ -150,7 +125,7 @@ async function reviewBody(
   const printSilenced = (): void => {
     if (silencedCount === 0) return;
     console.log(
-      `${silencedCount} entr${silencedCount === 1 ? 'y' : 'ies'} silenced by review.toml policy (not a defect; check omem topic list).`,
+      `${silencedCount} entr${silencedCount === 1 ? 'y' : 'ies'} silenced by review.toml policy (not a defect; check omem topics list).`,
     );
   };
   const source = flagStr(args.flags, 'source');
@@ -200,16 +175,16 @@ async function reviewBody(
     console.log(`Pending ${queue.length} · showing ${shown.length}${scope}\n`);
     for (const l of shown) {
       const fm = l.entry.fm;
-      console.log(`  ${fm.id}  ${fm.confidence.toFixed(2)}  ${fm.source.padEnd(6)} ${fm.topic ?? '-'}`);
+      console.log(`  ${fm.topic}  ${fm.confidence.toFixed(2)}  ${fm.source.padEnd(6)} ${fm.domain}`);
     }
     console.log('');
     if (!showAll && queue.length > PAGE) {
       console.log(`  … ${queue.length - PAGE} more.  omem review --all`);
     }
-    console.log('Open one:  omem review <id>');
+    console.log('Open one:  omem review <topic>');
   }
   if (stale.length > 0) {
-    console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <id>.`);
+    console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <topic>.`);
   }
   if (silencedCount > 0) {
     printSilenced();
@@ -217,17 +192,17 @@ async function reviewBody(
   return 0;
 }
 
-function showEntry(home: string, index: ReturnType<typeof openCtx>['index'], id: string): number {
-  const loc = findByIdIndexed(home, index, id, { includeArchived: true });
-  if (!loc) throw new UsageError(`Entry not found: ${id}`);
+function showEntry(home: string, index: ReturnType<typeof openCtx>['index'], topic: string): number {
+  const loc = findTopicIndexed(home, index, topic, { includeArchived: true });
+  if (!loc) throw new UsageError(`Topic not found: ${topic}`);
   const fm = loc.entry.fm;
   console.log(`File: ${loc.path}`);
-  console.log(`confidence ${fm.confidence.toFixed(2)} · ${fm.source} · ${fm.type}${fm.topic ? ` · topic ${fm.topic}` : ''} ${formatStaleness(fm)}`);
+  console.log(`confidence ${fm.confidence.toFixed(2)} · ${fm.source} · ${fm.type} · topic ${fm.topic} ${formatStaleness(fm)}`);
   console.log('');
   console.log(loc.entry.body.trimEnd());
   console.log('');
   console.log('Next');
-  console.log(`  omem review --confirm ${fm.id}`);
-  console.log(`  omem review --dismiss ${fm.id}`);
+  console.log(`  omem review --confirm ${fm.topic}`);
+  console.log(`  omem review --dismiss ${fm.topic}`);
   return 0;
 }

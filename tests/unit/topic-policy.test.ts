@@ -5,7 +5,7 @@ import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
 import { reconfirm } from '../../src/core/lifecycle.js';
-import { findById } from '../../src/core/store.js';
+import { findByTopic } from '../../src/core/store.js';
 import { loadTopicPolicies, policyPath, saveTopicPolicy } from '../../src/core/review-policy.js';
 import { main } from '../../src/cli.js';
 import { makeHome, cleanupHome } from './helpers.js';
@@ -31,11 +31,11 @@ function write(opts: {
     supersedes: opts.supersedes,
   }, { refreshIndex: false, refreshGuide: false });
   expect(r.status).toBe('written');
-  return r.id!;
+  return r.topic!;
 }
 
 function fmOf(id: string) {
-  return findById(home, id, { includeArchived: true })!.entry.fm;
+  return findByTopic(home, id, { includeArchived: true })!.entry.fm;
 }
 
 /** 捕获 cmdReview 的输出并走一遍 CLI 分发。 */

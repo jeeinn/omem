@@ -29,13 +29,13 @@ export interface GuideSessionRef {
 }
 
 export interface GuideTopic {
-  topic: string;
-  docId?: string;
+  /** 分组名 = project fingerprint。**它不是 topic**（D1-B′）：一个项目可以有多份活文档。 */
+  project: string;
+  /** 组内最新那份活文档的 topic，仅用于「先更新这一份」的默认指向。 */
+  docTopic?: string;
   docTitle?: string;
-  /** 这一组里除默认文档外还有几份活文档（一个项目可以拆多个 topic）。 */
-  otherDocs?: number;
-  /** 这些活文档的 id。PROCESS.md 只说「还有 3 份」等于死信息——调用方仍拿不到 supersedes 要的 id。 */
-  otherDocIds?: string[];
+  /** 组内其它活文档的 topic。只说「还有 3 份」等于死信息。 */
+  otherTopics?: string[];
   sessions: GuideSessionRef[];
   /** 组内最近活跃时间（排序用）：大组优先进渲染窗口。 */
   lastTs?: string;
@@ -90,9 +90,8 @@ const LONG_BYTES = 100 * 1024;
 export const GUIDE_MAX_BYTES = 45_000;
 
 export interface ExistingTopic {
+  /** 主题名同时就是文件名：调用方要的就是它。 */
   name: string;
-  /** 该主题当前 active 文档的 id——supersedes 要的就是它。 */
-  docId: string;
   confidence: number;
   created: string;
 }
@@ -115,7 +114,7 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
     const prev = byTopic.get(fm.topic);
     // 同 topic 多份 active 是异常态，取最新创建的一份（与 index.findActiveByTopic 同口径）。
     if (prev && prev.created >= fm.created) continue;
-    byTopic.set(fm.topic, { name: fm.topic, docId: fm.id, confidence: fm.confidence, created: fm.created });
+    byTopic.set(fm.topic, { name: fm.topic, confidence: fm.confidence, created: fm.created });
   }
   return [...byTopic.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
 }
@@ -141,16 +140,10 @@ function renderExistingTopics(lines: string[], existing: ExistingTopic[], mode: 
   lines.push('');
   for (const t of existing) {
     if (mode === 'full') {
-      lines.push(`- ${BT}${t.name}${BT}  ${BT}${t.docId}${BT}  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
-    } else if (mode === 'compact') {
-      lines.push(`- ${BT}${t.name}${BT}  ${BT}${t.docId}${BT}`);
+      lines.push(`- ${BT}${t.name}${BT}  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
     } else {
       lines.push(`- ${BT}${t.name}${BT}`);
     }
-  }
-  if (mode === 'names') {
-    lines.push('');
-    lines.push('The active document id for a topic is what `supersedes` needs: get it with search_memory(topic="<name>").');
   }
   lines.push('');
 }
@@ -230,15 +223,16 @@ function buildGuide(
     lines.push('');
   }
   for (const topic of topics) {
-    lines.push(`## ${topic.topic}`);
-    if (topic.docId) {
-      const others = (topic.otherDocIds ?? []).filter((id) => id !== topic.docId);
+    // 标题是 **project**，不是 topic（D1-B′）。旧版把两者混渲，Agent 于是拿项目名当主题名写入。
+    lines.push(`## ${topic.project}`);
+    if (topic.docTopic) {
+      const others = (topic.otherTopics ?? []).filter((t) => t !== topic.docTopic);
       const more = others.length > 0
-        ? ` · other living document(s) in this group: ${others.map((id) => BT + id + BT).join(', ')} — update the one matching the new session's topic`
-        : (topic.otherDocs && topic.otherDocs > 0 ? ` · ${topic.otherDocs} more living document(s) in this group; update the one matching the new session's topic` : '');
-      lines.push(`- Current document: ${BT}${topic.docId}${BT}${topic.docTitle ? ` ${topic.docTitle}` : ''}${more}`);
+        ? ` · other living documents in this project: ${others.map((t) => BT + t + BT).join(', ')} — update the one matching the new session`
+        : '';
+      lines.push(`- Current document: topic ${BT}${topic.docTopic}${BT}${topic.docTitle ? ` ${topic.docTitle}` : ''}${more}`);
     } else {
-      lines.push('- Current document: none. Project grouping is not a topic. Pass an explicit topic only if these sessions should share one living document.');
+      lines.push('- Current document: none. The project name is not a topic — give these sessions a topic name when you save.');
     }
     lines.push('- Sessions not yet absorbed:');
     const visible = visibleOf(topic.sessions);
@@ -392,15 +386,14 @@ function createdOf(loc: EntryLoc): string {
   return loc.entry.fm.created ?? '';
 }
 
-/** 一组可能同时存在几份活文档（一个项目可以拆成多个 topic），最新那份作为默认 supersede 对象。 */
+/** 一组可能同时存在几份活文档（一个项目可以拆成多个 topic），最新那份作为默认「先更新这一份」。 */
 function fillDocSlot(topic: GuideTopic, docs: EntryLoc[]): void {
   const sorted = [...docs].sort((a, b) => (createdOf(a) < createdOf(b) ? 1 : -1));
   const newest = sorted[0];
   if (!newest) return;
-  topic.docId = newest.entry.fm.id;
+  topic.docTopic = newest.entry.fm.topic;
   topic.docTitle = deriveTitle(newest.entry.body);
-  topic.otherDocs = sorted.length - 1;
-  topic.otherDocIds = sorted.slice(1).map((d) => d.entry.fm.id);
+  topic.otherTopics = sorted.slice(1).map((d) => d.entry.fm.topic);
 }
 
 export function pendingTopics(
@@ -435,7 +428,7 @@ export function pendingTopics(
     if (!project) continue;
     let docs = docsByProject.get(project);
     if (!docs) docsByProject.set(project, (docs = new Map()));
-    docs.set(loc.entry.fm.id, loc);
+    docs.set(loc.entry.fm.topic, loc);
   }
 
   // user 段指纹按路径缓存（mtime 失效）；一轮渲染约千次 stat，重读只发生在文件变化后。
@@ -483,7 +476,7 @@ export function pendingTopics(
         if (doc && project !== 'unknown') {
           let docs = groupDocs.get(project);
           if (!docs) groupDocs.set(project, (docs = new Map()));
-          docs.set(doc.entry.fm.id, doc);
+          docs.set(doc.entry.fm.topic, doc);
         }
       }
       continue;
@@ -508,10 +501,9 @@ export function pendingTopics(
     let topic = byTopic.get(project);
     if (!topic) {
       topic = {
-        topic: project,
-        docId: undefined,
+        project,
+        docTopic: undefined,
         docTitle: undefined,
-        otherDocs: 0,
         sessions: [],
       };
       byTopic.set(project, topic);

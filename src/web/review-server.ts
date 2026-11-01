@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { OmemIndex } from '../core/index.js';
-import { findByIdIndexed } from '../core/store.js';
+import { findTopicIndexed } from '../core/store.js';
 import { appendLog } from '../core/log.js';
 import { nowIso } from '../core/util.js';
 import type { ReviewAction, ReviewDecision, ReviewOutcome } from '../core/lifecycle.js';
@@ -130,7 +130,7 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
           const id = decodeURIComponent(url.pathname.slice('/api/detail/'.length));
           if (!ID_RE.test(id)) return send(res, 400, 'Bad id');
           const started = performance.now();
-          const loc = findByIdIndexed(args.home, args.index, id, { includeArchived: true });
+          const loc = findTopicIndexed(args.home, args.index, id, { includeArchived: true });
           if (!loc) return sendJson(res, 404, { error: 'Entry not found' });
           const counter = { hits: 0, misses: 0 };
           const detail = buildReviewDetail(args.home, loc, args.sessionIndex, counter, args.index);
@@ -168,7 +168,7 @@ export async function startReviewServer(args: StartReviewServerArgs): Promise<Re
             if (!ID_RE.test(id)) continue;
             if (!ACTIONS.includes(action as ReviewAction)) continue;
             // read 由服务端裁定，忽略前端传来的任何值
-            decisions.push({ id, action: action as ReviewAction, read: readIds.has(id) });
+            decisions.push({ topic: id, action: action as ReviewAction, read: readIds.has(id) });
           }
 
           let outcomes: ReviewOutcome[] = [];

@@ -65,23 +65,14 @@ async function searchBody(
   }
 
   const unit = hits.length === 1 ? 'memory' : 'memories';
-  console.log(`Found ${hits.length} ${unit}${all ? ' (including archived and superseded)' : ''}:\n`);
+  console.log(`Found ${hits.length} ${unit}${all ? ' (including archived)' : ''}:\n`);
   if (page.matched > hits.length) {
     console.log(`(showing ${hits.length} of ${page.matched} matches; raise search.top_k in config.toml to see more)\n`);
   }
   hits.forEach((row, i) => {
-    // 索引行不带 superseded_by（派生列未入表）；superseded 标注需要具体 id 时读文件补全
-    // （只有 --all 才带回 superseded 行，量小；md 是事实源）。
-    let fm = row as unknown as Record<string, unknown>;
-    if (row.status === 'superseded') {
-      const entry = readEntryFile(row.path);
-      if (entry) fm = { ...row, superseded_by: entry.fm.superseded_by };
-    }
-    console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(fm as any)}`);
-    // topic 不进路径（knowledge/<domain>/<year>/<id>.md），不在这里打印就完全看不见。
-    // 它是活文档的唯一标识，消费方靠它判断「这条属于哪个主题」。
-    const topic = row.topic ? ` · topic:${row.topic}` : '';
-    console.log(`   #${row.type} #${row.domain}${topic} · id \`${row.id}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
+    console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
+    // topic 既是身份也是文件名：标题行与句柄都直接用它，不再有 id。
+    console.log(`   #${row.type} #${row.domain} · topic \`${row.topic}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
     if (detail) {
       const entry = readEntryFile(row.path);
       console.log(`   File: ${row.path}`);

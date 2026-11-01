@@ -47,7 +47,7 @@ describe('redact --source', () => {
     expect(code).toBe(0);
     const left = listEntries(home, { includeArchived: true });
     expect(left).toHaveLength(1);
-    expect(left[0].entry.fm.id).toBe(kept.id);
+    expect(left[0].entry.fm.topic).toBe(kept.id);
     expect(index.getById(kept.id!)).not.toBeNull();
   });
 

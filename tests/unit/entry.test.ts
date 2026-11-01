@@ -34,7 +34,7 @@ describe('entry: frontmatter contract', () => {
     const e = sampleEntry();
     const back = parseEntry(serializeEntry(e));
     expect(back).not.toBeNull();
-    expect(back!.fm.id).toBe('2026-10-15-a1b2c3');
+    expect(back!.fm.topic).toBe('2026-10-15-a1b2c3');
     expect(back!.fm.type).toBe('preference');
     expect(back!.fm.domain).toBe('coding');
     expect(back!.fm.confidence).toBeCloseTo(0.42);

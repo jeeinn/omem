@@ -10,7 +10,7 @@ import { cmdRun } from './commands/run.js';
 import { cmdAdd } from './commands/add.js';
 import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
-import { cmdTopic } from './commands/topic.js';
+import { cmdTopics } from './commands/topic.js';
 import { cmdGc } from './commands/gc.js';
 import { cmdRebuild } from './commands/rebuild.js';
 import { cmdContext } from './commands/context.js';
@@ -68,10 +68,10 @@ const COMMANDS: Record<string, Command> = {
     usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
-  topic: {
-    desc: 'List / set / rename living-document topics; per-topic review policy',
-    usage: 'omem topic list [--all] | omem topic policy <topic> always|once|never|default | omem topic set <id> <topic> [--dry-run] | omem topic rename <old> <new> [--dry-run]',
-    run: cmdTopic,
+  topics: {
+    desc: 'List living-document topics; rename one (a rename moves the file)',
+    usage: 'omem topics [list] | omem topics policy <topic> always|once|never|default | omem topics rename <old> <new> [--dry-run]',
+    run: cmdTopics,
   },
   gc: {
     desc: 'Mark stale (report only, never delete)',

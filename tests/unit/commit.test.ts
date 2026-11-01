@@ -5,7 +5,7 @@ import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry, isRedactionShell } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
 import { files } from '../../src/core/paths.js';
-import { findById, listEntries } from '../../src/core/store.js';
+import { findByTopic, listEntries } from '../../src/core/store.js';
 import { searchEntries } from '../../src/core/search.js';
 import { makeHome, cleanupHome, withConfig } from './helpers.js';
 import { cmdAdd } from '../../src/commands/add.js';
@@ -77,7 +77,7 @@ describe('commitEntry', () => {
       verified: true,
     });
     expect(saved.status).toBe('written');
-    const stored = listEntries(home).find((l) => l.entry.fm.id === saved.id);
+    const stored = listEntries(home).find((l) => l.entry.fm.topic === saved.id);
     expect(stored?.entry.body).toContain('***REDACTED***');
     expect(stored?.entry.body).not.toContain('sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456');
     // exclude_keywords 已从配置移除：脱敏只覆盖密钥形态，中文业务敏感词原样落盘
@@ -204,8 +204,8 @@ describe('commitEntry', () => {
       supersedes: [first.id!],
     });
     expect(next.status).toBe('written');
-    expect(findById(home, first.id!)!.entry.fm.status).toBe('superseded');
-    expect(findById(home, next.id!)!.entry.fm.source_sessions.sort()).toEqual(['s1', 's2']);
+    expect(findByTopic(home, first.id!)!.entry.fm.status).toBe('superseded');
+    expect(findByTopic(home, next.id!)!.entry.fm.source_sessions.sort()).toEqual(['s1', 's2']);
     expect(searchEntries(index, { query: '事实源是 Markdown' })).toHaveLength(0);
     expect(searchEntries(index, { query: '索引只是派生' }).map((r) => r.id)).toContain(next.id);
   });
@@ -229,7 +229,7 @@ describe('commitEntry', () => {
     });
     expect(a.status).toBe('written');
     expect(b.status).toBe('written');
-    expect(findById(home, a.id!)!.entry.fm.topic).toBeUndefined();
+    expect(findByTopic(home, a.id!)!.entry.fm.topic).toBeUndefined();
     const named = commitEntry(home, base(), index, {
       content: '膝盖康复每周两次力量训练',
       type: 'fact',
@@ -238,7 +238,7 @@ describe('commitEntry', () => {
       confidence: 0.9,
       verified: true,
     });
-    expect(findById(home, named.id!)!.entry.fm.topic).toBe('knee-rehab');
+    expect(findByTopic(home, named.id!)!.entry.fm.topic).toBe('knee-rehab');
     const forced = commitEntry(home, base(), index, {
       content: '膝盖康复改成每周三次',
       type: 'fact',
@@ -272,8 +272,8 @@ describe('commitEntry', () => {
       supersedes: [old.id!],
     });
     expect(neu.status).toBe('written');
-    expect(findById(home, old.id!)!.entry.fm.status).toBe('superseded');
-    expect(findById(home, old.id!)!.entry.fm.superseded_by).toBe(neu.id);
+    expect(findByTopic(home, old.id!)!.entry.fm.status).toBe('superseded');
+    expect(findByTopic(home, old.id!)!.entry.fm.superseded_by).toBe(neu.id);
     expect(searchEntries(index, { query: '甲乙丙使用本地磁盘' })).toHaveLength(0);
     expect(searchEntries(index, { query: '磁盘', all: false })).toHaveLength(0);
     expect(searchEntries(index, { query: '甲乙丙使用本地磁盘', all: true }).map((r) => r.id)).toContain(old.id);
@@ -350,7 +350,7 @@ describe('three write paths share one channel', () => {
         supersedes: [old.id],
       }, { home, config: defaultConfig(), index });
       expect(saved.content[0].text).toContain('Superseded');
-      expect(findById(home, old.id!)!.entry.fm.status).toBe('superseded');
+      expect(findByTopic(home, old.id!)!.entry.fm.status).toBe('superseded');
 
       const candidate = commitEntry(home, base(), index, {
         content: '待确认后才取代的候选 review-new-marker',
@@ -372,9 +372,9 @@ describe('three write paths share one channel', () => {
       });
       expect(code).toBe(0);
       expect(logs.join('\n')).toContain('Superseded');
-      expect(findById(home, target.id!)!.entry.fm.status).toBe('superseded');
-      expect(findById(home, candidate.id!)!.entry.fm.verified).toBe(true);
-      expect(findById(home, candidate.id!)!.entry.fm.supersedes).toContain(target.id);
+      expect(findByTopic(home, target.id!)!.entry.fm.status).toBe('superseded');
+      expect(findByTopic(home, candidate.id!)!.entry.fm.verified).toBe(true);
+      expect(findByTopic(home, candidate.id!)!.entry.fm.supersedes).toContain(target.id);
     } finally {
       console.log = orig;
       if (prev === undefined) delete process.env.OMEM_HOME;
@@ -394,7 +394,7 @@ describe('commitEntry: 跨 topic 合并告警', () => {
       topic,
     }, { refreshIndex: false, refreshGuide: false });
     expect(r.status).toBe('written');
-    return r.id!;
+    return r.topic!;
   }
 
   it('把两个旧主题合并进一个新主题时给出告警，列出消失的主题名', () => {
@@ -594,7 +594,7 @@ describe('save_memory 回执与落盘一致（2026-10-28 实测回归）', () =>
     expect(sc.status).toBe('written');
     expect(sc.confidence).toBe(0.55);
     expect(sc.tags).not.toContain('ungrounded');
-    const fm = findById(home, sc.id)!.entry.fm;
+    const fm = findByTopic(home, sc.id)!.entry.fm;
     expect(fm.confidence).toBe(sc.confidence);
     expect(fm.tags).not.toContain('ungrounded');
   });
@@ -609,7 +609,7 @@ describe('save_memory 回执与落盘一致（2026-10-28 实测回归）', () =>
     const sc = r.structuredContent as Record<string, any>;
     expect(sc.confidence).toBe(0.35);
     expect(sc.tags).toContain('ungrounded');
-    const fm = findById(home, sc.id)!.entry.fm;
+    const fm = findByTopic(home, sc.id)!.entry.fm;
     expect(fm.confidence).toBe(0.35);
     expect(fm.tags).toContain('ungrounded');
   });
@@ -636,7 +636,7 @@ describe('cap: over-limit content is rejected, never truncated', () => {
       overCap: 'reject',
     });
     expect(r.status).toBe('written');
-    return { id: r.id!, body: base };
+    return { id: r.topic!, body: base };
   }
 
   function base0(): OmemConfig {
@@ -670,7 +670,7 @@ describe('cap: over-limit content is rejected, never truncated', () => {
     expect(text).toContain('Options: (a) tighten the body');
 
     // 旧文档仍然 active，正文逐字未变，且没有被 supersede
-    const live = findById(home, id)!;
+    const live = findByTopic(home, id)!;
     expect(live.entry.fm.status).toBe('active');
     expect(live.entry.body).toBe(body);
     expect(live.entry.fm.superseded_by).toBeUndefined();
@@ -763,12 +763,12 @@ describe('force-truncate 的审计痕迹（不加 frontmatter、不加 tags）',
 
     // 日志里有 id + 截断量（审计入口），frontmatter 里没有新字段
     const logLines = readFileSync(files.usageLog(home), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-    const written = logLines.find((e) => e.event === 'commit' && e.id === result.id);
+    const written = logLines.find((e) => e.event === 'commit' && e.id === result.topic);
     expect(written?.truncated).toEqual({ chars: 2137, limit: 2000 });
 
-    const fmKeys = Object.keys(findById(home, result.id!)!.entry.fm);
+    const fmKeys = Object.keys(findByTopic(home, result.topic!)!.entry.fm);
     expect(fmKeys).not.toContain('truncated');
-    expect(findById(home, result.id!)!.entry.fm.tags).not.toContain('truncated');
+    expect(findByTopic(home, result.topic!)!.entry.fm.tags).not.toContain('truncated');
   });
 
   it('omem add --force 在终端里把 id 指出来', async () => {
@@ -779,7 +779,7 @@ describe('force-truncate 的审计痕迹（不加 frontmatter、不加 tags）',
       expect(await cmdAdd({ _: [long], flags: { topic: 'cli-force-audit', force: true } })).toBe(0);
       const [loc] = listEntries(home);
       const log = readFileSync(files.usageLog(home), 'utf8');
-      expect(log).toContain(loc.entry.fm.id);
+      expect(log).toContain(loc.entry.fm.topic);
       expect(log).toContain('"truncated":{"chars":2100,"limit":2000}');
     } finally {
       if (prevHome === undefined) delete process.env.OMEM_HOME;

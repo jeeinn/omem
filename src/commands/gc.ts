@@ -18,10 +18,10 @@ export async function cmdGc(args: ParsedArgs): Promise<number> {
   const { marked, total } = gcScan(home, index, { staleAfterDays: days, apply: true });
   console.log(`Scanned ${total} active entries (threshold: ${days} days unconfirmed): marked ${marked.length} stale (marked only, nothing deleted)`);
   for (const l of marked) {
-    console.log(`- \`${l.entry.fm.id}\` ${truncate(deriveTitle(l.entry.body), 50)} ${formatStaleness(l.entry.fm)}`);
+    console.log(`- \`${l.entry.fm.topic}\` ${truncate(deriveTitle(l.entry.body), 50)} ${formatStaleness(l.entry.fm)}`);
   }
   if (marked.length > 0) {
-    console.log('\nStale entries are down-weighted in search; confirm to restore: omem review --confirm <id>');
+    console.log('\nStale entries are down-weighted in search; confirm to restore: omem review --confirm <topic>');
   }
   return 0;
 }

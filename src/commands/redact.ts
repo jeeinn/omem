@@ -1,9 +1,9 @@
 // omem redact：唯一硬删除途径（规格 §4.2 X 层；§7）。
-// --id 删一条（已点名，直接删）；--source 按来源批量删，**默认只预览，必须显式 --yes 才删**。
+// --topic 删一份活文档（已点名，直接删）；--source 按来源批量删，**默认只预览，必须显式 --yes 才删**。
 // 批量删除不可逆（只能靠数据仓 git 历史捞回），因此不允许一次按键误触——
 // 预览会给出条数、占全库比例、域名/状态分布与样例，确认无误后再带 --yes 重跑。
 import { openCtx } from '../core/ctx.js';
-import { deleteEntry, listEntries } from '../core/store.js';
+import { deleteTopic, listEntries } from '../core/store.js';
 import type { Located } from '../core/store.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
@@ -13,7 +13,7 @@ import type { ParsedArgs } from '../cli-args.js';
 import type { EntrySource } from '../core/entry.js';
 
 const SOURCES: EntrySource[] = ['rules', 'agent', 'llm', 'manual'];
-const USAGE = 'Usage: omem redact --id <id> | omem redact --source rules|agent|llm|manual [--yes] (hard delete; still recoverable from git history)';
+const USAGE = 'Usage: omem redact --topic <name> | omem redact --source rules|agent|llm|manual [--yes] (hard delete; still recoverable from git history)';
 const SAMPLE_LIMIT = 5;
 
 /** 批量预览：只打印将删什么，不动任何文件。 */
@@ -39,7 +39,7 @@ function printPreview(source: string, matches: Located[], total: number): void {
   console.log(`  Samples (max ${SAMPLE_LIMIT}):`);
   for (const l of matches.slice(0, SAMPLE_LIMIT)) {
     const c = String(l.entry.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
-    console.log(`    - ${l.entry.fm.id ?? '?'}  ${c}`);
+    console.log(`    - ${l.entry.fm.topic || '?'}  ${c}`);
   }
 
   console.log('');
@@ -48,29 +48,29 @@ function printPreview(source: string, matches: Located[], total: number): void {
 }
 
 export async function cmdRedact(args: ParsedArgs): Promise<number> {
-  const id = flagStr(args.flags, 'id');
+  const topic = flagStr(args.flags, 'topic');
   const source = flagStr(args.flags, 'source');
   const yes = flagBool(args.flags, 'yes');
-  if (id && source) throw new UsageError(USAGE);
-  if (!id && !source) throw new UsageError(USAGE);
+  if (topic && source) throw new UsageError(USAGE);
+  if (!topic && !source) throw new UsageError(USAGE);
   const { home, index } = openCtx();
   try {
-    if (id) {
-      const ok = deleteEntry(home, id);
-      if (!ok) throw new UsageError(`Entry not found: ${id}`);
-      index.remove(id);
+    if (topic) {
+      const ok = deleteTopic(home, topic);
+      if (!ok) throw new UsageError(`Topic not found: ${topic}`);
+      index.remove(topic);
       generateMemoryIndex(home, index);
-      appendLog(home, 'redact', { id });
-      console.log(`Hard deleted: ${id}`);
+      appendLog(home, 'redact', { topic });
+      console.log(`Hard deleted: ${topic}`);
       console.log('(Still traceable in the data repo\'s git history: git -C ~/.omem log -- <file path>)');
       return 0;
     }
     if (!SOURCES.includes(source as EntrySource)) throw new UsageError(USAGE);
     const all = listEntries(home, { includeArchived: true });
     const matches = all.filter((l) => l.entry.fm.source === source);
-    const ids = matches.map((l) => l.entry.fm.id).filter((x): x is string => typeof x === 'string');
+    const topics = matches.map((l) => l.entry.fm.topic).filter((x): x is string => typeof x === 'string' && x.length > 0);
 
-    if (ids.length === 0) {
+    if (topics.length === 0) {
       console.log(`No entries match source=${source}. Nothing to delete.`);
       return 0;
     }
@@ -79,13 +79,13 @@ export async function cmdRedact(args: ParsedArgs): Promise<number> {
       return 0;
     }
 
-    for (const entryId of ids) {
-      deleteEntry(home, entryId);
-      index.remove(entryId);
+    for (const t of topics) {
+      deleteTopic(home, t);
+      index.remove(t);
     }
     generateMemoryIndex(home, index);
-    appendLog(home, 'redact', { source, count: ids.length });
-    console.log(`Hard deleted ${ids.length} entries (source=${source}).`);
+    appendLog(home, 'redact', { source, count: topics.length });
+    console.log(`Hard deleted ${topics.length} entries (source=${source}).`);
     console.log('(Still traceable in the data repo\'s git history.)');
     return 0;
   } finally {

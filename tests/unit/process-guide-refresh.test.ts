@@ -114,7 +114,7 @@ describe('PROCESS.md refresh after a write', () => {
       verified: false,
     });
     expect(result.status).toBe('written');
-    expect(result.id).toBeTruthy();
+    expect(result.topic).toBeTruthy();
     // 记忆确实落盘了。
     expect(existsSync(join(home, 'knowledge'))).toBe(true);
     rmSync(guidePath, { recursive: true, force: true });

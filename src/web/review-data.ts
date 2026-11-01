@@ -9,7 +9,6 @@
 import { existsSync } from 'node:fs';
 import type { OmemIndex } from '../core/index.js';
 import type { Located } from '../core/store.js';
-import { findById, findByIdIndexed } from '../core/store.js';
 import { deriveSummary, deriveTitle } from '../core/entry.js';
 import { readStoredSession, splitSessionKey, userSectionText } from '../collect/session-store.js';
 import { truncate } from '../core/util.js';
@@ -26,8 +25,8 @@ export interface SessionTitle {
 }
 
 export interface ReviewItem {
-  id: string;
-  topic?: string;
+  /** 身份 = 文件名（D1-B′）。 */
+  topic: string;
   type: string;
   domain: string;
   source: string;
@@ -38,18 +37,13 @@ export interface ReviewItem {
   summary: string;
   evidenceCount: number;
   sessionCount: number;
-  supersedesCount: number;
   /** ungrounded / low-weight / assent / pending-session 等标签 */
   flags: string[];
-  /** 沿 supersedes 向上追溯的旧版 id（不含自身），用于展示「第几版」 */
-  versionChain: string[];
 }
 
 export interface ReviewDetail extends ReviewItem {
   body: string;
   evidence: string[];
-  supersedes: string[];
-  supersededBy?: string;
   sessions: SessionTitle[];
 }
 
@@ -155,30 +149,10 @@ export function resolveSessionTitles(
   return { sessions: out, hits, misses };
 }
 
-/** 沿 supersedes 向上追溯版本链。visited 防脏数据自环，深度上限防病态长链。 */
-function versionChain(home: string, index: OmemIndex | undefined, start: Located, limit = 20): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>([start.entry.fm.id]);
-  let current = start.entry.fm;
-  const lookup = (id: string): Located | null =>
-    index ? findByIdIndexed(home, index, id, { includeArchived: true }) : findById(home, id, { includeArchived: true });
-  for (let i = 0; i < limit; i++) {
-    const oldId = current.supersedes?.[0];
-    if (!oldId || seen.has(oldId)) break;
-    const old = lookup(oldId);
-    if (!old) break;
-    out.push(oldId);
-    seen.add(oldId);
-    current = old.entry.fm;
-  }
-  return out;
-}
-
 export function buildReviewItem(home: string, loc: Located, index?: OmemIndex): ReviewItem {
   const fm = loc.entry.fm;
   const body = loc.entry.body;
   return {
-    id: fm.id,
     topic: fm.topic,
     type: fm.type,
     domain: fm.domain,
@@ -190,9 +164,7 @@ export function buildReviewItem(home: string, loc: Located, index?: OmemIndex): 
     summary: deriveSummary(body, 160),
     evidenceCount: fm.evidence?.length ?? 0,
     sessionCount: fm.source_sessions?.length ?? 0,
-    supersedesCount: fm.supersedes?.length ?? 0,
     flags: fm.tags.filter((t) => t === 'ungrounded' || t === 'low-weight' || t === 'assent' || t === 'pending-session'),
-    versionChain: versionChain(home, index, loc),
   };
 }
 
@@ -210,8 +182,6 @@ export function buildReviewDetail(
     ...item,
     body: loc.entry.body,
     evidence: fm.evidence ?? [],
-    supersedes: fm.supersedes ?? [],
-    supersededBy: fm.superseded_by,
     sessions,
   };
 }

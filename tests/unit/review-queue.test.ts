@@ -36,7 +36,7 @@ function add(content: string, over: { confidence?: number; source?: 'llm' | 'age
     topic: over.topic,
     tags: over.tags,
   }, { refreshIndex: false });
-  return r.id!;
+  return r.topic!;
 }
 
 describe('omem review queue', () => {

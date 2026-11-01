@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OmemIndex } from '../../src/core/index.js';
 import { defaultConfig } from '../../src/core/config.js';
-import { findById } from '../../src/core/store.js';
+import { findByTopic } from '../../src/core/store.js';
 import { evidenceUserText, sessionUserHash, userSectionText, writeSessionFile } from '../../src/collect/session-store.js';
 import { searchSessions } from '../../src/core/search.js';
 import { handleTool } from '../../src/mcp/tools.js';
@@ -123,7 +123,7 @@ describe('N1 回归：元数据围栏不能当证据', () => {
     expect(sc.tags).toContain('ungrounded');
     expect(text).toContain('Evidence did not match any ## user section');
     // 回执与落盘一致（0355873 的护栏）
-    expect(findById(home, sc.id)!.entry.fm.confidence).toBe(0.35);
+    expect(findByTopic(home, sc.id)!.entry.fm.confidence).toBe(0.35);
   });
 
   it('只引 message_id 的单键片段也拿不到 grounding', async () => {
@@ -146,7 +146,7 @@ describe('N1 回归：元数据围栏不能当证据', () => {
     expect(sc.confidence).toBe(0.55);
     expect(sc.tags).not.toContain('ungrounded');
     expect(text).toContain('Grounded 1/1');
-    expect(findById(home, sc.id)!.entry.fm.confidence).toBe(0.55);
+    expect(findByTopic(home, sc.id)!.entry.fm.confidence).toBe(0.55);
   });
 });
 

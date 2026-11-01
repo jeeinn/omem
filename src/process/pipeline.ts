@@ -301,8 +301,10 @@ function projectDocs(home: string, projectFp: string | undefined): { topic: stri
 // 本文件只通过 result.warnings 呈现，不再自己扫一遍。
 
 /**
- * 单份活文档落盘（§7）：topic 收敛 → 自动 supersede（§7.3）→ 证据锚定（§7.1）→ commitEntry。
- * 无 project 的会话只新建 topic：撞上既有 active 时不合并、不覆盖，告警后跳过（O1 边界）。
+ * 单份活文档落盘（§7）：topic 收敛 → 证据锚定（§7.1）→ commitEntry。
+ *
+ * D1-B′：写入即覆盖该 topic 的活文档，不需要 supersedes。
+ * 无 project 的会话**只新建** topic：撞上既有 active 时跳过并告警（O1 边界）。
  * 返回落盘的 topic；跳过/去重返回 null。
  */
 function commitDoc(
@@ -317,15 +319,9 @@ function commitDoc(
   const topic = normalizeTopic(doc.topic);
   if (!topic) return null;
   const unassigned = isUnassigned(item.project_fp);
-  const active = index.findActiveByTopic(topic);
-  let supersedes: string[] = [];
-  if (active) {
-    if (unassigned) {
-      warnDup(`unassigned session ${item.sessionId}: topic ${topic} already active (${active.id}); skipped (only new topics without a project)`);
-      return null;
-    }
-    // §7.3：API 档没有 Agent 在环，supersede 由 omem 自己补，否则每次都被 commitEntry 拒
-    supersedes = [active.id];
+  if (unassigned && index.findActiveByTopic(topic)) {
+    warnDup(`unassigned session ${item.sessionId}: topic ${topic} already exists; skipped (unassigned sessions only create new topics)`);
+    return null;
   }
   const scored = scoreApiDoc(home, { sessionId: item.sessionId, evidence: doc.evidence, content: doc.content }, index);
   const result = commitEntry(home, config, index, {
@@ -340,7 +336,6 @@ function commitDoc(
     source: 'llm',
     confidence: scored.confidence,
     verified: false,
-    supersedes,
     // pipeline 也不截断：LLM 产物超限说明这一份本身不合格，落半截比不落更危险。
     // 拒绝会进 report.excluded，由 run summary 说话。
     overCap: 'reject',
@@ -348,9 +343,9 @@ function commitDoc(
   if ((result.redacted ?? 0) > 0) report.redacted++;
   if (result.status === 'excluded' || result.status === 'redacted-empty') report.excluded++;
   if (result.status === 'deduped') report.deduped++;
-  // 近似主题 / 跨主题合并由 commitEntry 统一判定，这里只负责呈现
+  // 近似主题由 commitEntry 统一判定，这里只负责呈现
   for (const w of result.warnings ?? []) warnDup(w);
-  if (result.status === 'written' && result.id) report.written.push(result.id);
+  if (result.status === 'written' && result.topic) report.written.push(result.topic);
   return result.status === 'written' ? topic : null;
 }
 

@@ -50,7 +50,7 @@ function whereClause(q: SearchQuery): { sql: string; params: any[] } {
     parts.push(`e.status IN (${q.status.map(() => '?').join(',')})`);
     params.push(...q.status);
   } else {
-    parts.push(q.all ? '1=1' : "e.status NOT IN ('archived', 'superseded')");
+    parts.push(q.all ? '1=1' : "e.status != 'archived'");
   }
   if (q.topic) {
     parts.push('e.topic = ?');
@@ -97,13 +97,13 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
     const ftsq = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
     const matched = countOf(
       index,
-      `SELECT COUNT(*) AS n FROM entries e JOIN entries_fts ON e.id = entries_fts.id
+      `SELECT COUNT(*) AS n FROM entries e JOIN entries_fts ON e.topic = entries_fts.topic
        WHERE entries_fts MATCH ? AND ${filters}`,
       [ftsq, ...fparams],
     );
     const stmt = db.prepare(`
       SELECT e.*, bm25(entries_fts) AS rank FROM entries e
-      JOIN entries_fts ON e.id = entries_fts.id
+      JOIN entries_fts ON e.topic = entries_fts.topic
       WHERE entries_fts MATCH ?
         AND ${filters}
       ORDER BY (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence * bm25(entries_fts) ASC,
@@ -118,7 +118,7 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
   // ── 兜底路径：LIKE（trigram 对 <3 字符查询无效） ──
   // 与主路一致：先按 confidence（stale ×0.5）排，verified 只在分数相同时优先。
   const pattern = `%${escapeLike(query)}%`;
-  const likeWhere = `(e.id IN (SELECT id FROM entries_fts WHERE content LIKE ? ESCAPE '\\')
+  const likeWhere = `(e.topic IN (SELECT topic FROM entries_fts WHERE content LIKE ? ESCAPE '\\')
            OR e.title LIKE ? ESCAPE '\\'
            OR e.tags LIKE ? ESCAPE '\\')
       AND ${filters}`;
@@ -139,7 +139,7 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
 
   // 整串无命中且为多词：退化为逐词 AND（都出现才算命中）
   const andSql = tokens.map(() => "content LIKE ? ESCAPE '\\'").join(' AND ');
-  const andWhere = `e.id IN (SELECT id FROM entries_fts WHERE ${andSql}) AND ${filters}`;
+  const andWhere = `e.topic IN (SELECT topic FROM entries_fts WHERE ${andSql}) AND ${filters}`;
   const stmt2 = db.prepare(`
     SELECT e.* FROM entries e
     WHERE ${andWhere}

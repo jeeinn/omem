@@ -1,16 +1,13 @@
-// omem topic：活文档主题的可见性入口。
+// omem topics：活文档主题的可见性入口（D1-B′：topic 既是身份，也是文件名）。
 //
-// 为什么需要：topic 只存在 frontmatter，不进文件路径（knowledge/<domain>/<year>/<id>.md），
-// `omem search` 以前也不打印它。结果是「库里有哪些主题」只能靠 open 文件或看 MEMORY-INDEX。
-//
-// `--all` 额外列出「只存在于 superseded 的旧主题 → 现在归到哪个 active 主题」：
-// 跨主题合并之后，旧名字不再出现在检索里，这条映射是唯一的线索。
+// 为什么需要 list：PROCESS.md 之外，人需要一个「库里有哪些主题」的全量视图。
+// 为什么需要 rename：改名 = 移动文件，得有一条会校验重名、会同步索引的安全通道。
+import { rmSync } from 'node:fs';
 import { openCtx } from '../core/ctx.js';
-import { normalizeTopic } from '../core/commit.js';
-import { writeEntry, findByIdIndexed, listEntries } from '../core/store.js';
+import { normalizeTopic } from '../core/entry.js';
+import { listEntries, writeEntry } from '../core/store.js';
 import { deriveTitle, serializeEntry } from '../core/entry.js';
 import type { Ctx } from '../core/ctx.js';
-import type { OmemIndex } from '../core/index.js';
 import { UsageError } from '../core/util.js';
 import { flagBool } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
@@ -19,13 +16,13 @@ import { TOPIC_POLICIES, loadTopicPolicies, saveTopicPolicy } from '../core/revi
 import type { TopicPolicy } from '../core/review-policy.js';
 
 const USAGE =
-  'Usage: omem topic list [--all] | omem topic policy <topic> always|once|never|default | ' +
-  'omem topic set <id> <topic> [--dry-run] | omem topic rename <old> <new> [--dry-run]';
+  'Usage: omem topics [list] [--all] | omem topics policy <topic> always|once|never|default | '
+  + 'omem topics rename <old> <new> [--dry-run]';
 const NAME_WIDTH = 44;
 
 interface TopicRow {
   name: string;
-  docs: number;
+  named: string;
   last: string;
   confidence: number;
   policy: TopicPolicy;
@@ -36,122 +33,64 @@ function sortByCreatedDesc(entries: Located[]): Located[] {
   return [...entries].sort((a, b) => ((a.entry.fm.created || '') < (b.entry.fm.created || '') ? 1 : -1));
 }
 
-/** `omem topic set <id> <topic> [--dry-run]`：纯元数据修补——不改正文 / 置信度 / verified / supersedes。 */
-function cmdTopicSet(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
-  const id = String(args._[1] ?? '').trim();
-  const rawTopic = args._[2];
-  if (!id || rawTopic === undefined) throw new UsageError(USAGE);
-  const topic = normalizeTopic(rawTopic);
-  if (!topic) throw new UsageError('Topic must not be empty');
-
-  const loc = findByIdIndexed(ctx.home, ctx.index, id, { includeArchived: true });
-  if (!loc) throw new UsageError(`Entry not found: ${id}`);
-  if (loc.entry.fm.status !== 'active') {
-    throw new UsageError(`Entry ${id} is status="${loc.entry.fm.status}"; topic can only be set on active entries.`);
-  }
-  if (loc.entry.fm.topic === topic) {
-    console.log(`Entry ${id} already has topic "${topic}".`);
-    return 0;
-  }
-
-  // 同 topic 仅一篇 active 不变式
-  const clash = ctx.index.findActiveByTopic(topic);
-  if (clash && clash.id !== id) {
-    throw new UsageError(
-      `Topic "${topic}" already belongs to active entry ${clash.id}. Resolve it first (e.g. supersede or topic rename).`,
-    );
-  }
-
-  if (dryRun) {
-    console.log(`[dry-run] Would set topic="${topic}" on ${id}; confidence / verified / body unchanged.`);
-    return 0;
-  }
-
-  const fm = { ...loc.entry.fm, topic };
-  const entry = { ...loc.entry, fm };
-  // 路径由 id + domain + created 决定，单纯改 topic 不会变
-  const written = writeEntry(ctx.home, entry);
-  ctx.index.upsert(entry, written.path, serializeEntry(entry));
-  console.log(`Set topic="${topic}" on ${id}. Confidence / verified / body unchanged.`);
-  return 0;
-}
-
-/** `omem topic rename <old> <new> [--dry-run]`：对 all active 文档批量改名——不改正文 / 置信度 / verified。 */
-function cmdTopicRename(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
-  const oldName = String(args._[1] ?? '').trim();
+/**
+ * `omem topics rename <old> <new> [--dry-run]`：改名 = 移动文件。
+ *
+ * 拒绝重名而不是加后缀：`foo` 与 `foo-2` 并存会让「一个主题一份活文档」失效，
+ * 而那个不变式正是这次重构的地基。
+ */
+function cmdTopicsRename(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
+  const rawOld = String(args._[1] ?? '').trim();
   const rawNew = args._[2];
-  if (!oldName || rawNew === undefined) throw new UsageError(USAGE);
+  if (!rawOld || rawNew === undefined) throw new UsageError(USAGE);
+  const oldName = normalizeTopic(rawOld);
   const newName = normalizeTopic(rawNew);
-  if (!newName) throw new UsageError('New topic must not be empty');
+  if (!oldName || !newName) throw new UsageError('Topic must not be empty after normalization');
   if (oldName === newName) throw new UsageError('Old and new topic are the same.');
 
-  // 目标名已被另一份 active 占位时拒绝——避免改名后出现两篇同 topic
-  const clash = ctx.index.findActiveByTopic(newName);
-  if (clash && clash.topic !== oldName) {
+  const loc = listEntries(ctx.home, { includeArchived: true })
+    .find((l) => l.entry.fm.topic === oldName);
+  if (!loc) throw new UsageError(`Topic not found: ${oldName}`);
+
+  const clash = listEntries(ctx.home).find((l) => l.entry.fm.topic === newName);
+  if (clash) {
     throw new UsageError(
-      `Target topic "${newName}" already belongs to active ${clash.id}. Resolve it first.`,
+      `Target topic "${newName}" already exists (${deriveTitle(clash.entry.body, 40)}). Pick another name.`,
     );
   }
 
-  const all = listEntries(ctx.home);
-  const matches = all.filter((l) => l.entry.fm.status === 'active' && l.entry.fm.topic === oldName);
-  if (matches.length === 0) {
-    console.log(`No active entries with topic "${oldName}".`);
-    return 0;
-  }
-
   if (dryRun) {
-    console.log(`[dry-run] Would rename topic "${oldName}" → "${newName}" on ${matches.length} active entr${matches.length === 1 ? 'y' : 'ies'}.`);
+    console.log(`[dry-run] Would rename topic "${oldName}" → "${newName}" (file moves, history kept by git).`);
     return 0;
   }
 
-  for (const loc of matches) {
-    const fm = { ...loc.entry.fm, topic: newName };
-    const entry = { ...loc.entry, fm };
-    const written = writeEntry(ctx.home, entry);
-    ctx.index.upsert(entry, written.path, serializeEntry(entry));
-  }
-  console.log(`Renamed topic "${oldName}" → "${newName}" on ${matches.length} active entr${matches.length === 1 ? 'y' : 'ies'}.`);
+  const fm = { ...loc.entry.fm, topic: newName };
+  const entry = { ...loc.entry, fm };
+  const written = writeEntry(ctx.home, entry);
+  // 旧路径必须删掉：留下两份 = 两个身份。
+  if (written.path !== loc.path) rmSync(loc.path, { force: true });
+  ctx.index.remove(oldName);
+  ctx.index.upsert(entry, written.path, serializeEntry(entry));
+  console.log(`Renamed topic "${oldName}" → "${newName}". File: ${written.path}`);
   return 0;
 }
 
-/** 沿 superseded_by 链找到最终接盘的 active 文档；链断或无终态返回 null。 */
-function resolveOwner(home: string, index: OmemIndex, start: Located, limit = 20): Located | null {
-  const seen = new Set<string>([start.entry.fm.id]);
-  let current = start;
-  for (let i = 0; i < limit; i++) {
-    const nextId = current.entry.fm.superseded_by;
-    if (!nextId || seen.has(nextId)) return null;
-    seen.add(nextId);
-    const next = findByIdIndexed(home, index, nextId, { includeArchived: true });
-    if (!next) return null;
-    if (next.entry.fm.status === 'active') return next;
-    current = next;
-  }
-  return null;
-}
-
-export async function cmdTopic(args: ParsedArgs): Promise<number> {
+export async function cmdTopics(args: ParsedArgs): Promise<number> {
   const sub = args._[0] ?? 'list';
-  if (sub !== 'list' && sub !== 'policy' && sub !== 'set' && sub !== 'rename') {
-    throw new UsageError(USAGE);
-  }
+  if (sub !== 'list' && sub !== 'policy' && sub !== 'rename') throw new UsageError(USAGE);
 
   const dryRun = flagBool(args.flags, 'dry-run');
   const ctx = openCtx();
   try {
-    if (sub === 'set') return cmdTopicSet(ctx, args, dryRun);
-    if (sub === 'rename') return cmdTopicRename(ctx, args, dryRun);
+    if (sub === 'rename') return cmdTopicsRename(ctx, args, dryRun);
 
     const all = listEntries(ctx.home, { includeArchived: true });
     const active = all.filter((l) => l.entry.fm.status === 'active');
-    const withTopic = active.filter((l) => l.entry.fm.topic);
-    const withoutTopic = active.filter((l) => !l.entry.fm.topic);
     const policies = loadTopicPolicies(ctx.home);
 
     const groups = new Map<string, Located[]>();
-    for (const loc of withTopic) {
-      const name = loc.entry.fm.topic as string;
+    for (const loc of active) {
+      const name = loc.entry.fm.topic;
       const list = groups.get(name);
       if (list) list.push(loc);
       else groups.set(name, [loc]);
@@ -162,7 +101,7 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
       const newest = sorted[0];
       return {
         name,
-        docs: docs.length,
+        named: newest.entry.fm.project ?? '-',
         last: (newest.entry.fm.created || '').slice(0, 10),
         confidence: newest.entry.fm.confidence,
         policy: policies.get(name) ?? 'always',
@@ -189,70 +128,27 @@ export async function cmdTopic(args: ParsedArgs): Promise<number> {
       return 0;
     }
 
-    // --all：只存在于 superseded 的主题。提前收集，因为「空库」的判定也要算上它们。
-    const showAll = flagBool(args.flags, 'all');
-    const retiredByTopic = new Map<string, Located>();
-    if (showAll) {
-      for (const loc of all) {
-        const fm = loc.entry.fm;
-        if (fm.status !== 'superseded' || !fm.topic) continue;
-        if (groups.has(fm.topic) || retiredByTopic.has(fm.topic)) continue;
-        retiredByTopic.set(fm.topic, loc);
-      }
-    }
-
-    if (rows.length === 0 && withoutTopic.length === 0 && retiredByTopic.size === 0) {
-      console.log('No living-document topics yet. Pass --topic (or topic:) when writing to start one.');
+    if (rows.length === 0) {
+      console.log('No living-document topics yet. Pass a topic when writing (every memory is one).');
       return 0;
     }
 
-    console.log(
-      `${rows.length} topic(s) · ${withTopic.length} topic document(s) · ${withoutTopic.length} active document(s) without a topic`,
-    );
+    console.log(`${rows.length} topic(s) · ${active.length} living document(s)`);
     console.log('');
-
-    if (rows.length > 0) {
-      console.log(`${'TOPIC'.padEnd(NAME_WIDTH)}DOCS  LAST        CONF  POLICY   TITLE`);
-      for (const r of rows) {
-        const name = r.name.length > NAME_WIDTH - 1 ? `${r.name.slice(0, NAME_WIDTH - 2)}…` : r.name;
-        console.log(
-          `${name.padEnd(NAME_WIDTH)}${String(r.docs).padEnd(6)}${r.last.padEnd(12)}${r.confidence.toFixed(2)}  ${r.policy.padEnd(9)}${r.title}`,
-        );
-      }
-      console.log('');
-      if (rows.some((r) => r.policy !== 'always')) {
-        console.log(
-          'Policy: once = auto-assent after the topic was reviewed (a confirm or an assent both count); ' +
-            'never = stay out of the queue. Set with `omem topic policy <topic> once`.',
-        );
-        console.log('');
-      }
+    console.log(`${'TOPIC'.padEnd(NAME_WIDTH)}PROJECT  LAST        CONF  POLICY   TITLE`);
+    for (const r of rows) {
+      const name = r.name.length > NAME_WIDTH - 1 ? `${r.name.slice(0, NAME_WIDTH - 2)}…` : r.name;
+      console.log(
+        `${name.padEnd(NAME_WIDTH)}${r.named.padEnd(9)}${r.last.padEnd(12)}${r.confidence.toFixed(2)}  ${r.policy.padEnd(9)}${r.title}`,
+      );
     }
-
-    if (withoutTopic.length > 0) {
-      console.log(`Without a topic (${withoutTopic.length}):`);
-      for (const loc of sortByCreatedDesc(withoutTopic)) {
-        const fm = loc.entry.fm;
-        console.log(`  ${fm.id}  ${fm.confidence.toFixed(2)}  ${deriveTitle(loc.entry.body, 50)}`);
-      }
-      console.log('');
-      console.log('Give one a topic by rewriting it with --topic; the old file becomes superseded.');
-      console.log('');
+    console.log('');
+    if (rows.some((r) => r.policy !== 'always')) {
+      console.log(
+        'Policy: once = auto-assent after the topic was reviewed (a confirm or an assent both count); '
+          + 'never = stay out of the queue. Set with `omem topics policy <topic> once`.',
+      );
     }
-
-    if (retiredByTopic.size > 0) {
-      console.log('Retired topics (only superseded documents left):');
-      for (const [name, loc] of [...retiredByTopic.entries()].sort()) {
-        const owner = resolveOwner(ctx.home, ctx.index, loc);
-        const where = owner
-          ? `${owner.entry.fm.topic ?? '(no topic)'}  ${owner.entry.fm.id}`
-          : '(no active successor)';
-        console.log(`  ${name.padEnd(NAME_WIDTH)}→  ${where}`);
-      }
-      console.log('');
-      console.log('Searching a retired name finds nothing unless you pass --all.');
-    }
-
     return 0;
   } finally {
     ctx.index.close();

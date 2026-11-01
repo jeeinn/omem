@@ -3,12 +3,17 @@
 // 一条记忆 = 一个文件（规格 §2.1）。
 
 export type MemoryType = 'preference' | 'fact' | 'decision' | 'experience';
-export type EntryStatus = 'active' | 'stale' | 'superseded' | 'archived';
+/** `superseded` 已随 D1-B′ 删除：更新 = 重写同一份文件，版本由 git 承担。 */
+export type EntryStatus = 'active' | 'stale' | 'archived';
 export type Profile = 'home' | 'work';
 export type EntrySource = 'rules' | 'agent' | 'llm' | 'manual';
 
 export interface Frontmatter {
-  id: string;
+  /**
+   * 身份 = 文件名（D1-B′）。**不从磁盘读、不落盘**：`parseEntry(text, path)` 由路径注入，
+   * `serializeEntry` 跳过它。这样「主题名」只有一个事实源（文件名），不存在字段与路径漂移。
+   */
+  topic: string;
   type: MemoryType;
   domain: string;
   profile: Profile;
@@ -18,8 +23,6 @@ export interface Frontmatter {
   source: EntrySource;
   session_id?: string;
   project?: string;
-  /** L1 活文档主题。同一主题同时只有一份 active。 */
-  topic?: string;
   /** 已吸收进这份活文档的会话 id。 */
   source_sessions: string[];
   /** 证据锚定原文（文档 §7.2）：从 ## user 段原样摘出，归一化只用于比对、不写进文档。 */
@@ -27,8 +30,6 @@ export interface Frontmatter {
   created: string;
   last_confirmed: string;
   confirmations: number;
-  supersedes: string[];
-  superseded_by?: string;
   tags: string[];
 }
 
@@ -37,11 +38,17 @@ export interface Entry {
   body: string;
 }
 
+/** 落盘顺序。`topic` 不在其中——它是文件名，不是字段。 */
 const FM_ORDER: (keyof Frontmatter)[] = [
-  'id', 'type', 'domain', 'profile', 'status', 'confidence', 'verified', 'source',
-  'session_id', 'project', 'topic', 'source_sessions', 'evidence', 'created', 'last_confirmed', 'confirmations',
-  'supersedes', 'superseded_by', 'tags',
+  'type', 'domain', 'profile', 'status', 'confidence', 'verified', 'source',
+  'session_id', 'project', 'source_sessions', 'evidence', 'created', 'last_confirmed', 'confirmations',
+  'tags',
 ];
+
+/** 允许序列化的键（防止 `topic` 被误写进 frontmatter——那会让身份重新变成两个）。 */
+const PERSISTED = new Set<string>(FM_ORDER);
+
+export { PERSISTED as PERSISTED_FM_KEYS };
 
 export function serializeEntry(e: Entry): string {
   const lines: string[] = ['---'];
@@ -69,7 +76,13 @@ function unescapeFmString(s: string): string {
   return s.replace(/\\(.)/g, (_m, c: string) => (c === 'n' ? '\n' : c === 'r' ? '\r' : c));
 }
 
-export function parseEntry(text: string): Entry | null {
+/**
+ * 解析一份记忆文件。
+ *
+ * `path` 不是可选的装饰：topic 是身份、只存在于文件名里，不传路径就得不到 topic。
+ * 只有纯文本场景（测试、快照比对）才允许省略，此时 `fm.topic` 为空串。
+ */
+export function parseEntry(text: string, path?: string): Entry | null {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) return null;
   const fm: Record<string, any> = {};
@@ -80,8 +93,16 @@ export function parseEntry(text: string): Entry | null {
     if (!kv) continue;
     fm[kv[1]] = parseFmValue(kv[2].trim());
   }
-  if (!fm.id || !fm.type) return null;
-  return { fm: normalizeFm(fm), body: m[2].trim() };
+  if (!fm.type) return null;
+  const entry: Entry = { fm: normalizeFm(fm), body: m[2].trim() };
+  if (path) entry.fm.topic = topicFromPath(path);
+  return entry;
+}
+
+/** 路径 → topic：`<domain>/<topic>.md` 取 basename；`.conflict.md` 归到原主题。 */
+export function topicFromPath(path: string): string {
+  const name = path.split(/[\\/]/).pop() ?? '';
+  return name.replace(/\.conflict\.md$/i, '').replace(/\.md$/i, '');
 }
 
 function parseFmValue(v: string): any {
@@ -130,17 +151,25 @@ function splitFmArray(inner: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * 磁盘字段 → Frontmatter。
+ *
+ * 两个容忍点，都是为了「旧库不会被解析成垃圾」：
+ * - `status: superseded` 映射成 `archived`（旧版的非活跃状态统一归为归档，默认不参与检索）；
+ * - 旧的 `id` / `supersedes` / `superseded_by` 字段直接丢弃（D9：不兼容，要求 re-init）。
+ */
 function normalizeFm(fm: Record<string, any>): Frontmatter {
   const str = (v: any, d = '') => (typeof v === 'string' && v ? v : d);
   const num = (v: any, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
   const arr = (v: any): string[] => (Array.isArray(v) ? v.map(String) : []);
   const type = (['preference', 'fact', 'decision', 'experience'] as const).includes(fm.type) ? fm.type : 'fact';
-  const status = (['active', 'stale', 'superseded', 'archived'] as const).includes(fm.status) ? fm.status : 'active';
+  const rawStatus = fm.status === 'superseded' ? 'archived' : fm.status;
+  const status = (['active', 'stale', 'archived'] as const).includes(rawStatus) ? rawStatus : 'active';
   const profile = fm.profile === 'work' ? 'work' : 'home';
   const source = (['rules', 'agent', 'llm', 'manual'] as const).includes(fm.source) ? fm.source : 'manual';
   const now = new Date().toISOString();
   return {
-    id: str(fm.id),
+    topic: '',
     type,
     domain: str(fm.domain, 'general'),
     profile,
@@ -150,20 +179,17 @@ function normalizeFm(fm: Record<string, any>): Frontmatter {
     source,
     session_id: fm.session_id ? String(fm.session_id) : undefined,
     project: fm.project ? String(fm.project) : undefined,
-    topic: fm.topic ? String(fm.topic) : undefined,
     source_sessions: arr(fm.source_sessions),
     evidence: arr(fm.evidence),
     created: str(fm.created, now),
     last_confirmed: str(fm.last_confirmed, str(fm.created, now)),
     confirmations: num(fm.confirmations, 0),
-    supersedes: arr(fm.supersedes),
-    superseded_by: fm.superseded_by ? String(fm.superseded_by) : undefined,
     tags: arr(fm.tags),
   };
 }
 
-/** 新建 frontmatter 的默认值（调用方覆盖）。 */
-export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter, 'id' | 'type' | 'domain'>): Frontmatter {
+/** 新建 frontmatter 的默认值（调用方覆盖）。`topic` 是必填身份。 */
+export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter, 'topic' | 'type' | 'domain'>): Frontmatter {
   const now = new Date().toISOString();
   return {
     profile: 'home',
@@ -174,7 +200,6 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
     created: now,
     last_confirmed: now,
     confirmations: 0,
-    supersedes: [],
     source_sessions: [],
     evidence: [],
     tags: [],

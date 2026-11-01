@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { OmemIndex } from '../../src/core/index.js';
-import { findById, moveToArchive, writeEntry } from '../../src/core/store.js';
+import { findByTopic, moveToArchive, writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import type { Frontmatter } from '../../src/core/entry.js';
 import { applyAssent, applyReviewDecisions, generateMemoryIndex } from '../../src/core/lifecycle.js';
@@ -25,7 +25,7 @@ function add(id: string, body: string, fm: Partial<Frontmatter> = {}): void {
 }
 
 function fmOf(id: string): Frontmatter {
-  const loc = findById(home, id, { includeArchived: true });
+  const loc = findByTopic(home, id, { includeArchived: true });
   if (!loc) throw new Error(`missing fixture ${id}`);
   return loc.entry.fm;
 }
@@ -128,12 +128,12 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
 describe('applyReviewDecisions: dismiss / stale', () => {
   it('dismiss → status=archived 且文件移入 archive/', () => {
     add('2026-10-27-iiiiii', '要归档的结论');
-    const before = findById(home, '2026-10-27-iiiiii')!;
+    const before = findByTopic(home, '2026-10-27-iiiiii')!;
 
     const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-iiiiii', action: 'dismiss' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'dismiss' });
-    const after = findById(home, '2026-10-27-iiiiii', { includeArchived: true })!;
+    const after = findByTopic(home, '2026-10-27-iiiiii', { includeArchived: true })!;
     expect(after.entry.fm.status).toBe('archived');
     expect(after.location).toBe('archive');
     expect(after.path).not.toBe(before.path);
@@ -152,12 +152,12 @@ describe('applyReviewDecisions: dismiss / stale', () => {
 
   it('stale → status=stale，文件不动', () => {
     add('2026-10-27-kkkkkk', '要冷却的');
-    const before = findById(home, '2026-10-27-kkkkkk')!;
+    const before = findByTopic(home, '2026-10-27-kkkkkk')!;
 
     const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-kkkkkk', action: 'stale' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'stale' });
-    const after = findById(home, '2026-10-27-kkkkkk')!;
+    const after = findByTopic(home, '2026-10-27-kkkkkk')!;
     expect(after.entry.fm.status).toBe('stale');
     expect(after.path).toBe(before.path);
   });

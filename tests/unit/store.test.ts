@@ -6,7 +6,7 @@ import {
   writeEntry,
   readEntryFile,
   listEntries,
-  findById,
+  findByTopic,
   updateEntry,
   moveToArchive,
   deleteEntry,
@@ -31,14 +31,14 @@ describe('store: md file CRUD', () => {
       expect(path).toBe(join(home, 'knowledge', 'coding', '2026', '2026-10-15-aaa111.md'));
       expect(existsSync(path)).toBe(true);
       const back = readEntryFile(path);
-      expect(back!.fm.id).toBe('2026-10-15-aaa111');
+      expect(back!.fm.topic).toBe('2026-10-15-aaa111');
       expect(back!.body).toBe('测试条目正文');
     } finally {
       cleanupHome(home);
     }
   });
 
-  it('listEntries / findById / archive isolation', () => {
+  it('listEntries / findByTopic / archive isolation', () => {
     const home = makeHome();
     try {
       writeEntry(home, entry('2026-10-15-aaa111'));
@@ -48,8 +48,8 @@ describe('store: md file CRUD', () => {
 
       moveToArchive(home, '2026-10-15-bbb222');
       expect(listEntries(home)).toHaveLength(1); // 归档默认不进列表
-      expect(findById(home, '2026-10-15-bbb222')).toBeNull();
-      const archived = findById(home, '2026-10-15-bbb222', { includeArchived: true });
+      expect(findByTopic(home, '2026-10-15-bbb222')).toBeNull();
+      const archived = findByTopic(home, '2026-10-15-bbb222', { includeArchived: true });
       expect(archived!.location).toBe('archive');
       expect(archived!.entry.fm.status).toBe('archived');
       expect(existsSync(join(home, 'archive', 'general', '2026', '2026-10-15-bbb222.md'))).toBe(true);

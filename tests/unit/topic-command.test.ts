@@ -52,7 +52,7 @@ describe('omem topic set', () => {
     expect(after.fm.topic).toBe('my-topic');
     expect(after.fm.confidence).toBe(0.9);
     expect(after.fm.verified).toBe(true);
-    expect(after.fm.id).toBe(id);
+    expect(after.fm.topic).toBe(id);
     expect(after.body).toBe('unchanged-body');
     expect(after.fm.supersedes).toEqual([]);
   });
