@@ -29,7 +29,7 @@ afterEach(() => {
 let seq = 0;
 
 function add(content: string, over: { confidence?: number; source?: 'llm' | 'agent' | 'manual'; topic?: string; tags?: string[] } = {}) {
-  const r = commitEntry(home, defaultConfig(), index, {
+  const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
     content,
     type: 'fact',
     source: over.source ?? 'agent',

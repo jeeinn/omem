@@ -91,7 +91,7 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     const b2 = new GitBackend(home2, { sync: { git: { remote: bare }, auto_snapshot: false } });
     const r = report();
     b2.pull(r);
-    expect(existsSync(join(home2, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
+    expect(existsSync(join(home2, 'knowledge', 'coding', '2026-10-15-e1.md'))).toBe(true);
   });
 
   it('empty remote: pull reports an explanatory note, not a red "Pull failed" (defect: first-sync UX)', () => {
@@ -139,10 +139,10 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     expect(r.conflicts.length).toBe(1);
     expect(r.conflicts[0]).toContain('2026-10-15-e1.md');
     // 本地版保留
-    const final = readFileSync(join(home2, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'), 'utf8');
+    const final = readFileSync(join(home2, 'knowledge', 'coding', '2026-10-15-e1.md'), 'utf8');
     expect(final).toContain('本地修改的内容');
     // 远端版另存
-    const conflict = readFileSync(join(home2, 'knowledge', 'coding', '2026', '2026-10-15-e1.md.conflict.md'), 'utf8');
+    const conflict = readFileSync(join(home2, 'knowledge', 'coding', '2026-10-15-e1.md.conflict.md'), 'utf8');
     expect(conflict).toContain('远端修改的内容');
   });
 
@@ -183,9 +183,9 @@ describe.runIf(hasGit)('sync: GitBackend', () => {
     b3.pull(r);
     // pull 应成功（远端条目被拉入），不相干历史的提示应出现在 notes 里
     expect(r.notes.some((n) => n.includes('no common ancestor'))).toBe(true);
-    expect(existsSync(join(home3, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
+    expect(existsSync(join(home3, 'knowledge', 'coding', '2026-10-15-e1.md'))).toBe(true);
     // 本地条目也保留
-    expect(existsSync(join(home3, 'knowledge', 'coding', '2026', '2026-10-16-e2.md'))).toBe(true);
+    expect(existsSync(join(home3, 'knowledge', 'coding', '2026-10-16-e2.md'))).toBe(true);
     rmSync(home3, { recursive: true, force: true });
   });
 

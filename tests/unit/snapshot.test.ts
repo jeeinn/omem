@@ -24,7 +24,7 @@ describe('snapshot: daily snapshot', () => {
     expect(dest).toContain(new Date().toISOString().slice(0, 10));
     expect(existsSync(join(dest, 'knowledge'))).toBe(true);
     expect(existsSync(join(dest, 'config.toml'))).toBe(true);
-    expect(existsSync(join(dest, 'knowledge', 'coding', '2026', '2026-10-15-e1.md'))).toBe(true);
+    expect(existsSync(join(dest, 'knowledge', 'coding', '2026-10-15-e1.md'))).toBe(true);
   });
 
   it('rolling retention of 7; extras pruned', () => {

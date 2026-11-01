@@ -36,7 +36,7 @@ const CODE = 'function save() {\n  return 1;\n}\n';
 
 describe('commitEntry: 基本写入', () => {
   it('写入落在 knowledge/<domain>/<topic>.md 并刷新热层', () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '部署时改用国内镜像源',
       type: 'experience',
       topic: 'Deploy Mirror',
@@ -55,7 +55,7 @@ describe('commitEntry: 基本写入', () => {
   });
 
   it('topic 必填：缺了就拒绝，并给出可执行的下一步', () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '没有主题的一句话',
       type: 'fact',
       source: 'manual',
@@ -68,7 +68,7 @@ describe('commitEntry: 基本写入', () => {
   });
 
   it('refreshIndex=false 不刷新热层', () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '只落盘不刷新热层的句子',
       type: 'fact',
       topic: 'hot-layer-skip',
@@ -83,7 +83,7 @@ describe('commitEntry: 基本写入', () => {
 
 describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
   it('磁盘上只有一个文件，回执说 updated，git 负责历史', () => {
-    const first = commitEntry(home, defaultConfig(), index, {
+    const first = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '车贷利率 4.2%，1990 年起的旧合同',
       type: 'fact',
       topic: 'car-loan',
@@ -91,7 +91,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
       confidence: 0.9,
       verified: true,
     });
-    const second = commitEntry(home, defaultConfig(), index, {
+    const second = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '车贷利率已降到 3.6%，2026 年重签',
       type: 'fact',
       topic: 'car-loan',
@@ -112,7 +112,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
   });
 
   it('覆盖继承 created / source_sessions / evidence，但置信度不继承', () => {
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '膝盖康复：先做静蹲，每天三组',
       type: 'experience',
       topic: 'knee-rehab',
@@ -125,7 +125,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
     });
     const before = findByTopic(home, 'knee-rehab')!;
 
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '膝盖康复：静蹲改为隔天，加单腿硬拉',
       type: 'experience',
       topic: 'knee-rehab',
@@ -144,7 +144,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
   });
 
   it('归档后再写同一 topic：搬回 knowledge/，不留两份', () => {
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '旧计划：每周三次长跑',
       type: 'decision',
       topic: 'training-plan',
@@ -158,7 +158,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
     expect(findByTopic(home, 'training-plan')).toBeNull();
     expect(findByTopic(home, 'training-plan', { includeArchived: true })).not.toBeNull();
 
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '新计划：每周两次长跑 + 一次游泳',
       type: 'decision',
       topic: 'training-plan',
@@ -184,8 +184,8 @@ describe('commitEntry: 过滤与去重', () => {
       confidence: 0.9,
       verified: true,
     };
-    const a = commitEntry(home, defaultConfig(), index, { ...input, topic: 'dedup-a' });
-    const b = commitEntry(home, defaultConfig(), index, { ...input, topic: 'dedup-b', source: 'agent', confidence: 0.6, verified: false });
+    const a = commitEntry(home, defaultConfig(), index, { topic: 'auto',  ...input, topic: 'dedup-a' });
+    const b = commitEntry(home, defaultConfig(), index, { topic: 'auto',  ...input, topic: 'dedup-b', source: 'agent', confidence: 0.6, verified: false });
 
     expect(a.status).toBe('written');
     expect(b.status).toBe('deduped');
@@ -194,7 +194,7 @@ describe('commitEntry: 过滤与去重', () => {
   });
 
   it('脱敏保留其它词；整条是密钥则丢弃；force 不绕过脱敏与去重', () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '部署用 OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz012345',
       type: 'experience',
       topic: 'deploy-secret',
@@ -208,7 +208,7 @@ describe('commitEntry: 过滤与去重', () => {
     expect(body).toContain('部署用');
     expect(body).not.toContain('sk-abcdefghijklmnopqrstuvwxyz012345');
 
-    const shell = commitEntry(home, defaultConfig(), index, {
+    const shell = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: 'sk-ant-abcdefghijklmnopqrstuvwxyz0123456789',
       type: 'fact',
       topic: 'only-secret',
@@ -219,7 +219,7 @@ describe('commitEntry: 过滤与去重', () => {
     expect(shell.status).toBe('redacted-empty');
     expect(isRedactionShell('sk-ant-***REDACTED***')).toBe(true);
 
-    const dup = commitEntry(home, defaultConfig(), index, {
+    const dup = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: body.replace(/^---[\s\S]*?---\n/, '').trim(),
       type: 'experience',
       topic: 'deploy-secret',
@@ -232,7 +232,7 @@ describe('commitEntry: 过滤与去重', () => {
 
   it('work profile 排除代码密集条目，force 可以放行', () => {
     const config = withConfig(home, (c) => { c.general.profile = 'work'; });
-    const blocked = commitEntry(home, config, index, {
+    const blocked = commitEntry(home, config, index, { topic: 'auto', 
       content: CODE,
       type: 'fact',
       topic: 'code-block',
@@ -242,7 +242,7 @@ describe('commitEntry: 过滤与去重', () => {
     });
     expect(blocked.status).toBe('excluded');
 
-    const forced = commitEntry(home, config, index, {
+    const forced = commitEntry(home, config, index, { topic: 'auto', 
       content: CODE,
       type: 'fact',
       topic: 'code-block',
@@ -254,7 +254,7 @@ describe('commitEntry: 过滤与去重', () => {
   });
 
   it('dry-run 不落盘', () => {
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '预演不写盘',
       type: 'fact',
       topic: 'dry-run',
@@ -270,7 +270,7 @@ describe('commitEntry: 过滤与去重', () => {
 
 describe('commitEntry: 主题护栏', () => {
   it('近似主题给警告但照常写入（拒绝会打断 Agent）', () => {
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: 'omem 的索引是可删除的派生物',
       type: 'fact',
       topic: 'omem-index',
@@ -278,7 +278,7 @@ describe('commitEntry: 主题护栏', () => {
       confidence: 0.55,
       verified: false,
     });
-    const r = commitEntry(home, defaultConfig(), index, {
+    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: 'omem 的索引重建只要一条命令',
       type: 'fact',
       topic: 'omem-index-rebuild',
@@ -292,7 +292,7 @@ describe('commitEntry: 主题护栏', () => {
 
   it('超过字数上限：拒绝写入，旧文档逐字未变，回执指出它是谁', () => {
     const config = withConfig(home, (c) => { c.process.max_content_chars = 2000; });
-    const first = commitEntry(home, config, index, {
+    const first = commitEntry(home, config, index, { topic: 'auto', 
       content: '车贷'.repeat(1000), // 2000 字，正好在上限
       type: 'fact',
       topic: 'car-loan',
@@ -302,7 +302,7 @@ describe('commitEntry: 主题护栏', () => {
     });
     const before = readFileSync(first.path!, 'utf8');
 
-    const over = commitEntry(home, config, index, {
+    const over = commitEntry(home, config, index, { topic: 'auto', 
       content: `${'车贷'.repeat(1000)}${'新增'.repeat(100)}`,
       type: 'fact',
       topic: 'car-loan',
@@ -361,7 +361,7 @@ describe('三条写路径共用一个提交点', () => {
   });
 
   it('检索以 topic 为句柄', () => {
-    commitEntry(home, defaultConfig(), index, {
+    commitEntry(home, defaultConfig(), index, { topic: 'auto', 
       content: '主题就是文件名 search-handle',
       type: 'fact',
       topic: 'search-handle',

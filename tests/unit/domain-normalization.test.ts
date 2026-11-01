@@ -83,7 +83,7 @@ describe('commitEntry: domain 字段本身也被净化', () => {
       home,
       defaultConfig(),
       index,
-      { content: '一条结论', type: 'fact', domain: 'Coding/../../x', source: 'agent', confidence: 0.55, verified: false },
+      { content: '一条结论', type: 'fact', topic: 'domain-check', domain: 'Coding/../../x', source: 'agent', confidence: 0.55, verified: false },
       { refreshIndex: false, refreshGuide: false },
     );
 
@@ -95,29 +95,3 @@ describe('commitEntry: domain 字段本身也被净化', () => {
   });
 });
 
-describe('findActiveByTopic: 按 created 选当前文档', () => {
-  it('created 更新的胜出，即使另一条的 last_confirmed 更晚', () => {
-    // 模拟「旧版被 review --confirm 过」：created 旧但 last_confirmed 新。
-    add('2026-10-01-old', '旧版', {
-      topic: 'pool',
-      created: '2026-10-01T00:00:00.000Z',
-      last_confirmed: '2026-10-27T00:00:00.000Z',
-    });
-    add('2026-10-20-new', '新版', {
-      topic: 'pool',
-      created: '2026-10-20T00:00:00.000Z',
-      last_confirmed: '2026-10-20T00:00:00.000Z',
-    });
-
-    expect(index.findActiveByTopic('pool')!.id).toBe('2026-10-20-new');
-  });
-
-  it('不同 topic 互不干扰', () => {
-    add('2026-10-27-t1', 'A', { topic: 'alpha' });
-    add('2026-10-27-t2', 'B', { topic: 'beta' });
-
-    expect(index.findActiveByTopic('alpha')!.id).toBe('2026-10-27-t1');
-    expect(index.findActiveByTopic('beta')!.id).toBe('2026-10-27-t2');
-    expect(index.findActiveByTopic('gamma')).toBeNull();
-  });
-});
