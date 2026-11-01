@@ -48,7 +48,7 @@ describe('redact --source', () => {
     const left = listEntries(home, { includeArchived: true });
     expect(left).toHaveLength(1);
     expect(left[0].entry.fm.topic).toBe(kept.id);
-    expect(index.getById(kept.id!)).not.toBeNull();
+    expect(index.getByTopic(kept.id!)).not.toBeNull();
   });
 
   it('without --yes it only previews and deletes nothing', async () => {

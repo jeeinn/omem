@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { searchEntries } from '../../src/core/search.js';
 import { writeEntry } from '../../src/core/store.js';
-import { updateEntry } from '../../src/core/store.js';
+import { updateTopic } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import { files } from '../../src/core/paths.js';
 import { makeHome, cleanupHome } from './helpers.js';

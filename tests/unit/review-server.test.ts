@@ -102,7 +102,7 @@ describe('review server: token 门禁', () => {
     const res = await fetch(`${base(server)}/api/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ decisions: [{ id: '2026-10-27-a4', action: 'confirm' }] }),
+      body: JSON.stringify({ decisions: [{ topic: '2026-10-27-a4', action: 'confirm' }] }),
     });
 
     expect(res.status).toBe(403);
@@ -167,7 +167,7 @@ describe('review server: 提交与分级落章', () => {
     const res = await fetch(`${base(server)}/api/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: server.token, decisions: [{ id: '2026-10-27-c1', action: 'confirm' }] }),
+      body: JSON.stringify({ token: server.token, decisions: [{ topic: '2026-10-27-c1', action: 'confirm' }] }),
     });
     const body = await res.json();
 
@@ -189,7 +189,7 @@ describe('review server: 提交与分级落章', () => {
       // 故意传 read:false，服务端应无视并以已阅集合为准
       body: JSON.stringify({
         token: server.token,
-        decisions: [{ id: '2026-10-27-c2', action: 'confirm', read: false }],
+        decisions: [{ topic: '2026-10-27-c2', action: 'confirm', read: false }],
       }),
     });
     const body = await res.json();
@@ -201,7 +201,7 @@ describe('review server: 提交与分级落章', () => {
   it('重复提交 → 409，且不二次写入', async () => {
     add('2026-10-27-c3', '结论', { confidence: 0.55 });
     const { server } = await start(['2026-10-27-c3']);
-    const payload = JSON.stringify({ token: server.token, decisions: [{ id: '2026-10-27-c3', action: 'confirm', read: true }] });
+    const payload = JSON.stringify({ token: server.token, decisions: [{ topic: '2026-10-27-c3', action: 'confirm', read: true }] });
 
     const first = await fetch(`${base(server)}/api/apply`, {
       method: 'POST',
@@ -226,7 +226,7 @@ describe('review server: 提交与分级落章', () => {
     const res = await fetch(`${base(server)}/api/apply`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: server.token, decisions: [{ id: '2026-10-27-c4', action: 'delete-everything' }] }),
+      body: JSON.stringify({ token: server.token, decisions: [{ topic: '2026-10-27-c4', action: 'delete-everything' }] }),
     });
 
     expect(res.status).toBe(200);

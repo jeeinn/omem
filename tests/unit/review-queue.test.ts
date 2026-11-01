@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
-import { updateEntry } from '../../src/core/store.js';
+import { updateTopic } from '../../src/core/store.js';
 import { makeHome, cleanupHome } from './helpers.js';
 import { cmdReview } from '../../src/commands/review.js';
 
@@ -26,14 +26,16 @@ afterEach(() => {
   cleanupHome(home);
 });
 
+let seq = 0;
+
 function add(content: string, over: { confidence?: number; source?: 'llm' | 'agent' | 'manual'; topic?: string; tags?: string[] } = {}) {
-  const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+  const r = commitEntry(home, defaultConfig(), index, {
     content,
     type: 'fact',
     source: over.source ?? 'agent',
     confidence: over.confidence ?? 0.55,
     verified: false,
-    topic: over.topic,
+    topic: over.topic ?? `auto-topic-${++seq}`,
     tags: over.tags,
   }, { refreshIndex: false });
   return r.topic!;
@@ -43,21 +45,21 @@ describe('omem review queue', () => {
   it('shows the 10 newest and tells you how to open one', async () => {
     for (let i = 0; i < 12; i++) add(`recent conclusion number ${i} about pools`);
     const old = add('old high confidence note that should stay out of the inbox');
-    updateEntry(home, old, (fm) => { fm.created = '2020-01-01T00:00:00.000Z'; });
+    updateTopic(home, old, (fm) => { fm.created = '2020-01-01T00:00:00.000Z'; });
     const low = add('old ungrounded note that stays in the inbox', { confidence: 0.35, tags: ['ungrounded'] });
-    updateEntry(home, low, (fm) => { fm.created = '2020-01-01T00:00:00.000Z'; });
+    updateTopic(home, low, (fm) => { fm.created = '2020-01-01T00:00:00.000Z'; });
 
     const code = await cmdReview({ _: [], flags: {} });
     const text = logs.join('\n');
     expect(code).toBe(0);
     expect(text).toContain('Pending 13 · showing 10 newest');
     expect(text).toContain('3 more.  omem review --all');
-    expect(text).toContain('Open one:  omem review <id>');
+    expect(text).toContain('Open one:  omem review <topic>');
     expect(text).not.toContain(old);
     expect(text).not.toContain('## ');
   });
 
-  it('--all lists the whole inbox and omem review <id> prints the file', async () => {
+  it('--all lists the whole inbox and omem review <topic> prints the file', async () => {
     const id = add('the full body of this living document stays on disk');
     const code = await cmdReview({ _: [id], flags: {} });
     const text = logs.join('\n');

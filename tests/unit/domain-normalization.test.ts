@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
-import { entryPath, findByTopic, updateEntry, writeEntry } from '../../src/core/store.js';
+import { entryPath, findByTopic, updateTopic, writeEntry } from '../../src/core/store.js';
 import { newFrontmatter, normalizeDomain } from '../../src/core/entry.js';
 import type { Frontmatter } from '../../src/core/entry.js';
 import { commitEntry } from '../../src/core/commit.js';
@@ -61,11 +61,11 @@ describe('entryPath: 脏 domain 不会写出知识库', () => {
     expect(path).not.toContain('..');
   });
 
-  it('updateEntry 修改成脏 domain 时文件不迁移到知识库外', () => {
+  it('updateTopic 修改成脏 domain 时文件不迁移到知识库外', () => {
     add('2026-10-27-x2', '正文');
     const before = findByTopic(home, '2026-10-27-x2')!;
 
-    const updated = updateEntry(home, '2026-10-27-x2', (fm) => {
+    const updated = updateTopic(home, '2026-10-27-x2', (fm) => {
       fm.domain = '../../escape';
     });
 

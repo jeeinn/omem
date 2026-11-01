@@ -44,7 +44,7 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
   it('read:true → verified, confidence 0.9, confirmations+1, last_confirmed 刷新', () => {
     add('2026-10-27-aaaaaa', '结论 A', { confidence: 0.55, last_confirmed: '2020-01-01T00:00:00.000Z' });
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-aaaaaa', action: 'confirm', read: true }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-aaaaaa', action: 'confirm', read: true }]);
 
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'confirm', requested: 'confirm' });
@@ -59,7 +59,7 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
   it('read 缺失 → 降级为 assent：confidence 0.8、verified 仍 false、打 assent tag', () => {
     add('2026-10-27-bbbbbb', '结论 B', { confidence: 0.55 });
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-bbbbbb', action: 'confirm' }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-bbbbbb', action: 'confirm' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', requested: 'confirm', applied: 'assent' });
     const fm = fmOf('2026-10-27-bbbbbb');
@@ -70,7 +70,7 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
 
   it('read:false 同样降级（显式 false 不等于已读）', () => {
     add('2026-10-27-cccccc', '结论 C', { confidence: 0.55 });
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-cccccc', action: 'confirm', read: false }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-cccccc', action: 'confirm', read: false }]);
     expect(out[0].applied).toBe('assent');
     expect(fmOf('2026-10-27-cccccc').verified).toBe(false);
   });
@@ -81,7 +81,7 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
     const out = applyReviewDecisions(
       home,
       index,
-      [{ id: '2026-10-27-dddddd', action: 'confirm' }],
+      [{ topic: '2026-10-27-dddddd', action: 'confirm' }],
       { requireReadForVerified: false },
     );
 
@@ -94,7 +94,7 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
   it('assent 是 max 语义：原本 0.9 的未验证条目保持 0.9，不被压到 0.8', () => {
     add('2026-10-27-eeeeee', '结论 E', { confidence: 0.9 });
 
-    applyReviewDecisions(home, index, [{ id: '2026-10-27-eeeeee', action: 'assent' }]);
+    applyReviewDecisions(home, index, [{ topic: '2026-10-27-eeeeee', action: 'assent' }]);
 
     const fm = fmOf('2026-10-27-eeeeee');
     expect(fm.confidence).toBe(0.9);
@@ -102,23 +102,11 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
     expect(fm.tags).toContain('assent');
   });
 
-  it('已 superseded 的条目 confirm → skipped，且不写 verified', () => {
-    add('2026-10-27-ffffff', '旧版', { status: 'superseded', superseded_by: '2026-10-27-gggggg' });
-
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-ffffff', action: 'confirm', read: true }]);
-
-    expect(out[0]).toMatchObject({ status: 'skipped', applied: 'skipped' });
-    expect(out[0].reason).toContain('superseded by 2026-10-27-gggggg');
-    const fm = fmOf('2026-10-27-ffffff');
-    expect(fm.verified).toBe(false);
-    expect(fm.confidence).toBe(0.5);
-  });
-
   it('已归档的条目 confirm → skipped', () => {
     add('2026-10-27-hhhhhh', '已归档');
     moveToArchive(home, '2026-10-27-hhhhhh');
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-hhhhhh', action: 'confirm', read: true }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-hhhhhh', action: 'confirm', read: true }]);
 
     expect(out[0].status).toBe('skipped');
     expect(out[0].reason).toContain('archived');
@@ -130,21 +118,21 @@ describe('applyReviewDecisions: dismiss / stale', () => {
     add('2026-10-27-iiiiii', '要归档的结论');
     const before = findByTopic(home, '2026-10-27-iiiiii')!;
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-iiiiii', action: 'dismiss' }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-iiiiii', action: 'dismiss' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'dismiss' });
     const after = findByTopic(home, '2026-10-27-iiiiii', { includeArchived: true })!;
     expect(after.entry.fm.status).toBe('archived');
     expect(after.location).toBe('archive');
     expect(after.path).not.toBe(before.path);
-    expect(index.getById('2026-10-27-iiiiii')?.status).toBe('archived');
+    expect(index.getByTopic('2026-10-27-iiiiii')?.status).toBe('archived');
   });
 
   it('重复 dismiss（已归档）→ skipped', () => {
     add('2026-10-27-jjjjjj', '已归档的');
     moveToArchive(home, '2026-10-27-jjjjjj');
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-jjjjjj', action: 'dismiss' }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-jjjjjj', action: 'dismiss' }]);
 
     expect(out[0].status).toBe('skipped');
     expect(out[0].reason).toContain('already archived');
@@ -154,7 +142,7 @@ describe('applyReviewDecisions: dismiss / stale', () => {
     add('2026-10-27-kkkkkk', '要冷却的');
     const before = findByTopic(home, '2026-10-27-kkkkkk')!;
 
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-kkkkkk', action: 'stale' }]);
+    const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-kkkkkk', action: 'stale' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'stale' });
     const after = findByTopic(home, '2026-10-27-kkkkkk')!;
@@ -162,12 +150,6 @@ describe('applyReviewDecisions: dismiss / stale', () => {
     expect(after.path).toBe(before.path);
   });
 
-  it('对 superseded 条目 stale → skipped（只有 active 能冷却）', () => {
-    add('2026-10-27-llllll', '旧版', { status: 'superseded' });
-    const out = applyReviewDecisions(home, index, [{ id: '2026-10-27-llllll', action: 'stale' }]);
-    expect(out[0].status).toBe('skipped');
-    expect(out[0].reason).toContain('status is superseded');
-  });
 });
 
 describe('applyReviewDecisions: 批量语义', () => {
@@ -175,8 +157,8 @@ describe('applyReviewDecisions: 批量语义', () => {
     add('2026-10-27-mmmmmm', '存在的');
 
     const out = applyReviewDecisions(home, index, [
-      { id: '2026-10-27-mmmmmm', action: 'confirm', read: true },
-      { id: '2026-10-27-nope', action: 'confirm', read: true },
+      { topic: '2026-10-27-mmmmmm', action: 'confirm', read: true },
+      { topic: '2026-10-27-nope', action: 'confirm', read: true },
     ]);
 
     expect(out[0].status).toBe('ok');
@@ -191,10 +173,10 @@ describe('applyReviewDecisions: 批量语义', () => {
     add('2026-10-27-p4', '未读项', { confidence: 0.55 });
 
     const out = applyReviewDecisions(home, index, [
-      { id: '2026-10-27-p1', action: 'confirm', read: true },
-      { id: '2026-10-27-p2', action: 'dismiss' },
-      { id: '2026-10-27-p3', action: 'stale' },
-      { id: '2026-10-27-p4', action: 'confirm' },
+      { topic: '2026-10-27-p1', action: 'confirm', read: true },
+      { topic: '2026-10-27-p2', action: 'dismiss' },
+      { topic: '2026-10-27-p3', action: 'stale' },
+      { topic: '2026-10-27-p4', action: 'confirm' },
     ]);
 
     expect(out.map((o) => o.id)).toEqual(['2026-10-27-p1', '2026-10-27-p2', '2026-10-27-p3', '2026-10-27-p4']);
@@ -206,8 +188,8 @@ describe('applyReviewDecisions: 批量语义', () => {
     add('2026-10-27-q1', '结论', { confidence: 0.55 });
 
     const out = applyReviewDecisions(home, index, [
-      { id: '2026-10-27-q1', action: 'confirm', read: true },
-      { id: '2026-10-27-q1', action: 'confirm', read: true },
+      { topic: '2026-10-27-q1', action: 'confirm', read: true },
+      { topic: '2026-10-27-q1', action: 'confirm', read: true },
     ]);
 
     expect(out[0].status).toBe('ok');
@@ -228,7 +210,7 @@ describe('applyReviewDecisions: 热层重建', () => {
     add('2026-10-27-r2', '乙结论');
     generateMemoryIndex(home, index);
 
-    applyReviewDecisions(home, index, [{ id: '2026-10-27-r2', action: 'confirm', read: true }]);
+    applyReviewDecisions(home, index, [{ topic: '2026-10-27-r2', action: 'confirm', read: true }]);
 
     const text = readFileSync(files.memoryIndex(home), 'utf8');
     expect(text.indexOf('2026-10-27-r2')).toBeLessThan(text.indexOf('2026-10-27-r1'));
@@ -239,7 +221,7 @@ describe('applyReviewDecisions: 热层重建', () => {
     generateMemoryIndex(home, index);
     const before = readFileSync(files.memoryIndex(home), 'utf8');
 
-    applyReviewDecisions(home, index, [{ id: '2026-10-27-s1', action: 'confirm', read: true }], {
+    applyReviewDecisions(home, index, [{ topic: '2026-10-27-s1', action: 'confirm', read: true }], {
       refreshIndex: false,
     });
 

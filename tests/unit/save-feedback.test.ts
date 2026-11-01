@@ -155,12 +155,12 @@ describe('save_memory: dry_run 的「不落盘」承诺', () => {
   it('dry_run 带着 confirm_ids 只预告，不动既有条目的置信度', async () => {
     const first = await handleTool('save_memory', { content: '待预演的正文 theta' }, ctx);
     const id = (first.structuredContent as any).id as string;
-    const before = index.getById(id)!.confidence;
+    const before = index.getByTopic(id)!.confidence;
     const r = await handleTool('save_memory', { content: '预演的新正文 iota', dry_run: true, confirm_ids: [id] }, ctx);
     const text = textOf(r);
     expect(text).toContain('[dry-run] Would record assent');
     expect(text).not.toContain('Assent recorded');
-    expect(index.getById(id)!.confidence).toBe(before);
+    expect(index.getByTopic(id)!.confidence).toBe(before);
     expect((r.structuredContent as any).confirmed).toBeUndefined();
     expect((r.structuredContent as any).dry_run).toBe(true);
     // 预演同样不该把正文写进库
@@ -172,7 +172,7 @@ describe('save_memory: dry_run 的「不落盘」承诺', () => {
     const id = (first.structuredContent as any).id as string;
     const r = await handleTool('save_memory', { confirm_ids: [id] }, ctx);
     expect(textOf(r)).toContain('Assent recorded');
-    expect(index.getById(id)!.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(index.getByTopic(id)!.confidence).toBeGreaterThanOrEqual(0.8);
     expect((r.structuredContent as any).confirmed).toEqual([id]);
   });
 });

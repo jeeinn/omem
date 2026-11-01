@@ -88,7 +88,7 @@ describe('omem topic set', () => {
 
     await cmdTopic({ _: ['set', id, 'indexed-topic'], flags: {} });
     expect(index.activeTopics()).toContain('indexed-topic');
-    const row = index.getById(id);
+    const row = index.getByTopic(id);
     expect(row?.topic).toBe('indexed-topic');
   });
 

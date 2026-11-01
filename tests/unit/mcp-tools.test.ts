@@ -330,7 +330,7 @@ describe('mcp: handleTool', () => {
     index.upsert(e, path, content);
     const r = await handleTool('memory_feedback', { id: '2026-10-15-e1', helpful: true }, ctx);
     expect(textOf(r)).toContain('confirmation refresh');
-    expect(index.getById('2026-10-15-e1')!.verified).toBe(1);
+    expect(index.getByTopic('2026-10-15-e1')!.verified).toBe(1);
   });
 
   it('memory_feedback unknown id errors', async () => {
