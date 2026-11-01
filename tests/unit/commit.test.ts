@@ -6,7 +6,7 @@
 //   - 覆盖时继承 created / source_sessions / evidence，但置信度由本次写入决定
 //   - topic 缺失 = 拒绝（不静默生成一个名字）
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry, isRedactionShell } from '../../src/core/commit.js';
@@ -109,6 +109,20 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
     const body = readFileSync(second.path!, 'utf8');
     expect(body).toContain('3.6%');
     expect(body).not.toContain('4.2%');
+  });
+
+  it('覆盖前留下快照（A-3 护栏）：AI 整篇重写时可回退', () => {
+    const snapDir = join(home, 'snapshots');
+    commitEntry(home, defaultConfig(), index, {
+      content: 'v1 正文', type: 'fact', topic: 'snap-topic', source: 'agent', confidence: 0.55, verified: false,
+    });
+    // 首次写入不产生快照（没有旧内容可保护）
+    expect(existsSync(snapDir) ? readdirSync(snapDir).length : 0).toBe(0);
+
+    commitEntry(home, defaultConfig(), index, {
+      content: 'v2 正文（覆盖）', type: 'fact', topic: 'snap-topic', source: 'agent', confidence: 0.55, verified: false,
+    });
+    expect(readdirSync(snapDir).length).toBeGreaterThan(0);
   });
 
   it('覆盖继承 created / source_sessions / evidence，但置信度不继承', () => {

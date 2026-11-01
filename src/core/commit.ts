@@ -17,6 +17,7 @@ import { appendLog } from './log.js';
 import { inferDomain } from '../process/rules.js';
 import { refreshProcessGuide } from '../process/guide.js';
 import { commitLocal } from '../sync/git.js';
+import { runSnapshot } from './snapshot.js';
 
 export interface CommitInput {
   content: string;
@@ -397,6 +398,15 @@ export function commitEntry(
     }),
     body: text,
   };
+  // 覆盖既有活文档前打一个快照（A-3 / M2 护栏）：AI 整篇重写是本模型的主要风险，
+  // git 是最终退路，但快照更便宜也更容易被人翻出来。打不出来不该让写失败——记忆已经准备好了。
+  if (existingFm) {
+    try {
+      runSnapshot(home);
+    } catch (err) {
+      appendLog(home, 'commit', { status: 'snapshot-failed', topic, error: (err as Error).message });
+    }
+  }
   const written = writeEntry(home, entry);
   // 路径变了（归档主题被重写搬回 knowledge/，或 domain 显式改过）：删旧文件，
   // 否则同一 topic 会在磁盘上留下两份，"一个主题一份活文档"就不成立了。
