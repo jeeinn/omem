@@ -6,7 +6,7 @@ export async function cmdRebuild(): Promise<number> {
   const { home, index } = openCtx();
   const total = index.rebuild();
   const idx = generateMemoryIndex(home, index);
-  console.log(`Index fully rebuilt: ${total} entries (index/omem.db)`);
+  console.log(`Index fully rebuilt: ${total} entries (in-memory index, derived from markdown)`);
   console.log(`MEMORY-INDEX.md regenerated: ${idx.lines} lines / ${idx.total} active entries`);
   return 0;
 }

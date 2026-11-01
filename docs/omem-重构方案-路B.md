@@ -305,7 +305,7 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | A-4 | 取消 `verified` + 置信度五档固化 | 待做 |
 | A-5 | MCP/CLI 合同同步（topic 必填、删 `supersedes`/`confirm_ids`、`redact --topic`） | 待做 |
 | A-6 | `PROCESS.md` 拆 Project / Topic 两段 | 待做 |
-| B | 去 SQLite：内存派生索引 + 分层对账 + golden 搜索断言 | 待做 |
+| B | 去 SQLite：内存派生索引 + 确定性排序 + golden 搜索断言 | ✅ 代码完成（会话按需构建，全量 70/70） |
 | C | CLI 13 条收敛与文档/测试全面对齐 | 待做 |
 | D | `init --force` 前置快照 + `scripts/` 一次性搬迁脚本 | 待做 |
 

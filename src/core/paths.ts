@@ -24,7 +24,6 @@ export const dirs = {
 
 export const files = {
   config: (h: string) => join(h, 'config.toml'),
-  db: (h: string) => join(h, 'index', 'omem.db'),
   memoryIndex: (h: string) => join(h, 'MEMORY-INDEX.md'),
   processGuide: (h: string) => join(h, 'PROCESS.md'),
   /** 判定为无沉淀价值的会话台账（omem skip 命令写入）；这些会话不再进待吸收清单。 */

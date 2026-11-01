@@ -45,7 +45,7 @@ describe('findTopicIndexed', () => {
   it('索引里没有该条目时回落全库扫描（手工新增的 md 也能找到）', () => {
     add('2026-10-27-a2');
     // 模拟「索引陈旧」：清掉索引行，文件仍在磁盘
-    index.db.prepare('DELETE FROM entries WHERE topic = ?').run('2026-10-27-a2');
+    index.remove('2026-10-27-a2');
 
     const loc = findTopicIndexed(home, index, '2026-10-27-a2', { includeArchived: true });
 

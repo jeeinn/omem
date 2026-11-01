@@ -201,13 +201,13 @@ describe('mcp: handleTool', () => {
     expect(textOf(r2)).toContain('nothing was written again');
     // 库里按 content-hash 只有一条
     expect(index.getByBodyHash(contentHash('探针唯一内容 probe-unique-xyz'))).not.toBeNull();
-    const rows = index.db.prepare('SELECT topic FROM entries').all() as unknown as { topic: string }[];
+    const rows = index.rows().map((r) => ({ topic: r.row.topic }));
     expect(rows).toHaveLength(1);
   });
 
   it('save_memory lands as a verified:false candidate', async () => {
     await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的候选条目' }, ctx);
-    const rows = index.db.prepare('SELECT verified FROM entries').all() as unknown as { verified: number }[];
+    const rows = index.rows().map((r) => ({ verified: r.row.verified }));
     expect(rows).toHaveLength(1);
     expect(rows[0].verified).toBe(0);
   });
@@ -221,7 +221,7 @@ describe('mcp: handleTool', () => {
     expect(text).toContain('Over-cap preview (not written)');
     expect(text).toContain('Options: (a) tighten the body');
     // 半截事实落盘数 = 0：一条都没写
-    const rows = index.db.prepare('SELECT topic FROM entries').all();
+    const rows = index.rows().map((r) => ({ topic: r.row.topic }));
     expect(rows).toHaveLength(0);
     expect(listEntries(home)).toHaveLength(0);
     expect((r.structuredContent as any).status).toBe('excluded');
@@ -244,13 +244,13 @@ describe('mcp: handleTool', () => {
     const text = textOf(r);
     expect(text).toContain('[dry-run] excluded');
     expect(text).toContain('Not written: content is 2,100 characters');
-    expect(index.db.prepare('SELECT topic FROM entries').all()).toHaveLength(0);
+    expect(index.rows().map((r) => ({ topic: r.row.topic }))).toHaveLength(0);
   });
 
   it('save_memory redacts secrets', async () => {
     const r = await handleTool('save_memory', { topic: 'auto-topic', content: '注意 key 是 sk-ant-abc123def456ghi789jkl012mno345pqr678' }, ctx);
     expect(textOf(r)).toContain('Saved');
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     expect(readFileSync(row.path, 'utf8')).not.toContain('abc123def456');
   });
 
@@ -283,7 +283,7 @@ describe('mcp: handleTool', () => {
       topic: 'a-topic',
       session_id: sessId,
     }, ctx);
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     const entry = readEntryFile(row.path)!;
     expect(entry.fm.project).toBe('proj-inferred');
   });
@@ -316,7 +316,7 @@ describe('mcp: handleTool', () => {
       session_id: sessId,
       project: 'proj-explicit',
     }, ctx);
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     const entry = readEntryFile(row.path)!;
     expect(entry.fm.project).toBe('proj-explicit');
   });
@@ -391,7 +391,7 @@ describe('mcp: handleTool', () => {
     // Corroboration from pre-existing session D boosts confidence
     expect(text).toMatch(/confidence 0\.[6-9]/);
 
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     const entry = readEntryFile(row.path)!;
     // Additional source sessions tracked
     expect(entry.fm.source_sessions).toContain(sessB);
@@ -404,7 +404,7 @@ describe('mcp: handleTool', () => {
 
   it('save_memory keeps an empty evidence array when none provided', async () => {
     await handleTool('save_memory', { topic: 'auto-topic', content: '无证据条目案例' }, ctx);
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     const entry = readEntryFile(row.path)!;
     expect(Array.isArray(entry.fm.evidence)).toBe(true);
     expect((entry.fm.evidence as unknown[])).toHaveLength(0);
@@ -412,7 +412,7 @@ describe('mcp: handleTool', () => {
 
   it('catch-up before tool calls sees external edits', async () => {
     await handleTool('save_memory', { topic: 'auto-topic', content: '外部编辑前的正文 catchup-base' }, ctx);
-    const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
+    const row = ({ path: index.rows()[0]?.row.path });
     appendFileSync(row.path, '\n外部追加 catchup-probe-marker-77\n');
     prepareToolCall(home, index);
     const r = await handleTool('search_memory', { query: 'catchup-probe-marker-77' }, ctx);

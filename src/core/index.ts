@@ -1,21 +1,18 @@
-// 索引层：SQLite + FTS5 trigram（规格 §2.3；评估 4.4 决策 1/4）。
-// 原则：md 权威，索引是缓存——任何时刻删掉 omem.db 都能 rebuild 完整恢复。
-// 一致性协议：条目存 content-hash + (size, mtime)；catch-up 对账外部编辑（Obsidian 改了文件）。
-import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { dirs, files } from './paths.js';
+// 索引层（B 阶段：内存派生索引，无 SQLite；规格 §2.3 / 重构方案 §12）。
+// 原则：md 权威，索引是派生——进程启动时按需解析，删掉进程即"删掉索引"。
+// 一致性协议：活文档每次对账看 (size, mtime)；会话只在需要时构建（见 ensureSessions）。
+// 检索不建倒排：语料量级下暴力子串匹配是 1–2ms（实测见方案 §12），别手写搜索引擎。
+import { readFileSync, statSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { Entry } from './entry.js';
-import { parseEntry, deriveTitle, deriveSummary } from './entry.js';
-import { sha256hex, contentHash } from './util.js';
+import { deriveSummary, deriveTitle, parseEntry } from './entry.js';
+import { contentHash, sha256hex } from './util.js';
 import { allEntryFiles } from './store.js';
-import { listStoredSessionFiles, readStoredSession } from '../collect/session-store.js';
+import { evidenceUserText, listStoredSessionFiles, readStoredSession } from '../collect/session-store.js';
 
-/** 条目表结构版本（见 ensureEntriesSchema）。 */
-const SCHEMA_VERSION = '2';
-
+/** 检索与回执共用的行形状。字段与历史 SQLite 表列保持一致，调用方无需改动。 */
 export interface EntryRow {
-  /** 身份 = topic（D1-B′）。列名与字段名统一为 topic，不再有 id。 */
+  /** 身份 = topic（D1-B′）。 */
   topic: string;
   path: string;
   hash: string;
@@ -38,20 +35,17 @@ export interface EntryRow {
   summary: string;
   size: number;
   mtime_ms: number;
-  /**
-   * 检索时由 SQL 附带的 bm25 分值（越负越相关）。只有 FTS 主路径有，LIKE 兜底路径为 null。
-   * 不落表，只存在于查询结果行上——给调用方判断「这条是强命中还是勉强命中」。
-   */
+  /** 命中词数（仅查询结果上有）。越大越相关。 */
   rank?: number | null;
 }
 
 export interface SessionRecord {
-  /** 主键，形如 `agent:sessionId`。 */
+  /** 形如 `agent:sessionId`。 */
   session_id: string;
   agent: string;
   path: string;
   content_hash: string;
-  /** API 档加工状态镜像（文档 §3.5）；事实源是 session 文件 frontmatter，这里只是加速读取。 */
+  /** API 档加工状态镜像（文档 §3.5）；事实源是 session 文件 frontmatter。 */
   api_state?: string | null;
   project_fp: string;
   msg_count: number;
@@ -59,415 +53,281 @@ export interface SessionRecord {
   processed_at: string;
 }
 
-/**
- * SQLITE_BUSY 的可读化与重试（beta.9.1 / P0-3）。
- *
- * 现场：3 个进程并发写同一个数据仓，2 个在 `openCtx → catchUp → putSession` 抛
- * `SQLITE_ERROR: database is locked` 未捕获、进程直接退出，6 次写入只落地 2 次。
- * 「多个客户端共享同一记忆库」是产品承诺，所以这里做两件事：
- *   1. 连接上设 `PRAGMA busy_timeout`（默认 5000ms）——SQLite 自己会等锁，而不是立刻报错；
- *   2. 剩余仍报 BUSY 的场景做有限次退避重试；再失败则抛可读错误（调用方按 exit 2 / isError 呈现），
- *      绝不把裸栈扔给用户。
- * 不做「加锁文件把客户端串行化」：那会让第二个客户端卡死，而 SQLite 本身已经有锁。
- */
-export function isSqliteBusy(err: unknown): boolean {
-  const msg = String((err as { message?: unknown })?.message ?? err ?? '');
-  return /SQLITE_BUSY|database is locked|database table is locked/i.test(msg);
+interface EntrySlot {
+  row: EntryRow;
+  /** 小写正文，检索直接扫它，避免每次查询重新 toLowerCase。 */
+  lower: string;
 }
 
-/** 有限次退避重试；只对 BUSY 重试，其它错误原样抛。 */
-export function withBusyRetry<T>(fn: () => T, attempts = 4): T {
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return fn();
-    } catch (err) {
-      if (!isSqliteBusy(err)) throw err;
-      lastErr = err;
-      const wait = 25 * 2 ** i;
-      const until = Date.now() + wait;
-      while (Date.now() < until) { /* 同步退避：CLI/MCP 路径都是同步 IO，不引定时器 */ }
-    }
-  }
-  throw lastErr;
+interface SessionSlot {
+  rec: SessionRecord;
+  /** 只留 `## user` 段的小写文本：assistant 段不能当证据，也不该被检索到。 */
+  lowerUserText: string;
+}
+
+/** topic 来自文件名（D1-B′）：frontmatter 不落 topic，identity 由路径承载。 */
+function topicOf(path: string): string {
+  return basename(path).replace(/\.md$/, '');
 }
 
 export class OmemIndex {
-  readonly db: DatabaseSync;
-  /** 连接级的锁等待上限（毫秒）。由 `[process] busy_timeout_ms` 决定，默认 5000。 */
-  readonly busyTimeoutMs: number;
+  private readonly entries = new Map<string, EntrySlot>();
+  private readonly sessions = new Map<string, SessionSlot>();
+  private sessionsLoaded = false;
+  private readonly meta = new Map<string, string>();
+  private snap = new Map<string, string>();
 
-  constructor(readonly home: string, opts: { busyTimeoutMs?: number } = {}) {
-    mkdirSync(dirs.index(home), { recursive: true });
-    this.db = new DatabaseSync(files.db(home));
-    this.busyTimeoutMs = Number.isFinite(opts.busyTimeoutMs) && (opts.busyTimeoutMs ?? 0) > 0
-      ? Math.floor(opts.busyTimeoutMs as number)
-      : 5000;
-    // WAL 让读不阻塞写；busy_timeout 让并发写在锁上等待而不是立刻 SQLITE_BUSY。
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec(`PRAGMA busy_timeout = ${this.busyTimeoutMs};`);
-    this.initSchema();
+  constructor(readonly home: string, _opts: { busyTimeoutMs?: number } = {}) {
+    this.loadEntries();
   }
 
-  private initSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      );
-      CREATE TABLE IF NOT EXISTS sessions (
-        session_id TEXT PRIMARY KEY,
-        project_fp TEXT,
-        msg_count INTEGER,
-        last_ts TEXT,
-        processed_at TEXT
-      );
-      CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5(
-        session_key UNINDEXED, content, tokenize='trigram'
-      );
-    `);
-    this.ensureEntriesSchema();
-    this.addColumn('sessions', 'agent', 'TEXT');
-    this.addColumn('sessions', 'path', 'TEXT');
-    this.addColumn('sessions', 'content_hash', 'TEXT');
-    this.addColumn('sessions', 'api_state', 'TEXT');
-  }
+  // ── 条目 ──
 
-  /**
-   * 条目表结构版本。
-   *
-   * D1-B′ 把主键从 `id` 换成 `topic`，`CREATE TABLE IF NOT EXISTS` 不会迁移旧库——
-   * 旧库读出来会是一堆空列。这里显式比对版本并**重建条目表**（md 是真相源，重建无损）。
-   * D9 已定不兼容，所以不做逐列迁移；这一步的代价只是下次 `catchUp` 全量解析一遍。
-   */
-  private ensureEntriesSchema(): void {
-    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as
-      | { value: string }
-      | undefined;
-    if (row?.value !== SCHEMA_VERSION) {
-      this.db.exec('DROP TABLE IF EXISTS entries; DROP TABLE IF EXISTS entries_fts;');
-      this.db
-        .prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run(SCHEMA_VERSION);
+  private loadEntries(): void {
+    this.entries.clear();
+    this.snap.clear();
+    const { knowledge, archive } = allEntryFiles(this.home);
+    for (const path of [...knowledge, ...archive]) {
+      this.indexFile(path, { force: true });
     }
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS entries (
-        topic TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        hash TEXT NOT NULL,
-        body_hash TEXT NOT NULL DEFAULT '',
-        domain TEXT NOT NULL,
-        type TEXT NOT NULL,
-        profile TEXT NOT NULL,
-        status TEXT NOT NULL,
-        source TEXT NOT NULL,
-        confidence REAL NOT NULL,
-        verified INTEGER NOT NULL,
-        session_id TEXT,
-        project TEXT,
-        source_sessions TEXT,
-        created TEXT NOT NULL,
-        last_confirmed TEXT NOT NULL,
-        confirmations INTEGER NOT NULL,
-        tags TEXT NOT NULL DEFAULT '',
-        title TEXT NOT NULL DEFAULT '',
-        summary TEXT NOT NULL DEFAULT '',
-        size INTEGER NOT NULL DEFAULT 0,
-        mtime_ms INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-        topic UNINDEXED, title, content, tags, tokenize='trigram'
-      );
-    `);
   }
 
-  private addColumn(table: string, name: string, decl: string): void {
-    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === name)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
-  }
-
-  // ── 条目读写 ──
-
-  upsert(entry: Entry, path: string, content: string): void {
-    // 并发写入时 SQLITE_BUSY 不该让一次已经落盘的记忆变成失败：退避重试有限次。
-    return withBusyRetry(() => this.upsertInner(entry, path, content));
-  }
-
-  private upsertInner(entry: Entry, path: string, content: string): void {
-    const fm = entry.fm;
-    // hash = 文件内容哈希（一致性协议：catch-up 检出外部编辑）
-    // body_hash = 归一化正文 content-hash（幂等去重：add/save/pipeline 三处共用）
-    const hash = sha256hex(content).slice(0, 32);
-    const bodyHash = contentHash(entry.body);
-    const title = deriveTitle(entry.body);
-    const summary = deriveSummary(entry.body);
+  /** 读一个文件并（重新）登记；返回是否发生了变更。 */
+  private indexFile(path: string, opts: { force?: boolean } = {}): boolean {
+    let text: string;
     let size = 0;
     let mtime = 0;
     try {
+      text = readFileSync(path, 'utf8');
       const st = statSync(path);
       size = st.size;
       mtime = st.mtimeMs;
-    } catch { /* 文件尚未落盘的极端情况 */ }
-    this.db.prepare('DELETE FROM entries WHERE topic = ?').run(fm.topic);
-    this.db.prepare(`INSERT INTO entries
-      (topic,path,hash,body_hash,domain,type,profile,status,source,confidence,verified,session_id,project,source_sessions,created,last_confirmed,confirmations,tags,title,summary,size,mtime_ms)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      fm.topic, path, hash, bodyHash, fm.domain, fm.type, fm.profile, fm.status, fm.source,
-      fm.confidence, fm.verified ? 1 : 0, fm.session_id ?? null, fm.project ?? null,
-      JSON.stringify(fm.source_sessions ?? []),
-      fm.created, fm.last_confirmed, fm.confirmations, fm.tags.join(' '),
-      title, summary, size, mtime,
-    );
-    this.db.prepare('DELETE FROM entries_fts WHERE topic = ?').run(fm.topic);
-    this.db.prepare('INSERT INTO entries_fts (topic, title, content, tags) VALUES (?,?,?,?)').run(
-      fm.topic, title, entry.body, fm.tags.join(' '),
-    );
+    } catch {
+      return false;
+    }
+    const entry = parseEntry(text);
+    if (!entry) return false;
+    const topic = topicOf(path);
+    const prev = this.entries.get(topic);
+    const sig = `${size}:${mtime}`;
+    if (!opts.force && prev && this.snap.get(topic) === sig && prev.row.path === path) return false;
+    entry.fm.topic = topic;
+    const fm = entry.fm;
+    this.entries.set(topic, {
+      row: {
+        topic,
+        path,
+        hash: sha256hex(text).slice(0, 32),
+        body_hash: contentHash(entry.body),
+        domain: fm.domain,
+        type: fm.type,
+        profile: fm.profile,
+        status: fm.status,
+        source: fm.source,
+        confidence: fm.confidence,
+        verified: fm.verified ? 1 : 0,
+        session_id: fm.session_id ?? null,
+        project: fm.project ?? null,
+        source_sessions: JSON.stringify(fm.source_sessions ?? []),
+        created: fm.created,
+        last_confirmed: fm.last_confirmed,
+        confirmations: fm.confirmations,
+        tags: fm.tags.join(' '),
+        title: deriveTitle(entry.body),
+        summary: deriveSummary(entry.body),
+        size,
+        mtime_ms: mtime,
+      },
+      lower: entry.body.toLowerCase(),
+    });
+    this.snap.set(topic, sig);
+    return true;
+  }
+
+  upsert(entry: Entry, path: string, _content: string): void {
+    this.indexFile(path, { force: true });
   }
 
   remove(topic: string): void {
-    this.db.prepare('DELETE FROM entries WHERE topic = ?').run(topic);
-    this.db.prepare('DELETE FROM entries_fts WHERE topic = ?').run(topic);
+    this.entries.delete(topic);
+    this.snap.delete(topic);
   }
 
   getByTopic(topic: string): EntryRow | null {
-    return (this.db.prepare('SELECT * FROM entries WHERE topic = ?').get(topic) as unknown as EntryRow) ?? null;
+    return this.entries.get(topic)?.row ?? null;
+  }
+
+  findActiveByTopic(topic: string): EntryRow | null {
+    const row = this.entries.get(topic)?.row;
+    return row && row.status === 'active' ? row : null;
   }
 
   getByHash(hash: string): EntryRow | null {
-    return (this.db.prepare('SELECT * FROM entries WHERE hash = ?').get(hash) as unknown as EntryRow) ?? null;
+    for (const slot of this.entries.values()) if (slot.row.hash === hash) return slot.row;
+    return null;
   }
 
-  /** 按归一化正文 content-hash 查重（规格 §8 save_memory 幂等）。 */
   getByBodyHash(hash: string): EntryRow | null {
-    return (this.db.prepare('SELECT * FROM entries WHERE body_hash = ?').get(hash) as unknown as EntryRow) ?? null;
+    for (const slot of this.entries.values()) if (slot.row.body_hash === hash) return slot.row;
+    return null;
   }
 
-  /** 该主题当前的 active 活文档。多条时取最近确认的一份。 */
-  /** 全部 active 主题名。用于写入时的近似重复检测（不需要打开任何 md 文件）。 */
   activeTopics(): string[] {
-    return (this.db.prepare(
-      "SELECT DISTINCT topic FROM entries WHERE status = 'active' AND topic IS NOT NULL AND topic != ''",
-    ).all() as { topic: string }[]).map((r) => r.topic);
-  }
-
-  /** 按 topic 取文件路径（单次 SQL）。未索引时返回 null，调用方应回落到目录查找。 */
-  pathByTopic(topic: string): string | null {
-    const row = this.db.prepare('SELECT path FROM entries WHERE topic = ?').get(topic) as { path: string } | undefined;
-    return row?.path ?? null;
-  }
-
-  /** 该主题是否被人工审过（任一版本有 confirmations > 0）。供 `once` 策略判定。 */
-  topicReviewedBefore(topic: string): boolean {
-    const row = this.db.prepare(
-      'SELECT COUNT(*) AS n FROM entries WHERE topic = ? AND confirmations > 0',
-    ).get(topic) as { n: number } | undefined;
-    return (row?.n ?? 0) > 0;
-  }
-
-  /** 该主题当前的活文档。D1-B′ 之后同 topic 只有一份文件，这里至多命中一行。 */
-  findActiveByTopic(topic: string): EntryRow | null {
-    return (this.db.prepare(
-      "SELECT * FROM entries WHERE topic = ? AND status = 'active' ORDER BY created DESC LIMIT 1",
-    ).get(topic) as unknown as EntryRow) ?? null;
-  }
-
-  private touchMeta(topic: string, size: number, mtime: number): void {
-    this.db.prepare('UPDATE entries SET size = ?, mtime_ms = ? WHERE topic = ?').run(size, mtime, topic);
+    return [...this.entries.values()].filter((s) => s.row.status === 'active').map((s) => s.row.topic);
   }
 
   allTopics(): string[] {
-    return (this.db.prepare('SELECT topic FROM entries').all() as { topic: string }[]).map((r) => r.topic);
+    return [...this.entries.keys()];
+  }
+
+  pathByTopic(topic: string): string | null {
+    return this.entries.get(topic)?.row.path ?? null;
+  }
+
+  /** 该主题是否被人工过目过（confirmations > 0）。供 `once` 策略判定。 */
+  topicReviewedBefore(topic: string): boolean {
+    return (this.entries.get(topic)?.row.confirmations ?? 0) > 0;
+  }
+
+  countByStatus(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const { row } of this.entries.values()) out[row.status] = (out[row.status] ?? 0) + 1;
+    return out;
+  }
+
+  /** 供检索层遍历：行 + 小写正文。 */
+  rows(): { row: EntryRow; lower: string }[] {
+    return [...this.entries.values()];
   }
 
   // ── 一致性：catch-up / rebuild ──
 
-  /** connect-time catch-up（规格 §2.3）：(size, mtime) 快路径 + content-hash 慢路径。 */
+  /** 对账：活文档按 (size, mtime) 快路径；文件消失则移除；会话按需重建。 */
   catchUp(): { scanned: number; reindexed: number; removed: number } {
-    // 现场（QA P0-3）：三个进程并发写，两个在 catchUp → putSession 上抛 SQLITE_BUSY 直接退进程。
-    // 对账是幂等的，重试安全。
-    return withBusyRetry(() => this.catchUpInner());
-  }
-
-  private catchUpInner(): { scanned: number; reindexed: number; removed: number } {
-    let scanned = 0;
-    let reindexed = 0;
-    let removed = 0;
-    const seen = new Set<string>();
     const { knowledge, archive } = allEntryFiles(this.home);
+    const seen = new Set<string>();
+    let reindexed = 0;
+    let scanned = 0;
     for (const path of [...knowledge, ...archive]) {
-      let text: string;
-      try {
-        text = readFileSync(path, 'utf8');
-      } catch {
-        continue;
-      }
-      const entry = parseEntry(text, path);
-      if (!entry) continue;
+      const topic = topicOf(path);
       scanned++;
-      seen.add(entry.fm.topic);
-      const st = statSync(path);
-      const row = this.getByTopic(entry.fm.topic);
-      if (row && row.size === st.size && row.mtime_ms === st.mtimeMs) continue; // 快路径：未变
-      const hash = sha256hex(text).slice(0, 32);
-      if (row && row.hash === hash) {
-        this.touchMeta(entry.fm.topic, st.size, st.mtimeMs); // 内容未变只更新时间戳
-        continue;
-      }
-      this.upsert(entry, path, text);
-      reindexed++;
+      seen.add(topic);
+      if (this.indexFile(path)) reindexed++;
     }
-    for (const topic of this.allTopics()) {
+    let removed = 0;
+    for (const topic of [...this.entries.keys()]) {
       if (!seen.has(topic)) {
         this.remove(topic);
         removed++;
       }
     }
-    this.catchUpSessions();
+    if (this.sessionsLoaded) this.reindexSessions();
     return { scanned, reindexed, removed };
   }
 
-  /** 全量重建（omem rebuild）：删 db 也能恢复的保证落地。 */
+  /** 全量重载（omem verify）：md 是真相源，重建永远无损。 */
   rebuild(): number {
-    this.db.exec('DROP TABLE IF EXISTS entries; DROP TABLE IF EXISTS entries_fts;');
-    this.initSchema();
-    let total = 0;
-    const { knowledge, archive } = allEntryFiles(this.home);
-    for (const path of [...knowledge, ...archive]) {
-      let text: string;
-      try {
-        text = readFileSync(path, 'utf8');
-      } catch {
-        continue;
-      }
-      const entry = parseEntry(text, path);
-      if (!entry) continue;
-      this.upsert(entry, path, text);
-      total++;
-    }
-    this.rebuildSessions();
+    this.loadEntries();
+    this.sessions.clear();
+    this.sessionsLoaded = false;
     this.setMeta('last_rebuild', new Date().toISOString());
-    return total;
+    return this.entries.size;
   }
 
-  // ── meta / sessions ──
+  // ── meta ──
 
   getMeta(key: string): string | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | null;
-    return row?.value ?? null;
+    return this.meta.get(key) ?? null;
   }
 
   setMeta(key: string, value: string): void {
-    this.db.prepare('INSERT INTO meta (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+    this.meta.set(key, value);
   }
 
-  getSession(sessionId: string): SessionRecord | null {
-    return (this.db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(sessionId) as unknown as SessionRecord) ?? null;
+  // ── 会话（按需构建：活文档检索用不到它们） ──
+
+  private ensureSessions(): void {
+    if (this.sessionsLoaded) return;
+    this.reindexSessions();
+    this.sessionsLoaded = true;
   }
 
-  listSessions(): SessionRecord[] {
-    return this.db.prepare('SELECT * FROM sessions ORDER BY last_ts ASC').all() as unknown as SessionRecord[];
-  }
-
-  /** knowledge 条目指向过的 session_id（含 agent:id 与原始 id）。 */
-  linkedSessionIds(): Set<string> {
-    const rows = this.db.prepare(
-      "SELECT DISTINCT session_id FROM entries WHERE session_id IS NOT NULL AND session_id != ''",
-    ).all() as { session_id: string }[];
-    return new Set(rows.map((r) => r.session_id));
-  }
-
-  putSession(rec: SessionRecord, body = ''): void {
-    return withBusyRetry(() => this.putSessionInner(rec, body));
-  }
-
-
-  private putSessionInner(rec: SessionRecord, body = ''): void {
-    this.db.prepare(`INSERT INTO sessions
-      (session_id, project_fp, msg_count, last_ts, processed_at, agent, path, content_hash, api_state)
-      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET
-      project_fp = excluded.project_fp, msg_count = excluded.msg_count,
-      last_ts = excluded.last_ts, processed_at = excluded.processed_at,
-      agent = excluded.agent, path = excluded.path, content_hash = excluded.content_hash,
-      api_state = excluded.api_state`).run(
-      rec.session_id, rec.project_fp, rec.msg_count, rec.last_ts, rec.processed_at,
-      rec.agent, rec.path, rec.content_hash, rec.api_state ?? null,
-    );
-    this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(rec.session_id);
-    if (body) {
-      this.db.prepare('INSERT INTO sessions_fts (session_key, content) VALUES (?,?)').run(rec.session_id, body);
-    }
-  }
-
-  removeSession(sessionId: string): void {
-    return withBusyRetry(() => this.removeSessionInner(sessionId));
-  }
-
-
-  private removeSessionInner(sessionId: string): void {
-    this.db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
-    this.db.prepare('DELETE FROM sessions_fts WHERE session_key = ?').run(sessionId);
-  }
-
-  /** 只更新 api_state 镜像列（写序：先改 session 文件，再调这里，文档 §3.5 规则 5）。 */
-  setSessionApiState(sessionId: string, apiState: string | null): void {
-    return withBusyRetry(() => this.setSessionApiStateInner(sessionId, apiState));
-  }
-
-
-  private setSessionApiStateInner(sessionId: string, apiState: string | null): void {
-    this.db.prepare('UPDATE sessions SET api_state = ? WHERE session_id = ?').run(apiState, sessionId);
-  }
-
-  private catchUpSessions(): void {
-    this.reindexSessionFiles(false);
-  }
-
-  private rebuildSessions(): void {
-    this.db.exec('DELETE FROM sessions; DELETE FROM sessions_fts;');
-    this.reindexSessionFiles(true);
-  }
-
-  private reindexSessionFiles(force: boolean): void {
+  private reindexSessions(): void {
     const seen = new Set<string>();
     for (const path of listStoredSessionFiles(this.home)) {
-      const text = readFileSync(path, 'utf8');
       const stored = readStoredSession(path);
       if (!stored) continue;
       const key = `${stored.agent}:${stored.sessionId}`;
       seen.add(key);
-      const st = statSync(path);
-      const prev = this.getSession(key);
-      // 快路径必须同时比对 api_state（文档 §3.5）：content_hash 只覆盖正文，
-      // sync 拉回的 ok/skip 或外部改 frontmatter 都属于「正文未变、状态变了」，跳过就不回导。
-      if (
-        !force && prev && prev.path === path && prev.content_hash === stored.contentHash
-        && (prev.api_state ?? null) === (stored.apiState ?? null)
-      ) continue;
-      this.putSession({
-        session_id: key,
-        agent: stored.agent,
-        path,
-        content_hash: stored.contentHash,
-        api_state: stored.apiState ?? null,
-        project_fp: stored.project,
-        msg_count: stored.messages,
-        last_ts: stored.ended,
-        processed_at: prev?.processed_at ?? stored.ended,
-      }, stored.body || text);
+      const prev = this.sessions.get(key);
+      this.sessions.set(key, {
+        rec: {
+          session_id: key,
+          agent: stored.agent,
+          path,
+          content_hash: stored.contentHash,
+          api_state: stored.apiState ?? null,
+          project_fp: stored.project,
+          msg_count: stored.messages,
+          last_ts: stored.ended,
+          processed_at: prev?.rec.processed_at ?? stored.ended,
+        },
+        lowerUserText: evidenceUserText(stored.body).toLowerCase(),
+      });
     }
-    for (const row of this.listSessions()) {
-      if (!seen.has(row.session_id)) this.removeSession(row.session_id);
+    for (const key of [...this.sessions.keys()]) {
+      if (!seen.has(key)) this.sessions.delete(key);
     }
   }
 
-  countByStatus(): Record<string, number> {
-    const rows = this.db.prepare('SELECT status, COUNT(*) AS n FROM entries GROUP BY status').all() as { status: string; n: number }[];
-    const out: Record<string, number> = {};
-    for (const r of rows) out[r.status] = r.n;
+  getSession(sessionId: string): SessionRecord | null {
+    this.ensureSessions();
+    return this.sessions.get(sessionId)?.rec ?? null;
+  }
+
+  listSessions(): SessionRecord[] {
+    this.ensureSessions();
+    return [...this.sessions.values()].map((s) => s.rec).sort((a, b) => (a.last_ts < b.last_ts ? -1 : 1));
+  }
+
+  /** 供 `search --sessions` 遍历：记录 + 小写 `## user` 文本。 */
+  sessionSlots(): { rec: SessionRecord; lowerUserText: string }[] {
+    this.ensureSessions();
+    return [...this.sessions.values()];
+  }
+
+  /** knowledge 条目指向过的 session_id（含 `agent:id` 与裸 id）。 */
+  linkedSessionIds(): Set<string> {
+    const out = new Set<string>();
+    for (const { row } of this.entries.values()) {
+      if (!row.session_id) continue;
+      out.add(row.session_id);
+      const bare = row.session_id.split(':').pop();
+      if (bare) out.add(bare);
+    }
     return out;
   }
 
+  putSession(rec: SessionRecord, body = ''): void {
+    this.ensureSessions();
+    this.sessions.set(rec.session_id, {
+      rec,
+      lowerUserText: evidenceUserText(body || '').toLowerCase(),
+    });
+  }
+
+  removeSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+  }
+
+  /** 只更新 api_state 镜像（写序：先改 session 文件，再调这里，文档 §3.5 规则 5）。 */
+  setSessionApiState(sessionId: string, apiState: string | null): void {
+    const slot = this.sessions.get(sessionId);
+    if (slot) slot.rec = { ...slot.rec, api_state: apiState };
+  }
+
+  /** 进程内没有需要释放的句柄；保留这个方法让调用方不需要改。 */
   close(): void {
-    this.db.close();
+    /* no-op：内存索引没有句柄 */
   }
 }

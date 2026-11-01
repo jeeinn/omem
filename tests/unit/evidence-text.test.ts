@@ -152,11 +152,12 @@ describe('N1 回归：元数据围栏不能当证据', () => {
 });
 
 describe('sessions snippet 同源：摘录只从 ## user 取（QA A3）', () => {
-  it('命中在 assistant 段时不给假引文', () => {
+  it('命中只落在 assistant 段的会话根本不返回（B 阶段：证据域检索）', () => {
     addSession('snip-1', FENCED_BODY);
     const hits = searchSessions(index, '传祺M8', 3);
-    expect(hits).toHaveLength(1);
-    expect(hits[0].snippet).toBe('');
+    // 旧实现（FTS 全文）会返回该会话 + 空摘录；内存索引只搜 ## user，
+    // 于是「不可引用」变成「检索不到」，比给一条空摘录更诚实。
+    expect(hits).toHaveLength(0);
   });
 
   it('命中在 ## user 段时给的是剥净后的原话', () => {

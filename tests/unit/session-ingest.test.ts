@@ -148,7 +148,7 @@ describe('evidence score', () => {
     expect(pending.tags).toContain('pending-session');
   });
 
-  it('an on-disk copy that is not in the session index does not raise the score', () => {
+  it('磁盘上存在的会话副本会被计入印证（B 阶段：会话从磁盘派生）', () => {
     const userLine = '以后都用手写 SQL，不要用 ORM 框架';
     const cited = digest('s1', userLine, '助手甲');
     const extra = digest('s-extra', userLine, '助手乙');
@@ -164,8 +164,11 @@ describe('evidence score', () => {
       last_ts: cited.ended_ts,
       processed_at: cited.ended_ts,
     }, renderDialogue(cited));
+    // 旧实现（SQLite）只认「索引里登记过的会话」，同盘但未登记的副本不计印证（0.55）。
+    // 内存索引把 sessions/ 当作派生物整目录解析，于是这份副本成为一份独立印证（+0.10）。
+    // 这是**有意的语义变化**：会话文件在库里就是来源，索引不该成为第二个事实源。
     const scored = scoreEvidence(home, { content: '用手写 SQL', sessionId: 's1', evidence: userLine }, index);
-    expect(scored.confidence).toBe(0.55);
+    expect(scored.confidence).toBe(0.65);
   });
 
   it('confirm_ids stops at 0.8 and review --confirm reaches 0.9', () => {

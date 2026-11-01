@@ -1,28 +1,19 @@
 #!/usr/bin/env node
 // omem 启动包装器。
-// node:sqlite 在 Node 22 需要 --experimental-sqlite flag（规格 §10：V0.1 用 node:sqlite）。
-// 本包装器在缺失该 flag 时以正确 flag 自 re-exec，保证 `omem <cmd>` 与 npm bin shim 直接可用。
-import { spawnSync } from 'node:child_process';
+// B 阶段去掉 SQLite 之后不再需要 --experimental-sqlite，也不再自 re-exec：
+// 直接在当前进程里跑 CLI，少一次进程启动（Windows 上尤其明显）。
+// 保留这个包装器是因为 npm bin shim 需要一个稳定入口，且 OMEM_CLI_ENTRY 约定在 CLI 侧。
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const main = join(here, '..', 'dist', 'cli.js');
 
-if (!process.execArgv.includes('--experimental-sqlite')) {
-  // --no-warnings：抑制 Node 对 node:sqlite 的 ExperimentalWarning（规格 §10：V0.1 用内建 sqlite）。
-  // 否则每次 CLI 调用都往 stderr 打一行实验特性警告——MCP 场景 stderr 无害，CLI 场景是纯噪音。
-  const res = spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', main, ...process.argv.slice(2)], {
-    stdio: 'inherit',
-    env: { ...process.env, OMEM_CLI_ENTRY: '1' },
-  });
-  if (res.error) {
-    console.error(`omem: startup failed: ${res.error.message}`);
-    process.exit(1);
-  }
-  process.exit(res.status ?? 1);
-}
-
-// 动态 import 必须走 file:// URL——Windows 绝对路径（X:\...）会被 ESM 当作 URL 协议解析而崩溃
 process.env.OMEM_CLI_ENTRY = '1';
-await import(pathToFileURL(main).href);
+try {
+  await import(pathToFileURL(main).href);
+} catch (err) {
+  console.error(`omem: startup failed: ${err?.message ?? err}`);
+  console.error('Hint: run `npm run build` first — the published package ships dist/.');
+  process.exit(1);
+}

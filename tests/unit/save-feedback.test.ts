@@ -161,7 +161,7 @@ describe('save_memory: dry_run 的「不落盘」承诺', () => {
     expect((r.structuredContent as any).confirmed).toBeUndefined();
     expect((r.structuredContent as any).dry_run).toBe(true);
     // 预演同样不该把正文写进库
-    expect(index.db.prepare('SELECT topic FROM entries').all()).toHaveLength(1);
+    expect(index.rows().map((r) => ({ topic: r.row.topic }))).toHaveLength(1);
   });
 
   it('去掉 dry_run 后同样的 confirm_ids 才真的生效', async () => {

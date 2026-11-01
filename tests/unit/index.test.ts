@@ -127,18 +127,15 @@ describe('index: consistency (catch-up / rebuild)', () => {
     expect(index.getByTopic('2026-10-15-e1')).toBeNull();
   });
 
-  it('full recovery via rebuild after deleting the db', () => {
+  it('B 阶段：索引是内存派生物，新进程重建即完整恢复', () => {
     add('2026-10-15-e1', '手写 SQL 约定甲');
     add('2026-10-15-e2', '手写 SQL 约定乙', { domain: 'general' });
     index.close();
-    rmSync(files.db(home), { force: true });
-    rmSync(files.db(home) + '-wal', { force: true });
-    rmSync(files.db(home) + '-shm', { force: true });
-    expect(existsSync(files.db(home))).toBe(false);
+    // 没有任何索引文件可删：换一个进程（新实例）就等于「删掉索引」。
+    expect(existsSync(join(home, 'index', 'omem.db'))).toBe(false);
 
     index = new OmemIndex(home);
-    const total = index.rebuild();
-    expect(total).toBe(2);
+    expect(index.rebuild()).toBe(2);
     expect(searchEntries(index, { query: '手写 SQL' })).toHaveLength(2);
   });
 

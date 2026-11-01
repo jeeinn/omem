@@ -1,10 +1,7 @@
-// 检索引擎（规格 §8；spike 结论 2026-10-15）：
-// - 查询各词 ≥3 字符 → FTS5 trigram MATCH，多词加引号得 AND 语义（子串/短语匹配）
-// - 存在 <3 字符的词（如 2 字中文关键词）→ LIKE 兜底（trigram 对短词无效）
-// - stale 条目按 stale_weight 降权（规格 §4.2 L2 冷却 ×0.5）
-// - archived 与 superseded 默认排除（--all 才含）
-// - topic 是活文档的唯一标识，但不在 FTS 列里：按 topic 取文档走 entries.topic 等值过滤，
-//   不给关键词时退化为「取该主题的活文档」，避免调用方只能靠「写失败」来发现 active id。
+// 检索引擎（B 阶段：内存扫描 + 确定性排序；规格 §8 / 重构方案 §12）。
+// 语料量级下暴力子串匹配是 1–2ms，不建倒排、不用 bm25：
+// 排序规则必须是可解释、可复算的——命中词数 → 置信度（stale × weight）→ verified → last_confirmed。
+// 会话只搜 `## user` 证据域：assistant 段不能当证据，也不该出现在检索结果里。
 import type { OmemIndex, EntryRow } from './index.js';
 import { evidenceUserText, readStoredSession } from '../collect/session-store.js';
 
@@ -13,7 +10,7 @@ export interface SearchQuery {
   query?: string;
   /** 活文档主题，精确匹配。 */
   topic?: string;
-  /** 显式状态集合（active / stale / superseded / archived）。给了就覆盖默认的「排除归档与被取代」。 */
+  /** 显式状态集合（active / stale / archived）。给了就覆盖默认的「排除归档」。 */
   status?: string[];
   domain?: string;
   project?: string;
@@ -28,48 +25,63 @@ export interface SearchPage {
   matched: number;
 }
 
-/** 按 code point 计数，避免中文被 UTF-16 surrogate 误判。 */
 function charLen(s: string): number {
   return [...s].length;
 }
 
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+interface Ranked {
+  row: EntryRow;
+  hits: number;
+  score: number;
 }
 
 /**
- * 过滤条件按 SQL 占位符顺序收集参数。
+ * 过滤 + 打分 + 排序（唯一裁决点）。
  *
- * status 与 all 的关系：显式 status 优先，其次 all，最后才是默认的「排除 archived/superseded」。
- * 这样调用方既能「只要 superseded 的历史版本」，也能「含全部状态」。
+ * 过滤与排序分开的理由：`matched` 要在截断前算总数，
+ * 而排序只在「有查询词」时才需要——纯 topic 查询按 created 倒序，与历史口径一致。
  */
-function whereClause(q: SearchQuery): { sql: string; params: any[] } {
-  const parts: string[] = [];
-  const params: any[] = [];
-  if (q.status && q.status.length > 0) {
-    parts.push(`e.status IN (${q.status.map(() => '?').join(',')})`);
-    params.push(...q.status);
-  } else {
-    parts.push(q.all ? '1=1' : "e.status != 'archived'");
-  }
-  if (q.topic) {
-    parts.push('e.topic = ?');
-    params.push(q.topic);
-  }
-  if (q.domain) {
-    parts.push('e.domain = ?');
-    params.push(q.domain);
-  }
-  if (q.project) {
-    parts.push('e.project = ?');
-    params.push(q.project);
-  }
-  return { sql: parts.join(' AND '), params };
-}
+function rank(
+  index: OmemIndex,
+  q: SearchQuery,
+  tokens: string[],
+  staleWeight: number,
+): Ranked[] {
+  const out: Ranked[] = [];
+  for (const { row, lower } of index.rows()) {
+    if (q.status && q.status.length > 0) {
+      if (!q.status.includes(row.status)) continue;
+    } else if (!q.all && row.status === 'archived') {
+      continue;
+    }
+    if (q.topic && row.topic !== q.topic) continue;
+    if (q.domain && row.domain !== q.domain) continue;
+    if (q.project && (row.project ?? '') !== q.project) continue;
 
-function countOf(index: OmemIndex, sql: string, params: any[]): number {
-  const row = index.db.prepare(sql).get(...params) as { n: number } | undefined;
-  return row?.n ?? 0;
+    let hits = 0;
+    if (tokens.length > 0) {
+      const haystack = `${row.title}\n${lower}\n${row.tags}`.toLowerCase();
+      let all = true;
+      for (const t of tokens) {
+        if (haystack.includes(t)) hits++;
+        else {
+          all = false;
+          break;
+        }
+      }
+      if (!all) continue;
+    }
+
+    const weight = row.status === 'stale' ? staleWeight : 1;
+    out.push({ row, hits, score: hits * 1000 + row.confidence * weight * 100 });
+    }
+  out.sort((a, b) => {
+    if (b.hits !== a.hits) return b.hits - a.hits;
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.row.verified !== a.row.verified) return b.row.verified - a.row.verified;
+    return (b.row.last_confirmed || '').localeCompare(a.row.last_confirmed || '');
+  });
+  return out;
 }
 
 /** 逐条检索并返回命中总数。MCP 需要「matched M · showing N」两句话，故同时给两个数。 */
@@ -77,81 +89,20 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
   const query = (q.query ?? '').trim();
   const limit = q.limit && q.limit > 0 ? Math.floor(q.limit) : 3;
   const staleWeight = q.staleWeight ?? 0.5;
-  const db = index.db;
-  const { sql: filters, params: fparams } = whereClause(q);
 
-  // ── 无关键词：只按 topic 取文档（按 created DESC，与 index.findActiveByTopic 同口径）──
+  // 无关键词：只按 topic 取文档（按 created DESC，与 index.findActiveByTopic 同口径）
   if (!query) {
     if (!q.topic) return { rows: [], matched: 0 };
-    const matched = countOf(index, `SELECT COUNT(*) AS n FROM entries e WHERE ${filters}`, fparams);
-    const rows = db.prepare(
-      `SELECT e.* FROM entries e WHERE ${filters} ORDER BY e.created DESC LIMIT ?`,
-    ).all(...fparams, limit) as unknown as EntryRow[];
-    return { rows, matched };
+    const rows = rank(index, q, [], staleWeight)
+      .map((r) => r.row)
+      .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+    return { rows: rows.slice(0, limit), matched: rows.length };
   }
 
-  const tokens = query.split(/\s+/).filter(Boolean);
-
-  if (tokens.every((t) => charLen(t) >= 3)) {
-    // ── 主路径：trigram MATCH ──
-    const ftsq = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ');
-    const matched = countOf(
-      index,
-      `SELECT COUNT(*) AS n FROM entries e JOIN entries_fts ON e.topic = entries_fts.topic
-       WHERE entries_fts MATCH ? AND ${filters}`,
-      [ftsq, ...fparams],
-    );
-    const stmt = db.prepare(`
-      SELECT e.*, bm25(entries_fts) AS rank FROM entries e
-      JOIN entries_fts ON e.topic = entries_fts.topic
-      WHERE entries_fts MATCH ?
-        AND ${filters}
-      ORDER BY (CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence * bm25(entries_fts) ASC,
-               e.verified DESC,
-               e.last_confirmed DESC
-      LIMIT ?
-    `);
-    const rows = stmt.all(ftsq, ...fparams, staleWeight, limit) as unknown as EntryRow[];
-    return { rows, matched };
-  }
-
-  // ── 兜底路径：LIKE（trigram 对 <3 字符查询无效） ──
-  // 与主路一致：先按 confidence（stale ×0.5）排，verified 只在分数相同时优先。
-  const pattern = `%${escapeLike(query)}%`;
-  const likeWhere = `(e.topic IN (SELECT topic FROM entries_fts WHERE content LIKE ? ESCAPE '\\')
-           OR e.title LIKE ? ESCAPE '\\'
-           OR e.tags LIKE ? ESCAPE '\\')
-      AND ${filters}`;
-  const likeOrder = `(CASE WHEN e.status = 'stale' THEN ? ELSE 1.0 END) * e.confidence DESC,
-             e.verified DESC,
-             e.last_confirmed DESC`;
-  const stmt = db.prepare(`
-    SELECT e.* FROM entries e
-    WHERE ${likeWhere}
-    ORDER BY ${likeOrder}
-    LIMIT ?
-  `);
-  const rows = stmt.all(pattern, pattern, pattern, ...fparams, staleWeight, limit) as unknown as EntryRow[];
-  if (rows.length > 0 || tokens.length < 2) {
-    const matched = countOf(index, `SELECT COUNT(*) AS n FROM entries e WHERE ${likeWhere}`, [pattern, pattern, pattern, ...fparams]);
-    return { rows, matched };
-  }
-
-  // 整串无命中且为多词：退化为逐词 AND（都出现才算命中）
-  const andSql = tokens.map(() => "content LIKE ? ESCAPE '\\'").join(' AND ');
-  const andWhere = `e.topic IN (SELECT topic FROM entries_fts WHERE ${andSql}) AND ${filters}`;
-  const stmt2 = db.prepare(`
-    SELECT e.* FROM entries e
-    WHERE ${andWhere}
-    ORDER BY ${likeOrder}
-    LIMIT ?
-  `);
-  const rows2 = stmt2.all(...tokens.map((t) => `%${escapeLike(t)}%`), ...fparams, staleWeight, limit) as unknown as EntryRow[];
-  const matched2 = countOf(index, `SELECT COUNT(*) AS n FROM entries e WHERE ${andWhere}`, [
-    ...tokens.map((t) => `%${escapeLike(t)}%`),
-    ...fparams,
-  ]);
-  return { rows: rows2, matched: matched2 };
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const ranked = rank(index, q, tokens, staleWeight);
+  const rows = ranked.slice(0, limit).map((r) => ({ ...r.row, rank: -r.hits }));
+  return { rows, matched: ranked.length };
 }
 
 /** 只要结果集的调用方（CLI、内部流程）用这个，签名保持不变。 */
@@ -164,64 +115,60 @@ export interface SessionHit {
   path: string;
   project_fp: string;
   last_ts: string;
-  /**
-   * 命中片段。FTS 路径由 snippet() 生成，LIKE 兜底路径由 manualSnippet() 截取命中位置附近
-   * 的上下文——两条路径都不自带标记，『』由渲染层统一加（否则 FTS 路径会套两层）。
-   */
+  /** 命中片段：截取自 `## user` 段；命中只落在 assistant 段时为空串。 */
   snippet?: string;
-  /**
-   * 该会话是否已被某份记忆吸收。searchSessions 不读 entries 表，自身填不了这个值——
-   * 必须由调用方注入（见 guide.absorbedSessionIds）；未注入时 undefined，渲染层当作「未吸收」。
-   */
   absorbed?: boolean;
 }
 
 /**
  * 只查会话原文，不返回 knowledge 结论。
  *
- * 摘录只从**证据域**取（beta.9 / T03）：FTS 的 `snippet()` 在整份会话正文上取窗口，
- * 而 assistant 段是最"好读"的那一段 —— 于是摘录越像人话，越可能是不能当证据的那一段
- * （QA A3：命中落在车型表格里）。这里先用 `evidenceUserText` 剥掉元数据围栏、
- * 只留 `## user`，再在它上面截窗；命中只在 assistant 段时 `snippet` 为空字符串，
- * 由渲染层说明「这段不能当证据」，而不是给一段看着像原文的假引文。
+ * 匹配与摘录都只走证据域：assistant 段是最"好读"的那一段，
+ * 于是摘录越像人话，越可能是不能当证据的那一段。命中只在 assistant 段时
+ * `snippet` 为空串，由渲染层说明「这段不能当证据」。
  */
 export function searchSessions(index: OmemIndex, query: string, limit = 3): SessionHit[] {
   const q = query.trim();
   if (!q) return [];
-  const tokens = q.split(/\s+/).filter(Boolean);
-  const db = index.db;
-  const rows = tokens.every((t) => charLen(t) >= 3)
-    ? (db.prepare(`
-      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
-      FROM sessions s
-      JOIN sessions_fts ON s.session_id = sessions_fts.session_key
-      WHERE sessions_fts MATCH ?
-      ORDER BY bm25(sessions_fts) ASC
-      LIMIT ?
-    `).all(tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' '), limit) as unknown as SessionHit[])
-    : (db.prepare(`
-      SELECT s.session_id AS session_key, s.path AS path, s.project_fp AS project_fp, s.last_ts AS last_ts
-      FROM sessions s
-      JOIN sessions_fts ON s.session_id = sessions_fts.session_key
-      WHERE sessions_fts.content LIKE ? ESCAPE '\\'
-      LIMIT ?
-    `).all(`%${escapeLike(q)}%`, limit) as unknown as SessionHit[]);
-
-  // 摘录在证据域上截窗（radius 40 code point）：两条路径同源，不再一边 token 半径 12、
-  // 一边 code point 半径 40 —— 同一句话在两条路径下长度不同，调用方无法判断能不能当 evidence。
-  return rows.map((hit) => ({ ...hit, snippet: evidenceSnippet(hit.path, q) }));
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const scored: { hit: SessionHit; hits: number }[] = [];
+  for (const { rec, lowerUserText } of index.sessionSlots()) {
+    let all = true;
+    let best = 0;
+    for (const t of tokens) {
+      if (!lowerUserText.includes(t)) {
+        all = false;
+        break;
+      }
+      best += lowerUserText.split(t).length - 1;
+    }
+    if (!all) continue;
+    scored.push({
+      hits: best,
+      hit: {
+        session_key: rec.session_id,
+        path: rec.path,
+        project_fp: rec.project_fp,
+        last_ts: rec.last_ts,
+        snippet: evidenceSnippet(rec.path, q),
+      },
+    });
+  }
+  scored.sort((a, b) => b.hits - a.hits);
+  return scored.slice(0, limit).map((s) => s.hit);
 }
 
 /** 在 `## user`（剥净元数据）上取命中窗口；读不到文件或只在 assistant 段命中时返回空串。 */
 function evidenceSnippet(path: string, query: string): string {
   const stored = readStoredSession(path);
   if (!stored) return '';
-  return manualSnippet(evidenceUserText(stored.body), query);
+  const needle = query.split(/\s+/)[0] ?? query;
+  return manualSnippet(evidenceUserText(stored.body), needle);
 }
 
 /**
  * 命中位置附近的手工片段：code point 定位（中文不会被 UTF-16 截半）、
- * 大小写不敏感（对齐 SQLite LIKE 的默认行为）、换行压成空格。
+ * 大小写不敏感、换行压成空格。
  */
 export function manualSnippet(content: string, needle: string, radius = 40): string {
   if (!content || !needle) return '';
@@ -229,7 +176,7 @@ export function manualSnippet(content: string, needle: string, radius = 40): str
   if (at < 0) return '';
   const chars = [...content];
   const start = [...content.slice(0, at)].length;
-  const len = [...needle].length;
+  const len = charLen(needle);
   const from = Math.max(0, start - radius);
   const to = Math.min(chars.length, start + len + radius);
   const body = chars.slice(from, to).join('').replace(/\s+/g, ' ').trim();
