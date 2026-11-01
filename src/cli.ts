@@ -11,18 +11,12 @@ import { cmdAdd } from './commands/add.js';
 import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
 import { cmdTopics } from './commands/topic.js';
-import { cmdGc } from './commands/gc.js';
 import { cmdRebuild } from './commands/rebuild.js';
-import { cmdContext } from './commands/context.js';
 import { cmdSync } from './commands/sync.js';
 import { cmdProfile } from './commands/profile.js';
 import { cmdRedact } from './commands/redact.js';
-import { cmdSnapshot } from './commands/snapshot.js';
 import { cmdSkip } from './commands/skip.js';
 import { cmdServe } from './commands/serve.js';
-import { cmdAudit } from './commands/audit.js';
-import { cmdEval } from './commands/eval.js';
-import { cmdApi } from './commands/api.js';
 // 版本号唯一来源（规格 §7）：CLI 与 MCP serverInfo 共用，不再各自 readFileSync。
 import { OMEM_VERSION } from './core/version.js';
 
@@ -55,7 +49,7 @@ const COMMANDS: Record<string, Command> = {
   },
   add: {
     desc: 'Manually add a memory (verified)',
-    usage: 'omem add <content> [--type X] [--domain Y] [--tags a,b] [--project fp] [--topic name] [--supersedes id1,id2] [--force]',
+    usage: 'omem add <content> --topic <name> [--type X] [--domain Y] [--tags a,b] [--project fp] [--force]',
     run: cmdAdd,
   },
   search: {
@@ -65,7 +59,7 @@ const COMMANDS: Record<string, Command> = {
   },
   review: {
     desc: 'Review a short queue; open one entry by id, or review in the browser',
-    usage: 'omem review [<id>] [--all] [--source X] [--topic X] [--confirm <id|id,id>] [--supersedes <old-id>] [--dismiss <id>] [--stale <id>] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
+    usage: 'omem review [<topic>] [--all] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
   topics: {
@@ -73,20 +67,10 @@ const COMMANDS: Record<string, Command> = {
     usage: 'omem topics [list] | omem topics policy <topic> always|once|never|default | omem topics rename <old> <new> [--dry-run]',
     run: cmdTopics,
   },
-  gc: {
-    desc: 'Mark stale (report only, never delete)',
-    usage: 'omem gc [--days N]',
-    run: cmdGc,
-  },
-  rebuild: {
-    desc: 'Rebuild index + MEMORY-INDEX from markdown files',
-    usage: 'omem rebuild',
+  verify: {
+    desc: 'Rebuild the in-memory view from markdown and re-render MEMORY-INDEX',
+    usage: 'omem verify',
     run: cmdRebuild,
-  },
-  context: {
-    desc: 'Export context (integration path for non-MCP Agents)',
-    usage: 'omem context --for claude-code|cursor|codex|plain [--out <file>]',
-    run: cmdContext,
   },
   backup: {
     desc: 'Back up the data repo (git pull + push; conflicts are reported only)',
@@ -103,35 +87,15 @@ const COMMANDS: Record<string, Command> = {
     usage: 'omem redact --id <id> | omem redact --source rules|agent|llm|manual [--yes]',
     run: cmdRedact,
   },
-  snapshot: {
-    desc: 'Daily snapshot (rolling retention of 7)',
-    usage: 'omem snapshot',
-    run: cmdSnapshot,
-  },
   serve: {
     desc: 'Start MCP server (stdio)',
     usage: 'omem serve',
     run: cmdServe,
   },
-  audit: {
-    desc: 'Usage log (observable call rates)',
-    usage: 'omem audit [--tail N]',
-    run: cmdAudit,
-  },
-  eval: {
-    desc: 'Extraction eval: substring-recall baseline (weak proxy) and annotation export',
-    usage: 'omem eval recall [--golden <dir>] [--write-baseline] [--min-recall <n>] | omem eval sample [--n 20] [--out <file>]',
-    run: cmdEval,
-  },
-  api: {
-    desc: 'API tier diagnostics: effective config, queue depth, model probe',
-    usage: 'omem api status',
-    run: cmdApi,
-  },
 };
 
 function printHelp(): void {
-  console.log(`omem v${OMEM_VERSION} — a git-native personal AI memory layer (Markdown source of truth + MCP + FTS5)\n`);
+  console.log(`omem v${OMEM_VERSION} — a git-native personal AI memory layer (Markdown source of truth + MCP)\n`);
   console.log('Usage: omem <command> [options]\n');
   console.log('Commands:');
   for (const [name, c] of Object.entries(COMMANDS)) {

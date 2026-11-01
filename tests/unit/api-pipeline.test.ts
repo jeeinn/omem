@@ -330,29 +330,17 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     expect(stub.requests).toHaveLength(1);
   });
 
-  it('omem api status prints effective config, queue depth and model probe', async () => {
-    seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
-    index.catchUp();
-    const stub = await startStub((_i, _b) => null);
-    // probe 打 /models，status 命令里用 cfg.base
-    const probeStub = await startStub(() => ({ status: 200, content: JSON.stringify({ data: [{ id: 'alpha' }, { id: 'beta' }] }) }));
-    const config = cfgFor(`${probeStub.base}/v1`, { model: '' });
-    saveConfig(home, config);
+  it('omem api 已收敛掉：诊断信息并入 sync --dry-run', async () => {
     vi.stubEnv('OMEM_HOME', home);
-    const lines: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.join(' ')); });
+    let code = -1;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      const code = await main(['api', 'status']);
-      expect(code).toBe(0);
+      code = await main(['api', 'status']);
     } finally {
       vi.unstubAllEnvs();
       vi.restoreAllMocks();
     }
-    const text = lines.join('\n');
-    expect(text).toMatch(/base: .*loopback/);
-    expect(text).toMatch(/key: empty \(Authorization header omitted\)/);
-    expect(text).toMatch(/Queue: pending 1 · quarantined 0/);
-    expect(text).toMatch(/Models at endpoint: alpha, beta/);
-    expect(stub.requests).toHaveLength(0); // status 不发任何会话内容
+    // 顶层命令表里没有 api：退出码 1（用法错误），而不是静默成功。
+    expect(code).toBe(1);
   });
 });

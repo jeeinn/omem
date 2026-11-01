@@ -3,7 +3,9 @@
 // --confirm / --dismiss / --stale 仍是原来的三个动作；身份是 topic（D1-B′）。
 import { openCtx } from '../core/ctx.js';
 import { findTopicIndexed, listEntries, moveToArchive, updateTopic } from '../core/store.js';
-import { applyReviewDecisions, formatStaleness, generateMemoryIndex } from '../core/lifecycle.js';
+import { applyReviewDecisions, formatStaleness, gcScan } from '../core/lifecycle.js';
+import { deriveTitle } from '../core/entry.js';
+import { truncate } from '../core/util.js';
 import { loadTopicPolicies } from '../core/review-policy.js';
 import { serializeEntry } from '../core/entry.js';
 import type { Frontmatter } from '../core/entry.js';
@@ -49,6 +51,22 @@ async function reviewBody(
   const staleTopic = flagStr(args.flags, 'stale');
   if (flagStr(args.flags, 'supersedes')) {
     throw new UsageError('--supersedes has been removed: writing to a topic overwrites its document (git keeps the history).');
+  }
+
+  // D8：冷却扫描并入 review（原 omem gc）。它是「人工动作」的一种，
+  // 独立成命令只会让命令面板里多一条一年用一次的入口。
+  if (flagBool(args.flags, 'gc')) {
+    const days = flagNum(args.flags, 'days') ?? config.process.stale_after_days;
+    if (!Number.isFinite(days) || days <= 0) throw new UsageError('--days must be a positive number');
+    const { marked, total } = gcScan(home, index, { staleAfterDays: days, apply: true });
+    console.log(
+      `Scanned ${total} active documents (threshold: ${days} days unconfirmed): marked ${marked.length} stale (marked only, nothing deleted)`,
+    );
+    for (const l of marked) {
+      console.log(`- \`${l.entry.fm.topic}\` ${truncate(deriveTitle(l.entry.body), 50)} ${formatStaleness(l.entry.fm)}`);
+    }
+    if (marked.length > 0) console.log('\nStale documents are down-weighted in search; restore one with omem review --confirm <topic>');
+    return 0;
   }
 
   const uiMode = flagBool(args.flags, 'ui');

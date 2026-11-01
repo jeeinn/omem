@@ -2,7 +2,7 @@
 
 **你的记忆是一个 git 仓库，不是一个数据库文件。**
 
-omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，SQLite 只是可以删掉重建的索引。MCP 让多个客户端共用同一份记忆。
+omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没有索引数据库（内存视图每次启动从 Markdown 重建）。MCP 让多个客户端共用同一份记忆。
 
 - 默认零配置：`omem sync` 把对话原文放进 `sessions/`，结论由 Agent 写回 `knowledge/`
 - 采集只读：Claude Code、WorkBuddy、Cursor、千问办公（QwenWork）、豆包办公（Doubao）、CodeBuddy 等 9 个平台的会话目录，不改对方的文件
@@ -99,8 +99,8 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 
 MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
-- `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径、四步写回循环、纠错通道），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖 `omem context` 的导出。
-- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的 active 文档及其 id，更新活文档不再靠「盲写 → 被拒 → 从错误消息里抠 id」。`status` 可读回 `superseded` 的历史版本。
+- `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径、四步写回循环、纠错通道），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖额外的导出命令。
+- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的活文档（topic 本身就是句柄）。历史版本在 git 里，不在检索结果里。
 - `top_k` 声明并夹取在 1-20（省略时用 `config.toml` 的 `search.top_k`，它可配到 50）；响应固定给 `matched M · showing N`，能看出还有多少没返回。
 
 写入结论的路径（`save_memory` / `omem add`）默认各留**一笔本地提交**（`[process] auto_commit = "session"`，可设 `off` 关闭）；`omem sync` 一轮 run 一笔。只有 `omem backup` 才推送远端——它在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
@@ -130,22 +130,18 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
 | `omem sync [--since 7d] [--collectors id,id] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。不带 `--collectors` 时扫全部已有目录 |
-| `omem api status` | 查看 API 档的生效配置、队列和模型 |
-| `omem add <content>` | 手工添加，自动脱敏 |
+| `omem skip <session-id>` | 把会话标记为「不必沉淀」，从 `PROCESS.md` 的待办里移出（`list` / `remove` 可回看） |
+| `omem add <content> --topic <name>` | 手工写入一份活文档，自动脱敏。同 topic 再写一次就是覆盖（git 保留历史） |
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
-| `omem review [<id>]` | 待审默认最近 10 条。带 id 打开正文；`--confirm <id\|id,id>` / `--dismiss` / `--stale` 确认、归档或冷却 |
+| `omem review [<topic>]` | 待审默认最近 10 条。带 topic 打开正文；`--confirm <topic[,topic]>` / `--dismiss` / `--stale` 过目、归档或冷却；`--gc [--days N]` 扫描长期未过目的文档 |
 | `omem review --ui` | 起一个本地页面，勾选后一次提交。`--no-open` 只打印链接，`--port N` 指定端口，`--timeout SEC` 改超时（默认 600） |
-| `omem topic list [--all]` | 列活文档主题（文档数 / 最近更新 / 置信度 / 策略 / 标题）。`--all` 额外列出已被合并掉的旧主题 → 现在归到哪个文档 |
-| `omem topic policy <topic> always\|once\|never\|default` | 设置主题级审阅策略，写入 `~/.omem/review.toml` |
-| `omem gc [--days N]` | 把长期未确认的条目标成 stale，不删除 |
-| `omem rebuild` | 从 Markdown 重建索引 |
-| `omem context --for claude-code\|cursor\|codex\|plain` | 给不走 MCP 的客户端导出上下文 |
+| `omem topics [list]` | 列活文档主题（主题名 / 项目 / 最近更新 / 置信度 / 标题） |
+| `omem topics rename <old> <new>` | 给主题改名（= 移动文件，历史由 git 保留） |
 | `omem backup` | git pull 然后 push。子命令：`status` / `pull` / `push` / `remote` / `use` |
 | `omem profile [home\|work]` | work 档默认禁止备份和导出 |
-| `omem redact --id <id>` | 唯一硬删。`--source` 默认只预览，`--yes` 才删 |
-| `omem snapshot` | 手动快照。backup 前也会自动打，保留 7 份 |
+| `omem redact --topic <name>` | 唯一硬删。`--source` 默认只预览，`--yes` 才删 |
+| `omem verify` | 从 Markdown 重建内存视图并重渲染 `MEMORY-INDEX.md` |
 | `omem serve` | MCP server，由 install 写好的配置拉起 |
-| `omem audit [--tail N]` | 看 `logs/omem.log` 尾部 |
 
 退出码：`0` 成功（冲突已处理也算成功），`1` 用法错误，`2` 后端不可用或策略拒绝。
 
