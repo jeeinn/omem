@@ -19,8 +19,10 @@ afterEach(() => {
   cleanupHome(home);
 });
 
+let seedSeq = 0;
+
 function write(content: string, source: 'rules' | 'manual') {
-  return commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+  return commitEntry(home, defaultConfig(), index, { topic: `seed-${++seedSeq}`,
     content,
     type: 'fact',
     source,
@@ -47,8 +49,8 @@ describe('redact --source', () => {
     expect(code).toBe(0);
     const left = listEntries(home, { includeArchived: true });
     expect(left).toHaveLength(1);
-    expect(left[0].entry.fm.topic).toBe(kept.id);
-    expect(index.getByTopic(kept.id!)).not.toBeNull();
+    expect(left[0].entry.fm.topic).toBe(kept.topic);
+    expect(index.getByTopic(kept.topic!)).not.toBeNull();
   });
 
   it('without --yes it only previews and deletes nothing', async () => {
