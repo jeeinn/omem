@@ -308,14 +308,13 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     expect(secondReq.messages[1].content).toContain('conclusion version 1');
 
     const actives = activeEntry(['release-doc']);
+    // D1-B′：同一 topic 再写 = 覆盖同一份文件，磁盘上永远 1 份。
     expect(actives).toHaveLength(1);
+    expect(actives[0].path).toBe(first.path);
     expect(actives[0].entry.body).toContain('version 2');
-    expect(actives[0].entry.fm.supersedes).toEqual([first.entry.fm.topic]);
-    // 旧版仍在磁盘
-    expect(first.entry.fm.topic).toBeTruthy();
-    // 退出检索
+    expect(actives[0].entry.body).not.toContain('version 1');
     const hits = searchEntries(index, { query: 'conclusion version 1', limit: 10, staleWeight: 0.5 });
-    expect(hits.filter((h) => h.id === first.entry.fm.topic)).toHaveLength(0);
+    expect(hits.filter((h) => h.topic === first.entry.fm.topic)).toHaveLength(0);
   });
 
   it('V28: slug variant (case/space) reuses the existing topic, no new doc', async () => {
@@ -394,7 +393,7 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     expect(second.duplicateTopics).toBe(1);
     const dup = dupTopicEvents(home);
     expect(dup).toHaveLength(1);
-    expect(String(dup[0].note)).toContain('already active');
+    expect(String(dup[0].note)).toContain('already exists');
     expect(String(dup[0].note)).toContain('skipped');
   });
 

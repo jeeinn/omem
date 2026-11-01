@@ -123,7 +123,7 @@ describe('save_memory: 拒绝与去重的文案要能执行', () => {
 
   it('未知参数被点名，并对看起来对的错名字给出别名', async () => {
     const r = await handleTool('save_memory', {
-      content: '带臆造参数的写入 zeta', session_ids: ['x'], force: true,
+      content: '带臆造参数的写入 zeta', topic: 'unknown-arg-topic', session_ids: ['x'], force: true,
     }, ctx);
     const text = textOf(r);
     expect(text).toContain('Ignored unknown argument(s)');
@@ -161,7 +161,7 @@ describe('save_memory: dry_run 的「不落盘」承诺', () => {
     expect((r.structuredContent as any).confirmed).toBeUndefined();
     expect((r.structuredContent as any).dry_run).toBe(true);
     // 预演同样不该把正文写进库
-    expect(index.db.prepare('SELECT id FROM entries').all()).toHaveLength(1);
+    expect(index.db.prepare('SELECT topic FROM entries').all()).toHaveLength(1);
   });
 
   it('去掉 dry_run 后同样的 confirm_ids 才真的生效', async () => {

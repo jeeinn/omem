@@ -131,7 +131,7 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
   it('covers a written save, a deduped save with drift, and a dry-run save with confirm', async () => {
     const written = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-a' }, ctx);
     const deduped = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-b' }, ctx);
-    const preview = await handleTool('save_memory', { content: '声明覆盖 beta', dry_run: true, confirm_ids: [(written.structuredContent as any).id] }, ctx);
+    const preview = await handleTool('save_memory', { topic: 'auto-topic', content: '声明覆盖 beta', dry_run: true, confirm_ids: [(written.structuredContent as any).topic] }, ctx);
     const schema = schemaOf('save_memory');
     for (const r of [written, deduped, preview]) {
       expect(undeclared(schema, r.structuredContent as any)).toEqual([]);
@@ -167,9 +167,9 @@ describe('mcp: handleTool', () => {
 
     const text = textOf(await handleTool('search_memory', { query: '连接池' }, ctx));
 
-    // topic 现在是结果行的标题本身（topic 才是文档名），不再以 topic: 前缀附在末尾。
+    // topic 既是标题也是句柄：Agent 拿到它就能直接写回，不必再查 id。
     expect(text).toContain('pool-tuning');
-    expect(text).toContain('2026-10-15-e2');
+    expect(text).toContain('topic `pool-tuning`');
   });
 
   it('search_memory detail=true returns full text and file path', async () => {
@@ -195,9 +195,9 @@ describe('mcp: handleTool', () => {
   });
 
   it('save_memory saves + idempotent dedup of duplicate content', async () => {
-    const r1 = await handleTool('save_memory', { content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
+    const r1 = await handleTool('save_memory', { topic: 'auto-topic', content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
     expect(textOf(r1)).toContain('Saved');
-    const r2 = await handleTool('save_memory', { content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
+    const r2 = await handleTool('save_memory', { topic: 'auto-topic', content: '探针唯一内容 probe-unique-xyz', type: 'fact', domain: 'general' }, ctx);
     expect(textOf(r2)).toContain('nothing was written again');
     // 库里按 content-hash 只有一条
     expect(index.getByBodyHash(contentHash('探针唯一内容 probe-unique-xyz'))).not.toBeNull();
@@ -206,7 +206,7 @@ describe('mcp: handleTool', () => {
   });
 
   it('save_memory lands as a verified:false candidate', async () => {
-    await handleTool('save_memory', { content: '待确认的候选条目' }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的候选条目' }, ctx);
     const rows = index.db.prepare('SELECT verified FROM entries').all() as unknown as { verified: number }[];
     expect(rows).toHaveLength(1);
     expect(rows[0].verified).toBe(0);
@@ -214,14 +214,14 @@ describe('mcp: handleTool', () => {
 
   it('save_memory rejects over-long content instead of truncating (T02)', async () => {
     const long = 'x'.repeat(5000);
-    const r = await handleTool('save_memory', { content: long }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: long }, ctx);
     const text = textOf(r);
     expect(text).toContain('Not written: content is 5,000 characters, over the 2,000 limit by 3,000.');
     expect(text).toContain('Nothing was written; no existing document was touched.');
     expect(text).toContain('Over-cap preview (not written)');
     expect(text).toContain('Options: (a) tighten the body');
     // 半截事实落盘数 = 0：一条都没写
-    const rows = index.db.prepare('SELECT id FROM entries').all();
+    const rows = index.db.prepare('SELECT topic FROM entries').all();
     expect(rows).toHaveLength(0);
     expect(listEntries(home)).toHaveLength(0);
     expect((r.structuredContent as any).status).toBe('excluded');
@@ -233,7 +233,7 @@ describe('mcp: handleTool', () => {
     const emoji = String.fromCodePoint(0x1F600);
     const body = 'a'.repeat(1998) + emoji.repeat(3);
     expect([...body].length).toBe(2001);
-    const r = await handleTool('save_memory', { content: body }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: body }, ctx);
     expect(textOf(r)).toContain('Not written: content is 2,001 characters');
     expect(listEntries(home)).toHaveLength(0);
   });
@@ -244,11 +244,11 @@ describe('mcp: handleTool', () => {
     const text = textOf(r);
     expect(text).toContain('[dry-run] excluded');
     expect(text).toContain('Not written: content is 2,100 characters');
-    expect(index.db.prepare('SELECT id FROM entries').all()).toHaveLength(0);
+    expect(index.db.prepare('SELECT topic FROM entries').all()).toHaveLength(0);
   });
 
   it('save_memory redacts secrets', async () => {
-    const r = await handleTool('save_memory', { content: '注意 key 是 sk-ant-abc123def456ghi789jkl012mno345pqr678' }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '注意 key 是 sk-ant-abc123def456ghi789jkl012mno345pqr678' }, ctx);
     expect(textOf(r)).toContain('Saved');
     const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as unknown as { path: string };
     expect(readFileSync(row.path, 'utf8')).not.toContain('abc123def456');
@@ -403,7 +403,7 @@ describe('mcp: handleTool', () => {
   });
 
   it('save_memory keeps an empty evidence array when none provided', async () => {
-    await handleTool('save_memory', { content: '无证据条目案例' }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '无证据条目案例' }, ctx);
     const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
     const entry = readEntryFile(row.path)!;
     expect(Array.isArray(entry.fm.evidence)).toBe(true);
@@ -411,7 +411,7 @@ describe('mcp: handleTool', () => {
   });
 
   it('catch-up before tool calls sees external edits', async () => {
-    await handleTool('save_memory', { content: '外部编辑前的正文 catchup-base' }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '外部编辑前的正文 catchup-base' }, ctx);
     const row = index.db.prepare('SELECT path FROM entries LIMIT 1').get() as { path: string };
     appendFileSync(row.path, '\n外部追加 catchup-probe-marker-77\n');
     prepareToolCall(home, index);
