@@ -2,6 +2,7 @@
 // 依据必须是会话文件里某个 ## user 段的连续子串；模型引用自己的话不算。
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
 import { evidenceUserKey, evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
+import { listEntries } from '../core/store.js';
 import { searchSessions } from '../core/search.js';
 import { normalizeForHash } from '../core/util.js';
 import type { OmemIndex } from '../core/index.js';
@@ -279,6 +280,70 @@ export function scoreApiDoc(
   }
 
   return { confidence: Math.min(SCORE_API_CAP, base), tags };
+}
+
+/**
+ * 账本复算（`omem verify` 用）：以当前账本重算一条活文档的自动分，与落盘值比对。
+ *
+ * 为什么比的是**区间**而不是一个数：落盘的 confidence 是**写入那一刻**算的，
+ * 那时排除自印证的会话集合 = 主来源会话 + 本次写入吸收的那几个。落盘之后
+ * `source_sessions` 继续累积，账本里已经分不出「当时到底是哪几个」，
+ * 于是只能算出两个界：
+ *
+ *   max —— 只排除主来源会话（把本条目自己的其它来源都当成印证）；
+ *   min —— 把本条目自己的所有来源会话都算作自印证。
+ *
+ * 区间 [min, max] 覆盖了写入批次带来的全部差异；落在区间内 = 没有漂移。
+ * 只报告、不改写：自动改写会在每次 verify 时抖动 git 历史，而且「谁该赢」不是机器能判的。
+ */
+export interface ConfidenceDrift {
+  topic: string;
+  stored: number;
+  min: number;
+  max: number;
+  /** 落盘值低于账本允许的下界（条目被低估）。 */
+  verdict: 'understated' | 'overstated';
+}
+
+/**
+ * 只有 `source: agent` 的条目参与比对：
+ *
+ *   - `manual`：人亲手写的，0.9 是设计值，不是自动分；
+ *   - `llm`：API 档有 0.75 上限，等价性不成立；
+ *   - `rules`：v0.1 的规则来源，这一版不再产生新条目。
+ *
+ * 人工过目过的（`confirmations > 0`）落盘 0.9，同样不参与。
+ */
+export function verifyConfidence(
+  home: string,
+  index: OmemIndex,
+): { checked: number; skipped: number; drifts: ConfidenceDrift[] } {
+  const drifts: ConfidenceDrift[] = [];
+  let checked = 0;
+  let skipped = 0;
+  for (const loc of listEntries(home)) {
+    const fm = loc.entry.fm;
+    if (fm.status !== 'active' || fm.source !== 'agent' || fm.confirmations > 0) {
+      skipped++;
+      continue;
+    }
+    checked++;
+    const base = { content: loc.entry.body, evidence: fm.evidence };
+    // max：只排除主来源会话。
+    const max = scoreEvidence(home, { ...base, sessionId: fm.session_id, sessionIds: [] }, index).confidence;
+    // min：把本条目自己的所有来源会话都算作自印证。
+    const min = fm.session_id
+      ? scoreEvidence(home, { ...base, sessionId: fm.session_id, sessionIds: fm.source_sessions }, index).confidence
+      : max;
+    const tol = 0.005;
+    if (fm.confidence < min - tol) {
+      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'understated' });
+    } else if (fm.confidence > max + tol) {
+      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'overstated' });
+    }
+  }
+  drifts.sort((a, b) => a.topic.localeCompare(b.topic));
+  return { checked, skipped, drifts };
 }
 
 // applyAssent 已迁至 core/lifecycle.ts：它是「确认刷新」的一种，与 reconfirm 同属

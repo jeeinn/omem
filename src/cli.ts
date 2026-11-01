@@ -11,7 +11,7 @@ import { cmdAdd } from './commands/add.js';
 import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
 import { cmdTopics } from './commands/topic.js';
-import { cmdRebuild } from './commands/rebuild.js';
+import { cmdVerify } from './commands/verify.js';
 import { cmdSync } from './commands/sync.js';
 import { cmdProfile } from './commands/profile.js';
 import { cmdRedact } from './commands/redact.js';
@@ -70,7 +70,7 @@ const COMMANDS: Record<string, Command> = {
   verify: {
     desc: 'Rebuild the in-memory view from markdown and re-render MEMORY-INDEX',
     usage: 'omem verify',
-    run: cmdRebuild,
+    run: cmdVerify,
   },
   backup: {
     desc: 'Back up the data repo (git pull + push; conflicts are reported only)',
