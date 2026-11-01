@@ -9,7 +9,9 @@ export default defineConfig({
       forks: { execArgv: ['--experimental-sqlite'] },
     },
     include: ['tests/unit/**/*.test.ts'],
-    testTimeout: 20000,
-    hookTimeout: 20000,
+    // 20s 在并行满载时不够：auto-commit / review-server 会真的起 git 与本地 HTTP，
+    // 两个文件同时跑时会被挤到超时，表现为「单独跑绿、全量跑红」的噪声。
+    testTimeout: 40000,
+    hookTimeout: 40000,
   },
 });
