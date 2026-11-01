@@ -178,7 +178,7 @@ describe('evidence score', () => {
       confidence: 0.55,
       verified: false,
     });
-    const id = saved.id!;
+    const id = saved.topic!;
     applyAssent(home, index, [id]);
     const mid = listEntries(home)[0].entry.fm;
     expect(mid.confidence).toBe(0.8);

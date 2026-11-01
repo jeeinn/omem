@@ -55,7 +55,7 @@ describe('commitEntry: 基本写入', () => {
   });
 
   it('topic 必填：缺了就拒绝，并给出可执行的下一步', () => {
-    const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
+    const r = commitEntry(home, defaultConfig(), index, {
       content: '没有主题的一句话',
       type: 'fact',
       source: 'manual',
