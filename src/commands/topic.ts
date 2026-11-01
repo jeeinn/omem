@@ -66,7 +66,8 @@ function cmdTopicsRename(ctx: Ctx, args: ParsedArgs, dryRun: boolean): number {
 
   const fm = { ...loc.entry.fm, topic: newName };
   const entry = { ...loc.entry, fm };
-  const written = writeEntry(ctx.home, entry);
+  // 改名保持原位置：归档中的主题改名后仍在 archive/，不会被"复活"成 active。
+  const written = writeEntry(ctx.home, entry, loc.location);
   // 旧路径必须删掉：留下两份 = 两个身份。
   if (written.path !== loc.path) rmSync(loc.path, { force: true });
   ctx.index.remove(oldName);

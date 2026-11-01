@@ -171,7 +171,7 @@ describe('cli: omem topic policy', () => {
   }
 
   it('写入策略并回显', async () => {
-    const out = await run(['topic', 'policy', 'pool', 'once']);
+    const out = await run(['topics', 'policy', 'pool', 'once']);
 
     expect(out).toContain('Policy for "pool": once');
     expect(loadTopicPolicies(home).get('pool')).toBe('once');
@@ -180,7 +180,7 @@ describe('cli: omem topic policy', () => {
   it('default 删除策略', async () => {
     saveTopicPolicy(home, 'pool', 'once');
 
-    const out = await run(['topic', 'policy', 'pool', 'default']);
+    const out = await run(['topics', 'policy', 'pool', 'default']);
 
     expect(out).toContain('default (always)');
     expect(loadTopicPolicies(home).has('pool')).toBe(false);
@@ -194,7 +194,7 @@ describe('cli: omem topic policy', () => {
     };
     process.env.OMEM_HOME = home;
     try {
-      const code = await main(['topic', 'policy', 'pool', 'sometimes']);
+      const code = await main(['topics', 'policy', 'pool', 'sometimes']);
       expect(code).toBe(1);
       expect(errs.join('\n')).toContain('Unknown policy');
     } finally {
@@ -206,7 +206,7 @@ describe('cli: omem topic policy', () => {
     write({ content: '连接池内容', topic: 'pool' });
     saveTopicPolicy(home, 'pool', 'once');
 
-    const out = await run(['topic', 'list']);
+    const out = await run(['topics', 'list']);
 
     expect(out).toContain('POLICY');
     expect(out).toContain('once');

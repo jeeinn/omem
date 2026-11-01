@@ -32,9 +32,13 @@ export function entryPath(home: string, fm: Frontmatter, location: 'knowledge' |
   return join(root, normalizeDomain(fm.domain), `${topic}.md`);
 }
 
-export function writeEntry(home: string, entry: Entry): WriteResult {
+export function writeEntry(
+  home: string,
+  entry: Entry,
+  location: 'knowledge' | 'archive' = 'knowledge',
+): WriteResult {
   const content = serializeEntry(entry);
-  const path = entryPath(home, entry.fm);
+  const path = entryPath(home, entry.fm, location);
   atomicWrite(path, content);
   return { path, content };
 }

@@ -388,6 +388,9 @@ export function commitEntry(
       project: input.project,
       // created 沿用首次创建时间：路径不变，git 里的「第一笔」不该被这次覆盖重置。
       ...(existingFm?.created ? { created: existingFm.created } : {}),
+      // 「人看过这个主题」是主题级事实，不是这次正文的属性：覆盖时保留过目记录，
+      // 否则 `once` 策略会在每次更新后重新变回「未审」，人工介入退化成无限循环。
+      ...(existingFm ? { confirmations: existingFm.confirmations, last_confirmed: existingFm.last_confirmed } : {}),
       source_sessions: collectSourceSessions(input, existingFm),
       evidence: mergeEvidence(input.evidence ?? [], existingFm ? [existingFm.evidence] : []),
       tags: autoAssent ? [...new Set([...(input.tags ?? []), 'assent'])] : (input.tags ?? []),
