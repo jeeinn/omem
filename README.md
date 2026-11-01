@@ -197,7 +197,7 @@ omem review --stale pool-tuning        # 冷却：排在 active 之后
 
 | 情况 | 现在会怎样 |
 | --- | --- |
-| 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 的 `## Existing topics` 每行给出主题名 **+ active 文档 id**；MCP 用 `search_memory(topic="<name>")` 直接取 |
+| 不知道库里有哪些主题 | `omem search` 的命中行带 `topic:xxx`；`PROCESS.md` 的 `## Topics` 段每行给出主题名 **+ 所属项目**；MCP 用 `search_memory(topic="<name>")` 直接取 |
 | 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，并说明「确属不同主题就保留新主题」，照常写入 |
 | 用新主题取代了别的主题的文档 | 写入时告警「Merged N topic(s) into "xxx"」，并列出消失的主题名 |
 

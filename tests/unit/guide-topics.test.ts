@@ -57,45 +57,67 @@ describe('collectExistingTopics', () => {
   });
 });
 
-describe('renderGuide: Existing topics 段', () => {
+describe('renderGuide: Topics 段（A-6 两段拆分）', () => {
   const group: GuideTopic = {
     project: 'fp-abc',
     sessions: [{ path: '/tmp/s.md', sessionId: 's1', agent: 'claude-code' }],
   };
 
   const existing: ExistingTopic[] = [
-    { name: 'pool-tuning', confidence: 0.9, created: '2026-10-20T00:00:00.000Z' },
+    { name: 'pool-tuning', confidence: 0.9, created: '2026-10-20T00:00:00.000Z', project: 'fp-abc' },
     { name: 'deploy-pipeline', confidence: 0.55, created: '2026-10-19T00:00:00.000Z' },
   ];
 
   it('列出主题名与置信度，并说明「新名字会开第二份活文档」', () => {
     const text = renderGuide([group], 0, [], existing);
 
-    expect(text).toContain('## Existing topics');
+    expect(text).toContain('## Topics');
     expect(text).toContain('`pool-tuning`');
     expect(text).toContain('0.90 · 2026-10-20');
     expect(text).toContain('`deploy-pipeline`');
     expect(text).toContain('A new name starts a second living document');
   });
 
+  it('A-6：待办与词表分成两段（## Projects / ### 项目 / ## Topics）', () => {
+    const text = renderGuide([group], 0, [], existing);
+
+    // 用整行匹配：头部说明里也提到这两个名字（带反引号），不按整行判定会误判
+    expect(text).toContain('\n## Projects\n');
+    expect(text).toContain('\n### fp-abc\n');
+    expect(text).toContain('\n## Topics\n');
+    // 项目段在词表段之前
+    expect(text.indexOf('\n## Projects\n')).toBeLessThan(text.indexOf('\n## Topics\n'));
+    expect(text.indexOf('\n### fp-abc\n')).toBeLessThan(text.indexOf('\n## Topics\n'));
+    // 两段的性质写清楚：指纹不是主题名
+    expect(text).toContain('A project fingerprint is not a topic name');
+  });
+
+  it('主题行带上 project（把两个轴接上）', () => {
+    const text = renderGuide([group], 0, [], existing);
+
+    expect(text).toContain('`pool-tuning`  0.90 · 2026-10-20 · project fp-abc');
+    // 没有 project 的主题不硬造一个
+    expect(text).toContain('- `deploy-pipeline`  0.55 · 2026-10-19\n');
+  });
+
   it('词表排在待办之后（参考信息不挡在最前面）', () => {
     const text = renderGuide([group], 0, [], existing);
 
-    expect(text.indexOf('## fp-abc')).toBeLessThan(text.indexOf('## Existing topics'));
+    expect(text.indexOf('\n## Projects\n')).toBeLessThan(text.indexOf('\n## Topics\n'));
   });
 
   it('队列为空时仍然输出词表（Agent 主动整理记忆的场景）', () => {
     const text = renderGuide([], 0, [], existing);
 
     expect(text).toContain('No topics are waiting.');
-    expect(text).toContain('## Existing topics');
+    expect(text).toContain('## Topics');
     expect(text).toContain('`pool-tuning`');
   });
 
   it('没有既有主题时不输出该段', () => {
     const text = renderGuide([group], 0, [], []);
 
-    expect(text).not.toContain('## Existing topics');
+    expect(text).not.toContain('\n## Topics\n');
   });
 
   it('topic 全量列出（不再 slice 15）', () => {

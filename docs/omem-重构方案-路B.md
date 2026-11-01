@@ -140,7 +140,7 @@ D9 定为不兼容，但现有的真实库（约 26 个活文档 / 1101 份会�
 
 - **账本** = `evidence` + `source_sessions`（上限 200），不新增字段。
 - **可复算**：`omem verify` 用账本重算并与落盘值比对，**只报告差异，不自动改写**（避免抖动 git 历史）。
-- 删 `confirmations`（唯一消费者是随策略一起删除的 `topicReviewedBefore`）；保留 `last_confirmed`，语义改为「最近一次人工过目时间」。
+- ~~删 `confirmations`（唯一消费者是随策略一起删除的 `topicReviewedBefore`）~~ → **实施时改为保留**（A-4）：`topicReviewedBefore` 删了，但「人看过几次」是「过目」唯一的可审计痕迹（`last_confirmed` 只记最近一次）。它的消费者从策略引擎换成 `formatStaleness` 与 review 队列的「未过目」判定。语义因此从「策略自动确认次数」变为「人工过目次数」。保留 `last_confirmed`，语义为「最近一次人工过目时间」。
 
 ---
 
@@ -215,7 +215,7 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | --- | --- |
 | A × M2：整篇覆盖丢事实 | **已接受**。兜底：写前 snapshot + 每次写入自动提交 + 人工过目；纠错留 V0.2 |
 | 中文 / 非 ASCII 文件名跨 OS（macOS NFD） | Windows 优先、个人级，可接受；文档写明；改名走 `topics rename`。不做自动转写（见 §2.2） |
-| topic 命名质量成为唯一身份约束 | 保留 `PROCESS.md` 的 Existing topics 词表 + `isNearDupTopic` 写入提示；`instructions.ts` 增加英文 slug 约定 |
+| topic 命名质量成为唯一身份约束 | 保留 `PROCESS.md` 的 `## Topics` 词表 + `isNearDupTopic` 写入提示；`instructions.ts` 增加英文 slug 约定 |
 | 改名 = 移动文件 | `topics rename` 统一处理；omem 内部不再引用 id，断链面很小 |
 | D4：22MB 原文随 backup 上远端 | **已接受**（换机必须携带）。保留 work profile 禁 sync/export；README 安全段必须明说 |
 | D9：存量用户重来 | `init --force` 前置自动 snapshot；README 标 breaking（0.2.0） |
@@ -304,7 +304,7 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | A-3t | 测试迁移：断言从 id 改为 topic，删除 supersede 相关用例，`omem add` 补 `--topic` | ✅（68/68 文件绿） |
 | A-4 | 取消 `verified` + 置信度五档固化 | ✅（`verified` 全线删除；五档由 `tests/unit/score-ladder.test.ts` 钉住） |
 | A-5 | MCP/CLI 合同同步（topic 必填、删 `supersedes`/`confirm_ids`、`redact --topic`） | ✅（MCP 只剩 search/save；install 的 marker 段同步） |
-| A-6 | `PROCESS.md` 拆 Project / Topic 两段 | 待做 |
+| A-6 | `PROCESS.md` 拆 Project / Topic 两段 | ✅（`## Projects` 收待办，`## Topics` 收词表并带 project） |
 | B | 去 SQLite：内存派生索引 + 确定性排序 + golden 搜索断言 | ✅ 代码完成（会话按需构建，全量 68/68） |
 | C-1 | CLI 13 条收敛：删 eval/api/audit/snapshot/gc/context，rebuild→verify，gc 并入 review --gc | ✅ |
 | C-2 | 删 `review.toml` + `review-policy.ts` + `autoAssent` 分支 | ✅ |

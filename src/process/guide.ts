@@ -94,6 +94,8 @@ export interface ExistingTopic {
   name: string;
   confidence: number;
   created: string;
+  /** 它来自哪个项目指纹（D1-B′：project 只是元数据，topic 才是身份）。 */
+  project?: string;
 }
 
 /**
@@ -114,7 +116,7 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
     const prev = byTopic.get(fm.topic);
     // 同 topic 多份 active 是异常态，取最新创建的一份（与 index.findActiveByTopic 同口径）。
     if (prev && prev.created >= fm.created) continue;
-    byTopic.set(fm.topic, { name: fm.topic, confidence: fm.confidence, created: fm.created });
+    byTopic.set(fm.topic, { name: fm.topic, confidence: fm.confidence, created: fm.created, project: fm.project });
   }
   return [...byTopic.values()].sort((a, b) => (a.created < b.created ? 1 : -1));
 }
@@ -132,16 +134,25 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
  * 与 T04 的目标相反。
  */
 type TopicColumnMode = 'full' | 'compact' | 'names';
+// full   = 名字 + confidence + created + project
+// compact= 名字 + project（丢掉两个装饰列）
+// names  = 只有名字
 
 function renderExistingTopics(lines: string[], existing: ExistingTopic[], mode: TopicColumnMode = 'full'): void {
   if (existing.length === 0) return;
-  lines.push('## Existing topics');
+  lines.push('## Topics');
   lines.push('');
   lines.push('Reuse one of these names when the sessions belong to it. A new name starts a second living document for the same subject.');
+  lines.push('The project column says where that document came from — a session listed under that project usually belongs to it.');
   lines.push('');
   for (const t of existing) {
     if (mode === 'full') {
-      lines.push(`- ${BT}${t.name}${BT}  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}`);
+      const proj = t.project ? ` · project ${t.project}` : '';
+      lines.push(`- ${BT}${t.name}${BT}  ${t.confidence.toFixed(2)} · ${(t.created || '').slice(0, 10)}${proj}`);
+    } else if (mode === 'compact') {
+      // 降级时先丢 confidence · created，保留 project：名字回答「叫什么」，project 回答「属于哪边」。
+      const proj = t.project ? ` · project ${t.project}` : '';
+      lines.push(`- ${BT}${t.name}${BT}${proj}`);
     } else {
       lines.push(`- ${BT}${t.name}${BT}`);
     }
@@ -173,6 +184,7 @@ function renderHeader(): string[] {
     '# omem topics waiting for an update',
     '',
     'Each topic has one living document, and the topic is also the document name. Writing to an existing topic overwrites it (git keeps the previous version); do not invent a second name for the same subject.',
+    'Two sections: `## Projects` lists the sessions waiting to be absorbed, grouped by project fingerprint; `## Topics` lists the living documents you may extend. A project fingerprint is not a topic name.',
     '- Read the session files. Keep short facts, drop the process. Do not invent anything that was not said.',
     `- ${RULE_EVIDENCE}.`,
     '- Sessions are listed by bare `session_id` (no paths, no collector prefix — the store may live anywhere). Read one with search_memory(scope="sessions", session_id="<id>"): it returns the `## user` text as quotable segments with character offsets. Pass the same bare id as `session_id` when you save, plus the topic shown above — writing to that topic overwrites its document.',
@@ -222,10 +234,17 @@ function buildGuide(
     lines.push(`${remaining} group(s) and ${leftSessions} session(s) still unabsorbed — `);
     lines.push('the agent distills via save_memory; `omem sync` only collects and re-renders this list.');
     lines.push('');
+    // A-6：两段。上面这段是「要干的活」（按项目分组），下面 `## Topics` 是「词表」（可复用的文档名）。
+    // 旧版把两者平铺在同一个 `##` 层级里，Agent 于是把项目指纹当成主题名用。
+    lines.push('## Projects');
+    lines.push('');
+    lines.push('Sessions waiting to be absorbed, grouped by project fingerprint. A project fingerprint is not a topic name.');
+    lines.push('');
   }
   for (const topic of topics) {
     // 标题是 **project**，不是 topic（D1-B′）。旧版把两者混渲，Agent 于是拿项目名当主题名写入。
-    lines.push(`## ${topic.project}`);
+    // A-6：project 段与 topic 段拆开——`## Projects` 收「要干的活」，`## Topics` 收「词表」。
+    lines.push(`### ${topic.project}`);
     if (topic.docTopic) {
       const others = (topic.otherTopics ?? []).filter((t) => t !== topic.docTopic);
       const more = others.length > 0
