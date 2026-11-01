@@ -29,12 +29,11 @@ afterEach(() => {
 let seq = 0;
 
 function add(content: string, over: { confidence?: number; source?: 'llm' | 'agent' | 'manual'; topic?: string; tags?: string[] } = {}) {
-  const r = commitEntry(home, defaultConfig(), index, { topic: 'auto', 
+  const r = commitEntry(home, defaultConfig(), index, {
     content,
     type: 'fact',
     source: over.source ?? 'agent',
     confidence: over.confidence ?? 0.55,
-    verified: false,
     topic: over.topic ?? `auto-topic-${++seq}`,
     tags: over.tags,
   }, { refreshIndex: false });

@@ -1,4 +1,4 @@
-// 规则抽取测试（规格 §9.4 档 0：默认零配置，verified:false 候选）。
+// 规则抽取测试（规格 §9.4 档 0：默认零配置，低置信候选）。
 import { describe, it, expect } from 'vitest';
 import { extractCandidates, extractFromDigest, inferDomain } from '../../src/process/rules.js';
 import type { UnifiedMessage } from '../../src/collect/types.js';

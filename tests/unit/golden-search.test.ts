@@ -30,7 +30,6 @@ function write(content: string, topic: string, opts: Partial<Parameters<typeof c
     topic,
     source: 'agent',
     confidence: 0.55,
-    verified: false,
     ...opts,
   });
   expect(r.status).toBe('written');

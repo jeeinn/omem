@@ -106,7 +106,7 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
 
   it('covers conclusions search, including bm25 rank', async () => {
     const e = {
-      fm: newFrontmatter({ topic: '2026-10-15-decl1', type: 'fact', domain: 'coding', topic: 'decl-topic' }),
+      fm: newFrontmatter({ type: 'fact', domain: 'coding', topic: 'decl-topic' }),
       body: '声明覆盖检查的内容 marker-decl',
     };
     const { path, content } = writeEntry(home, e);
@@ -144,7 +144,7 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
 describe('mcp: handleTool', () => {
   it('search_memory hits with freshness labels and a disclaimer frame', async () => {
     const e = {
-      fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'decision', domain: 'coding', verified: true }),
+      fm: newFrontmatter({ topic: '2026-10-15-e1', type: 'decision', domain: 'coding', confirmations: 1 }),
       body: '该项目禁用 ORM，必须手写 SQL',
     };
     const { path, content } = writeEntry(home, e);
@@ -153,13 +153,13 @@ describe('mcp: handleTool', () => {
     const r = await handleTool('search_memory', { query: '手写 SQL' }, ctx);
     const text = textOf(r);
     expect(text).toContain('该项目禁用 ORM');
-    expect(text).toContain('confirmed'); // 时效标注
+    expect(text).toContain('reviewed'); // 时效标注
     expect(text).toContain('not instructions');
   });
 
   it('search_memory exposes the topic so the agent reuses it instead of inventing one', async () => {
     const e = {
-      fm: newFrontmatter({ topic: '2026-10-15-e2', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      fm: newFrontmatter({ type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
       body: '手写 SQL 连接池上限设为 20',
     };
     const { path, content } = writeEntry(home, e);
@@ -205,11 +205,11 @@ describe('mcp: handleTool', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('save_memory lands as a verified:false candidate', async () => {
+  it('save_memory lands as an unreviewed candidate', async () => {
     await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的候选条目' }, ctx);
-    const rows = index.rows().map((r) => ({ verified: r.row.verified }));
+    const rows = index.rows().map((r) => ({ confirmations: r.row.confirmations }));
     expect(rows).toHaveLength(1);
-    expect(rows[0].verified).toBe(0);
+    expect(rows[0].confirmations).toBe(0);
   });
 
   it('save_memory rejects over-long content instead of truncating (T02)', async () => {
@@ -330,7 +330,7 @@ describe('mcp: handleTool', () => {
     index.upsert(e, path, content);
     const r = await handleTool('memory_feedback', { id: '2026-10-15-e1', helpful: true }, ctx);
     expect(textOf(r)).toContain('confirmation refresh');
-    expect(index.getByTopic('2026-10-15-e1')!.verified).toBe(1);
+    expect(index.getByTopic('2026-10-15-e1')!.confirmations).toBe(1);
   });
 
   it('memory_feedback unknown id errors', async () => {

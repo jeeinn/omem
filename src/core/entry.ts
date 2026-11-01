@@ -19,7 +19,11 @@ export interface Frontmatter {
   profile: Profile;
   status: EntryStatus;
   confidence: number;
-  verified: boolean;
+  /**
+   * D2：`verified` 已删除。信任只有一个数字——`confidence`，且它永远描述**当前这份正文**。
+   * 「人看过」由 `confirmations > 0` + `last_confirmed` 表达（过目 = 提到 0.9）。
+   * 布尔标记会在原地更新下退化成「这个主题曾被人看过一次」。
+   */
   source: EntrySource;
   session_id?: string;
   project?: string;
@@ -40,7 +44,7 @@ export interface Entry {
 
 /** 落盘顺序。`topic` 不在其中——它是文件名，不是字段。 */
 const FM_ORDER: (keyof Frontmatter)[] = [
-  'type', 'domain', 'profile', 'status', 'confidence', 'verified', 'source',
+  'type', 'domain', 'profile', 'status', 'confidence', 'source',
   'session_id', 'project', 'source_sessions', 'evidence', 'created', 'last_confirmed', 'confirmations',
   'tags',
 ];
@@ -154,9 +158,10 @@ function splitFmArray(inner: string): string[] {
 /**
  * 磁盘字段 → Frontmatter。
  *
- * 两个容忍点，都是为了「旧库不会被解析成垃圾」：
+ * 三个容忍点，都是为了「旧库不会被解析成垃圾」：
  * - `status: superseded` 映射成 `archived`（旧版的非活跃状态统一归为归档，默认不参与检索）；
- * - 旧的 `id` / `supersedes` / `superseded_by` 字段直接丢弃（D9：不兼容，要求 re-init）。
+ * - 旧的 `id` / `supersedes` / `superseded_by` 字段直接丢弃（D9：不兼容，要求 re-init）；
+ * - 旧的 `verified` 字段直接丢弃（D2：信任只剩 confidence 一个数字）。
  */
 function normalizeFm(fm: Record<string, any>): Frontmatter {
   const str = (v: any, d = '') => (typeof v === 'string' && v ? v : d);
@@ -175,7 +180,6 @@ function normalizeFm(fm: Record<string, any>): Frontmatter {
     profile,
     status,
     confidence: Math.min(1, Math.max(0, num(fm.confidence, 0.5))),
-    verified: Boolean(fm.verified),
     source,
     session_id: fm.session_id ? String(fm.session_id) : undefined,
     project: fm.project ? String(fm.project) : undefined,
@@ -195,7 +199,6 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
     profile: 'home',
     status: 'active',
     confidence: 0.5,
-    verified: false,
     source: 'manual',
     created: now,
     last_confirmed: now,

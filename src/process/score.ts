@@ -1,4 +1,4 @@
-// save_memory 的自动置信度。只改 confidence，不把 verified 设为 true。
+// save_memory 的自动置信度。只改 confidence——D2 之后没有别的信任标记。
 // 依据必须是会话文件里某个 ## user 段的连续子串；模型引用自己的话不算。
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
 import { evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
@@ -204,7 +204,7 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
  * 复用与 scoreEvidence 同一套梯级口径：锚得上 → 0.55 起；
  * 多会话印证 / 跨项目印证按 corroborationBonus 叠加（封顶 +0.25）；
  * 一条都锚不上 → 0.35 + `ungrounded`（仍落盘）。
- * 上限 0.75（SCORE_API_CAP）、verified 恒 false 由调用方保证。
+ * 上限 0.75（SCORE_API_CAP）。D2：不再有 `verified` 位，过目由 review 写 0.9。
  */
 export function scoreApiDoc(
   home: string,

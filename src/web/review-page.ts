@@ -116,7 +116,7 @@ kbd {
 </header>
 <main>
   <ul id="list"></ul>
-  <section id="detail"><p class="hint">Select an entry to read it. Expanding a detail is what unlocks <code>verified</code>.</p></section>
+  <section id="detail"><p class="hint">Select an entry to read it. Expanding a detail is what counts as a human review.</p></section>
 </main>
 <footer>
   <span>Click the box to cycle: <b>&#10003;</b> confirm / <b>&#10005;</b> archive / <b>&#8722;</b> cool / blank skip</span>
@@ -151,27 +151,22 @@ kbd {
   function pct(n) { return (Math.round(n * 100) / 100).toFixed(2); }
 
   function label(item) {
-    return item.topic || item.title || item.id;
-  }
-
-  function versionText(item) {
-    var n = item.versionChain.length + 1;
-    return n > 1 ? 'v' + n : '';
+    return item.topic || item.title || '';
   }
 
   function renderList() {
     listEl.innerHTML = '';
     items.forEach(function (item) {
       var li = document.createElement('li');
-      li.className = 'row' + (selected === item.id ? ' selected' : '');
-      li.setAttribute('data-id', item.id);
+      li.className = 'row' + (selected === item.topic ? ' selected' : '');
+      li.setAttribute('data-topic', item.topic);
 
       var mark = document.createElement('button');
-      mark.className = 'mark ' + (marks[item.id] || '');
-      mark.textContent = marks[item.id] === 'confirm' ? '\\u2713'
-        : marks[item.id] === 'dismiss' ? '\\u2715'
-        : marks[item.id] === 'stale' ? '\\u2212' : '';
-      mark.addEventListener('click', function (ev) { ev.stopPropagation(); cycle(item.id); });
+      mark.className = 'mark ' + (marks[item.topic] || '');
+      mark.textContent = marks[item.topic] === 'confirm' ? '\\u2713'
+        : marks[item.topic] === 'dismiss' ? '\\u2715'
+        : marks[item.topic] === 'stale' ? '\\u2212' : '';
+      mark.addEventListener('click', function (ev) { ev.stopPropagation(); cycle(item.topic); });
 
       var body = document.createElement('div');
       body.className = 'body';
@@ -180,9 +175,7 @@ kbd {
       t.textContent = label(item);
       var sub = document.createElement('div');
       sub.className = 'sub';
-      var parts = [item.id, pct(item.confidence), item.source];
-      var vt = versionText(item);
-      if (vt) parts.push(vt);
+      var parts = [item.topic, pct(item.confidence), item.source];
       if (item.sessionCount) parts.push(item.sessionCount + ' session(s)');
       if (item.flags.length) parts.push(item.flags.join(','));
       sub.textContent = parts.join(' \\u00b7 ');
@@ -192,7 +185,7 @@ kbd {
 
       li.appendChild(mark);
       li.appendChild(body);
-      li.addEventListener('click', function () { select(item.id); });
+      li.addEventListener('click', function () { select(item.topic); });
       listEl.appendChild(li);
     });
   }
@@ -233,7 +226,7 @@ kbd {
     selected = id;
     renderList();
     var item = null;
-    for (var i = 0; i < items.length; i++) if (items[i].id === id) item = items[i];
+    for (var i = 0; i < items.length; i++) if (items[i].topic === id) item = items[i];
     if (!item) return;
     if (detailCache[id]) {
       lastDetail = detailCache[id];
@@ -262,9 +255,8 @@ kbd {
   function renderDetail(d) {
     var html = '';
     html += '<h2>' + esc(d.topic || d.title) + '</h2>';
-    var kv = [d.id, pct(d.confidence), d.source, d.type, d.domain];
-    if (d.versionChain.length) kv.push('v' + (d.versionChain.length + 1));
-    if (d.verified) kv.push('verified');
+    var kv = [d.topic, pct(d.confidence), d.source, d.type, d.domain];
+    if (d.reviewed) kv.push('reviewed');
     html += '<div class="kv">' + esc(kv.join(' \\u00b7 ')) + '</div>';
     html += section('Body', '<pre class="bodytext">' + esc(d.body) + '</pre>');
 
@@ -290,15 +282,8 @@ kbd {
       html += section('Source sessions (' + d.sessions.length + ')', ss);
     }
 
-    if (d.supersedes && d.supersedes.length) {
-      html += section('Supersedes', '<p class="hint">' + esc(d.supersedes.join(', ')) + '</p>');
-    }
-    if (d.supersededBy) {
-      html += section('Superseded by', '<p class="hint">' + esc(d.supersededBy) + '</p>');
-    }
-
-    var mark = marks[d.id] || '';
-    var note = mark === 'confirm' && !readIds[d.id]
+    var mark = marks[d.topic] || '';
+    var note = mark === 'confirm' && !readIds[d.topic]
       ? '<p class="hint">Marked confirm but not read yet \\u2014 it will be recorded as assent (0.8).</p>'
       : '';
     detailEl.innerHTML = html + note;
@@ -322,7 +307,7 @@ kbd {
   function apply() {
     if (submitted) return;
     var decisions = [];
-    Object.keys(marks).forEach(function (id) { decisions.push({ id: id, action: marks[id] }); });
+    Object.keys(marks).forEach(function (id) { decisions.push({ topic: id, action: marks[id] }); });
     if (!decisions.length) return;
     if (confirmbar.className !== 'on') { askConfirm(); return; }
     submitted = true;
@@ -350,9 +335,9 @@ kbd {
     outcomes.forEach(function (o) {
       var cls = o.status === 'ok' ? 'ok' : o.status === 'missing' ? 'err' : 'skipped';
       var tail = o.status === 'ok'
-        ? o.applied + (o.verified ? ' \\u00b7 verified' : (o.confidence != null ? ' \\u00b7 ' + pct(o.confidence) : ''))
+        ? o.applied + (o.reviewed ? ' \\u00b7 reviewed' : (o.confidence != null ? ' \\u00b7 ' + pct(o.confidence) : ''))
         : (o.reason || o.status);
-      html += '<li><span class="' + cls + '">' + esc(o.id) + '</span> \\u2014 ' + esc(tail) + '</li>';
+      html += '<li><span class="' + cls + '">' + esc(o.topic) + '</span> \\u2014 ' + esc(tail) + '</li>';
     });
     html += '</ul><p class="hint">You can close this tab. The terminal has the full log.</p>';
     detailEl.innerHTML = html;
@@ -368,13 +353,13 @@ kbd {
   document.addEventListener('keydown', function (ev) {
     if (ev.target && /INPUT|TEXTAREA/.test(ev.target.tagName)) return;
     var idx = -1;
-    for (var i = 0; i < items.length; i++) if (items[i].id === selected) idx = i;
+    for (var i = 0; i < items.length; i++) if (items[i].topic === selected) idx = i;
     if (ev.key === 'j' || ev.key === 'ArrowDown') {
       ev.preventDefault();
-      if (idx < items.length - 1) select(items[idx + 1].id);
+      if (idx < items.length - 1) select(items[idx + 1].topic);
     } else if (ev.key === 'k' || ev.key === 'ArrowUp') {
       ev.preventDefault();
-      if (idx > 0) select(items[idx - 1].id);
+      if (idx > 0) select(items[idx - 1].topic);
     } else if (ev.key === '1' && selected) { setMark(selected, 'confirm'); }
     else if (ev.key === '2' && selected) { setMark(selected, 'dismiss'); }
     else if (ev.key === '3' && selected) { setMark(selected, 'stale'); }
@@ -387,12 +372,12 @@ kbd {
     if (action) marks[id] = action; else delete marks[id];
     renderList();
     renderStats();
-    if (lastDetail && lastDetail.id === id) renderDetail(lastDetail);
+    if (lastDetail && lastDetail.topic === id) renderDetail(lastDetail);
   }
 
   renderList();
   renderStats();
-  if (items.length) select(items[0].id);
+  if (items.length) select(items[0].topic);
 })();
 </script>
 </body>

@@ -58,12 +58,11 @@ describe('mergeEvidence', () => {
 
 describe('commitEntry: 活文档更新继承证据链', () => {
   function write(content: string, evidence: string[], supersedes?: string[]): string {
-    const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+    const r = commitEntry(home, defaultConfig(), index, {
       content,
       type: 'fact',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
       topic: supersedes ? 'pool-tuning' : content.includes('另一条') ? 'other-topic' : 'pool-tuning',
       evidence,
       supersedes,

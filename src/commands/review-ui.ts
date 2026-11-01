@@ -76,7 +76,7 @@ function printOutcomes(outcomes: ReviewOutcome[]): void {
   for (const o of outcomes) {
     if (o.status === 'ok') {
       ok++;
-      const tail = o.verified ? 'verified' : o.confidence != null ? String(o.confidence) : '';
+      const tail = o.reviewed ? 'reviewed' : o.confidence != null ? String(o.confidence) : '';
       console.log(`  ${o.applied.padEnd(8)} ${o.topic}${tail ? `  ${tail}` : ''}`);
       continue;
     }
@@ -97,7 +97,7 @@ export async function runReviewUi(args: RunReviewUiArgs): Promise<number> {
     index: args.index,
     items,
     sessionIndex,
-    // 写盘前先打快照：批量确认一次能翻几十条 verified，留一个可回退点。
+    // 写盘前先打快照：批量过目一次能翻几十条到 0.9，留一个可回退点。
     onApply: (decisions) => {
       const snap = runSnapshot(args.home, 7);
       console.log(`Snapshot: ${snap.path}`);

@@ -4,15 +4,15 @@
 // 但 MCP 的 InitializeResult 原本没有 instructions 字段（`mcp/server.ts` 只声明了 capabilities），
 // 于是不走 `omem context` 的纯 MCP 客户端会去找一个拿不到的东西。
 //
-// 两条最容易被改漂的规则（evidence 门槛、verified 来源）抽成常量，供
+// 两条最容易被改漂的规则（evidence 门槛、置信度来源）抽成常量，供
 // `context/export.ts` 的 marker 段与这里的 MCP 文本共用。
 import { dirs, files } from '../core/paths.js';
 
 export const RULE_EVIDENCE =
   '`evidence` must be one or more quotes of at least 12 consecutive characters copied from a `## user` section of that session; assistant text does not count';
 
-export const RULE_VERIFIED =
-  '`verified: true` comes only from `omem add` or `omem review --confirm` — MCP never sets it';
+export const RULE_CONFIDENCE =
+  '`confidence` is the only trust number: 0.35 ungrounded, 0.55 anchored to a quoted `## user` line, up to 0.80 with independent corroboration; 0.90 is reserved for a human review (`omem review --confirm`, or the opt-in `memory_feedback` tool) — never write 0.90 yourself';
 
 /**
  * MCP `initialize.instructions` 正文。
@@ -30,9 +30,9 @@ export function mcpInstructions(home: string): string {
     '3. The topic is also the document name. To update a subject, reuse its topic; to start a new one, pick a short lowercase name (e.g. "knee-rehab"). Never invent a second name for the same subject.',
     '4. `save_memory` needs `topic` (always), `session_id` copied as the bare id (no collector prefix), and evidence quoted from the `## user` text returned in step 2. Writing to an existing topic overwrites that document; git keeps the previous version.',
     '5. Read the response before assuming success: it reports the topic, whether the document was created or updated, whether the evidence anchored, whether the content was rejected for length, and any topic collisions. Fix and rewrite instead of retrying blindly.',
-    '6. Ask once whether to confirm what you wrote. `confirm_ids` raises confidence to the automatic cap and never sets verified.',
+    '6. Ask once whether to confirm what you wrote. `confirm_ids` raises confidence to the automatic cap (0.8); only a human review in `omem review` reaches 0.9.',
     '',
-    `Hard rules: one document per topic — reuse an existing topic name instead of coining a near-duplicate; never delete; the conversation that organises PROCESS.md is not itself a memory; each write leaves one local git commit when the store is a git repo (pushing is omem backup); (${RULE_VERIFIED}).`,
+    `Hard rules: one document per topic — reuse an existing topic name instead of coining a near-duplicate; never delete; the conversation that organises PROCESS.md is not itself a memory; each write leaves one local git commit when the store is a git repo (pushing is omem backup); (${RULE_CONFIDENCE}).`,
     '',
     `Grounding: ${RULE_EVIDENCE}. A quote that cannot be matched drops the entry to confidence 0.35 and tags it \`ungrounded\`, so check the response line rather than assuming success.`,
     '',

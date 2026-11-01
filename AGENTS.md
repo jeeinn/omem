@@ -10,14 +10,14 @@ Runtime data lives in `OMEM_HOME` (default `~/.omem`). Development, tests, and s
 
 ## Non-negotiables
 
-- **Never auto-delete.** `gc` only marks entries `stale` (search down-weight ×0.5). Hard delete exists only via `omem redact`, and must delete both the Markdown and the index row. Archiving moves the file to `archive/` and sets `status=archived`; the file stays under version control.
+- **Never auto-delete.** `omem review --gc` only marks entries `stale` (search down-weight ×0.5). Hard delete exists only via `omem redact`, and must delete both the Markdown and the index row. Archiving moves the file to `archive/` and sets `status=archived`; the file stays under version control.
 - **Conflicts are reported only.** Sync never auto-merges. The remote version is saved as `.conflict.md`; the local version is kept. Skip `*.conflict.md` when walking memory files.
 - **Markdown is the source of truth.** `store` never caches; it reads from disk every time. External edits (e.g. Obsidian) are absorbed by connect-time catch-up: `(size, mtime)` fast path, file content hash slow path.
 - **Do not mix the two hashes.** The file content hash detects external edits; the normalized-body `contentHash` (`body_hash`) provides idempotent dedup across the three write paths.
-- **There is no `verified` flag (D2).** Confidence is the only trust number and it always describes *this* text: the evidence ladder in `src/process/score.ts` (`grounded 0.55` → `ungrounded 0.35`, plus a corroboration bonus) decides it at write time. No write path may add `verified` back — a boolean that survives edits degrades into "this topic was looked at once".
+- **There is no `verified` flag (D2).** Confidence is the only trust number and it always describes *this* text: the evidence ladder in `src/process/score.ts` (`grounded 0.55` → `ungrounded 0.35`, plus a corroboration bonus) decides it at write time. No write path may add `verified` back — a boolean that survives edits degrades into "this topic was looked at once". "A human looked at it" is expressed by `confirmations > 0` + `last_confirmed`, and the human tier is `confidence = 0.9` (`REVIEW_CAP` in `core/lifecycle.ts`, `SCORE_CONFIRMED` in `process/score.ts` — same value, two homes, because `core ↔ process` must not import each other). `tests/unit/score-ladder.test.ts` pins all five rungs.
 - **Redact before writing.** All ingest paths must pass through `redactSecrets`. `exclude_paths` still skips paths. `exclude_keywords` is no longer applied. Rule extraction (`--tier rules`) is removed.
 - **A living-document update inherits the trail, not the score.** `created`, `source_sessions`, `evidence` and the human-review counters (`confirmations` / `last_confirmed`) carry over; `confidence` is always recomputed from this write. Inheritance happens in `collectSourceSessions` / `mergeEvidence` inside `core/commit.ts`; do not re-read the old file elsewhere.
-- **`review.toml` is separate from `config.toml` on purpose.** Topic policies grow dynamically at write frequency; putting them in config.toml would break its text-level section merge. Writes go through `core/review-policy.ts` only.
+- **There is no topic-level policy file (D5).** `review.toml` and `core/review-policy.ts` are gone: a second policy channel decided "whether to look" from a config file, which is exactly the silent path v0.2 removes. The only human actions are 过目 / 归档 / 冷却, all reached through `omem review`. Do not reintroduce a policy file, and do not add a second one to `config.toml`.
 - **Corroboration must never count the entry's own source as independent.** When a `session_id` is cited, that session is excluded from the corroborating set; when no `session_id` is given, the first index hit may be the source itself, so it awards no bonus (`corroborationFromIndex`). The invariant to preserve is scoped to **evidence on the table**: given the same quote, naming the session must not score lower than omitting it. `tests/unit/score-ladder.test.ts` pins that. The separate inversion "cites a session but no evidence (0.35 `ungrounded`) < cites nothing (0.55 `pending-session`)" is real and deliberately left open — it is a `scoreEvidence` branch-shape question, not a corroboration-accounting one, and it is queued as decision material for scoring plan C. Do not silently widen the invariant to cover it.
 - **No full-text index exists.** Search is a linear scan over in-memory rows (`core/search.ts`): cheap at this corpus size, and it keeps ranking a plain function instead of an opaque `bm25` score.
 - **MCP `initialize.instructions` and `save_memory`'s description are one contract.** `save_memory` tells the agent to open `PROCESS.md` and follow the work loop; the path and the loop are spelled out only by `src/context/instructions.ts`, which `server.ts` passes on `initialize`. Changing either without the other recreates the original defect, where the description pointed at something the client could not obtain.
@@ -34,7 +34,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 
 | Path | Responsibility |
 | --- | --- |
-| `bin/omem.js` | Startup wrapper: re-execs when `--experimental-sqlite` is missing; dynamic import on Windows must use a `file://` URL |
+| `bin/omem.js` | Startup wrapper: dynamic import on Windows must use a `file://` URL |
 | `src/cli.ts` `src/cli-args.ts` | Command dispatch. Must not call `process.exit` when imported (`OMEM_CLI_ENTRY`) |
 | `src/commands/` | One file per command, returns an exit code |
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots. `version.ts` is the single source of the version string (CLI + MCP serverInfo); `search-format.ts` owns the zero-result copy shared by CLI and MCP |
@@ -60,11 +60,11 @@ Memory paths: `knowledge/<domain>/<YYYY>/<id>.md`, ids like `2026-10-15-a1b2c3`.
 ```bash
 npm install
 npm run build          # tsc → dist/; published artifacts run from dist, build after changing src
-npm test               # vitest, forks + --experimental-sqlite
+npm test               # vitest
 npm run smoke          # bash tests/smoke.sh, ships with an isolated OMEM_HOME
 ```
 
-Node uses the built-in `node:sqlite`; do not introduce `better-sqlite3` or other native modules.
+No database: the index is derived from Markdown in memory (B stage). Do not reintroduce `node:sqlite` or any other native module.
 
 Runtime dependencies are `@modelcontextprotocol/sdk` and `@toondepauw/node-zstd`. The zstd package is the one exception to the "no native modules" rule: DeepSeek Harness stores its sessions as zstd-compressed JSONL, and the collector must decompress them. It ships prebuilt binaries (win32/darwin/linux, x64 and arm64) so no source compilation is required. Do not add further native dependencies without weighing the install cost against the alternative.
 

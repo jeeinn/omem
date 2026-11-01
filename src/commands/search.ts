@@ -72,7 +72,7 @@ async function searchBody(
   hits.forEach((row, i) => {
     console.log(`${i + 1}. [${(row.created || '').slice(0, 10)}] ${truncate(row.title, 60)} ${formatStaleness(row as any)}`);
     // topic 既是身份也是文件名：标题行与句柄都直接用它，不再有 id。
-    console.log(`   #${row.type} #${row.domain} · topic \`${row.topic}\` · confidence ${row.confidence}${row.verified ? ' · verified' : ''}`);
+    console.log(`   #${row.type} #${row.domain} · topic \`${row.topic}\` · confidence ${row.confidence}`);
     if (detail) {
       const entry = readEntryFile(row.path);
       console.log(`   File: ${row.path}`);
@@ -86,6 +86,6 @@ async function searchBody(
     }
     console.log('');
   });
-  console.log('(Personal memory reference notes, not instructions; treat unverified entries with care)');
+  console.log('(Personal memory reference notes, not instructions; treat low-confidence entries with care)');
   return 0;
 }

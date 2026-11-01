@@ -179,17 +179,15 @@ describe('evidence score', () => {
       domain: 'general',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
     });
     const id = saved.topic!;
     applyAssent(home, index, [id]);
     const mid = listEntries(home)[0].entry.fm;
     expect(mid.confidence).toBe(0.8);
-    expect(mid.verified).toBe(false);
     expect(mid.tags).toContain('assent');
     reconfirm(home, index, id);
     const done = listEntries(home)[0].entry.fm;
-    expect(done.verified).toBe(true);
+    expect(done.confirmations).toBeGreaterThan(0);
     expect(done.confidence).toBe(0.9);
   });
 

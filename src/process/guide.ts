@@ -10,7 +10,7 @@ import { appendLog } from '../core/log.js';
 import { deriveTitle } from '../core/entry.js';
 import { listEntries } from '../core/store.js';
 import { readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
-import { RULE_EVIDENCE, RULE_VERIFIED } from '../context/instructions.js';
+import { RULE_CONFIDENCE, RULE_EVIDENCE } from '../context/instructions.js';
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 
@@ -178,8 +178,8 @@ function renderHeader(): string[] {
     '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
-    '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8 and does not set verified.',
-    `- ${RULE_VERIFIED}.`,
+    '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8; only a human review reaches 0.9.',
+    `- ${RULE_CONFIDENCE}.`,
     '',
   ];
 }

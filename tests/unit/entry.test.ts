@@ -18,7 +18,6 @@ function sampleEntry(): Entry {
       profile: 'home',
       status: 'active',
       confidence: 0.42,
-      verified: false,
       source: 'rules',
       session_id: 'sess-1',
       project: 'fp123',
@@ -39,7 +38,7 @@ describe('entry: frontmatter contract', () => {
     expect(back!.fm.type).toBe('preference');
     expect(back!.fm.domain).toBe('coding');
     expect(back!.fm.confidence).toBeCloseTo(0.42);
-    expect(back!.fm.verified).toBe(false);
+    expect(back!.fm.confirmations).toBe(0);
     expect(back!.fm.source).toBe('rules');
     expect(back!.fm.tags).toEqual(['sql', 'orm']);
     expect(back!.body).toBe('这个项目以后都用手写 SQL，不要用 ORM。\n第二行补充说明。');

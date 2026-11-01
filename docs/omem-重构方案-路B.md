@@ -301,14 +301,15 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | A-1 | topic 归一化成为路径安全规则（字符政策、CJK、保留名、64 code point 上限） | ✅ |
 | A-2 | 路径模型 `knowledge/<domain>/<topic>.md` + 目录扫描变浅 | ✅ 代码完成 |
 | A-3 | 删除 `id` 与 supersede 状态机，写入即覆盖 | ✅ 代码完成（写前快照仍待补） |
-| A-3t | 测试迁移：断言从 id 改为 topic，删除 supersede 相关用例，`omem add` 补 `--topic` | 进行中（52/69 文件绿；guide + mcp + api 组完成，剩余 topic / review / 存储杂项 17 个文件） |
-| A-4 | 取消 `verified` + 置信度五档固化 | 待做 |
+| A-3t | 测试迁移：断言从 id 改为 topic，删除 supersede 相关用例，`omem add` 补 `--topic` | ✅（68/68 文件绿） |
+| A-4 | 取消 `verified` + 置信度五档固化 | ✅（`verified` 全线删除；五档由 `tests/unit/score-ladder.test.ts` 钉住） |
 | A-5 | MCP/CLI 合同同步（topic 必填、删 `supersedes`/`confirm_ids`、`redact --topic`） | 待做 |
 | A-6 | `PROCESS.md` 拆 Project / Topic 两段 | 待做 |
-| B | 去 SQLite：内存派生索引 + 确定性排序 + golden 搜索断言 | ✅ 代码完成（会话按需构建，全量 70/70） |
+| B | 去 SQLite：内存派生索引 + 确定性排序 + golden 搜索断言 | ✅ 代码完成（会话按需构建，全量 68/68） |
 | C-1 | CLI 13 条收敛：删 eval/api/audit/snapshot/gc/context，rebuild→verify，gc 并入 review --gc | ✅ |
-| C-2 | 删 eview.toml + eview-policy.ts + utoAssent 分支 | 待做 |
+| C-2 | 删 `review.toml` + `review-policy.ts` + `autoAssent` 分支 | ✅ |
 | C-3 | README / AGENTS / package.json 文案对齐（已随 C-1 完成主体） | ✅ |
 | D | `init --force` 前置快照 + 版本号 0.2.0-beta.1 | ✅（搬迁脚本按 D9 不写：不兼容，直接 re-init） |
+| E | `tests/smoke.sh` 重写 + `tests/mcp-probe.mjs` 同步到 v0.2 | ✅（75/75 检查绿） |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。

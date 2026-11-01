@@ -49,9 +49,11 @@ export function formatNoHits(ctx: NoHitsContext, opts: NoHitsOptions = {}): stri
 
   if (query) {
     lines.push('');
-    lines.push('Tip: Chinese keywords need at least 3 characters (FTS5 trigram); shorter terms automatically fall back to substring matching.');
-    if (opts.cli) lines.push('Tip: add --all to include archived and superseded entries.');
-    else lines.push('Tip: archived and superseded entries are excluded by default; pass status to include them.');
+    // B 阶段起检索是纯子串匹配（内存扫描），不再有 FTS5 trigram 的 3 字符门槛。
+    // 旧的提示词还在教用户「中文要 3 个字」，那是 SQLite 时代的遗留。
+    lines.push('Tip: every word is matched as a substring, so one uncommon word can rule the whole query out — try fewer, more specific words.');
+    if (opts.cli) lines.push('Tip: add --all to include archived entries.');
+    else lines.push('Tip: archived entries are excluded by default; pass status to include them.');
   }
   return lines;
 }

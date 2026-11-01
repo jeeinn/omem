@@ -1,6 +1,7 @@
 // omem add：手动写入一条记忆（source: manual，confidence 0.9——用户显式断言）。
 // 过滤、去重、落盘走 commitEntry。--force 只绕过代码密度与长度上限。
 // D1-B′：topic 必填，写入即覆盖同名活文档。
+// D2：不再写 `verified`——「用户亲口说的」由 source=manual + confidence 0.9 表达。
 import { openCtx } from '../core/ctx.js';
 import { autoCommit, commitEntry, metadataDrift, overCapNotice, vcsNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
@@ -36,7 +37,6 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       topic,
       source: 'manual',
       confidence: 0.9,
-      verified: true,
       // 三条写路径各自显式表态（beta.9 / T02）：CLI 默认拒绝超长内容，
       // --force 是唯一保留旧截断行为的出口——它是逃生口，不是默认。
       overCap: force ? 'truncate' : 'reject',

@@ -1,6 +1,7 @@
 // 检索引擎（B 阶段：内存扫描 + 确定性排序；规格 §8 / 重构方案 §12）。
 // 语料量级下暴力子串匹配是 1–2ms，不建倒排、不用 bm25：
-// 排序规则必须是可解释、可复算的——命中词数 → 置信度（stale × weight）→ verified → last_confirmed。
+// 排序规则必须是可解释、可复算的——命中词数 → 置信度（stale × weight）→ last_confirmed。
+// D2：`verified` 已删，排序里也没有它：信任只剩 confidence 一个数字。
 // 会话只搜 `## user` 证据域：assistant 段不能当证据，也不该出现在检索结果里。
 import type { OmemIndex, EntryRow } from './index.js';
 import { evidenceUserText, readStoredSession } from '../collect/session-store.js';
@@ -78,7 +79,6 @@ function rank(
   out.sort((a, b) => {
     if (b.hits !== a.hits) return b.hits - a.hits;
     if (b.score !== a.score) return b.score - a.score;
-    if (b.row.verified !== a.row.verified) return b.row.verified - a.row.verified;
     return (b.row.last_confirmed || '').localeCompare(a.row.last_confirmed || '');
   });
   return out;

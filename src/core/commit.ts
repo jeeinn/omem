@@ -35,7 +35,6 @@ export interface CommitInput {
   evidence?: string[];
   source: EntrySource;
   confidence: number;
-  verified: boolean;
   profile?: Profile;
   /**
    * 正文超过 `process.max_content_chars` 时怎么办。
@@ -379,7 +378,6 @@ export function commitEntry(
       profile,
       status: 'active',
       confidence: input.confidence,
-      verified: input.verified,
       source: input.source,
       session_id: input.session_id,
       project: input.project,

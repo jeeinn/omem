@@ -30,12 +30,11 @@ function write(input: {
   sourceSessions?: string[];
   supersedes?: string[];
 }): string {
-  const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+  const r = commitEntry(home, defaultConfig(), index, {
     content: input.content,
     type: 'fact',
     source: 'agent',
     confidence: 0.55,
-    verified: false,
     topic: input.topic,
     session_id: input.sessionId,
     source_sessions: input.sourceSessions,

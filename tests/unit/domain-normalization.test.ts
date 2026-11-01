@@ -83,7 +83,7 @@ describe('commitEntry: domain 字段本身也被净化', () => {
       home,
       defaultConfig(),
       index,
-      { content: '一条结论', type: 'fact', topic: 'domain-check', domain: 'Coding/../../x', source: 'agent', confidence: 0.55, verified: false },
+      { content: '一条结论', type: 'fact', topic: 'domain-check', domain: 'Coding/../../x', source: 'agent', confidence: 0.55 },
       { refreshIndex: false, refreshGuide: false },
     );
 

@@ -1,7 +1,7 @@
 // applyReviewDecisions：批量审阅决议（文档 docs/omem-review-ui设计方案.md §4.2）。
 //
 // 重点盯四件事：
-// 1. 分级落章——未读的 confirm 必须降级为 assent，且被限制的是 verified 不是分数；
+// 1. 分级落章——未读的 confirm 必须降级为 assent（被限制的是「过目」，不是分数）；
 // 2. 不整批回滚——单条失败记 skipped，其余照常；
 // 3. 顺序与不重复——outcomes 顺序与 decisions 一致，同批重复 id 只处理一次；
 // 4. 热层只重建一次——批量入口存在的理由之一。
@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe('applyReviewDecisions: confirm 与分级落章', () => {
-  it('read:true → verified, confidence 0.9, confirmations+1, last_confirmed 刷新', () => {
+  it('read:true → 过目：confidence 0.9, confirmations+1, last_confirmed 刷新', () => {
     add('2026-10-27-aaaaaa', '结论 A', { confidence: 0.55, last_confirmed: '2020-01-01T00:00:00.000Z' });
 
     const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-aaaaaa', action: 'confirm', read: true }]);
@@ -49,21 +49,19 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ status: 'ok', applied: 'confirm', requested: 'confirm' });
     const fm = fmOf('2026-10-27-aaaaaa');
-    expect(fm.verified).toBe(true);
     expect(fm.confidence).toBe(0.9);
     expect(fm.confirmations).toBe(1);
     expect(Date.parse(fm.last_confirmed)).toBeGreaterThan(Date.parse('2020-01-01T00:00:00.000Z'));
     expect(fm.tags).not.toContain('assent');
   });
 
-  it('read 缺失 → 降级为 assent：confidence 0.8、verified 仍 false、打 assent tag', () => {
+  it('read 缺失 → 降级为 assent：confidence 0.8、打 assent tag', () => {
     add('2026-10-27-bbbbbb', '结论 B', { confidence: 0.55 });
 
     const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-bbbbbb', action: 'confirm' }]);
 
     expect(out[0]).toMatchObject({ status: 'ok', requested: 'confirm', applied: 'assent' });
     const fm = fmOf('2026-10-27-bbbbbb');
-    expect(fm.verified).toBe(false);
     expect(fm.confidence).toBe(0.8);
     expect(fm.tags).toContain('assent');
   });
@@ -72,33 +70,31 @@ describe('applyReviewDecisions: confirm 与分级落章', () => {
     add('2026-10-27-cccccc', '结论 C', { confidence: 0.55 });
     const out = applyReviewDecisions(home, index, [{ topic: '2026-10-27-cccccc', action: 'confirm', read: false }]);
     expect(out[0].applied).toBe('assent');
-    expect(fmOf('2026-10-27-cccccc').verified).toBe(false);
+    expect(fmOf('2026-10-27-cccccc').confidence).toBe(0.8);
   });
 
-  it('requireReadForVerified:false → 未读也置 verified（CLI 显式确认路径）', () => {
+  it('requireReadForReview:false → 未读也算过目（CLI 显式确认路径）', () => {
     add('2026-10-27-dddddd', '结论 D', { confidence: 0.55 });
 
     const out = applyReviewDecisions(
       home,
       index,
       [{ topic: '2026-10-27-dddddd', action: 'confirm' }],
-      { requireReadForVerified: false },
+      { requireReadForReview: false },
     );
 
     expect(out[0].applied).toBe('confirm');
     const fm = fmOf('2026-10-27-dddddd');
-    expect(fm.verified).toBe(true);
     expect(fm.confidence).toBe(0.9);
   });
 
-  it('assent 是 max 语义：原本 0.9 的未验证条目保持 0.9，不被压到 0.8', () => {
+  it('assent 是 max 语义：原本 0.9 的条目保持 0.9，不被压到 0.8', () => {
     add('2026-10-27-eeeeee', '结论 E', { confidence: 0.9 });
 
     applyReviewDecisions(home, index, [{ topic: '2026-10-27-eeeeee', action: 'assent' }]);
 
     const fm = fmOf('2026-10-27-eeeeee');
     expect(fm.confidence).toBe(0.9);
-    expect(fm.verified).toBe(false);
     expect(fm.tags).toContain('assent');
   });
 
@@ -163,7 +159,7 @@ describe('applyReviewDecisions: 批量语义', () => {
 
     expect(out[0].status).toBe('ok');
     expect(out[1]).toMatchObject({ status: 'missing', applied: 'skipped' });
-    expect(fmOf('2026-10-27-mmmmmm').verified).toBe(true);
+    expect(fmOf('2026-10-27-mmmmmm').confirmations).toBeGreaterThan(0);
   });
 
   it('混合动作：各走各的路径，顺序与 decisions 一致', () => {
@@ -205,7 +201,7 @@ describe('applyReviewDecisions: 批量语义', () => {
 });
 
 describe('applyReviewDecisions: 热层重建', () => {
-  it('refreshIndex 默认开启：确认后 verified 条目排在 MEMORY-INDEX 最前', () => {
+  it('refreshIndex 默认开启：确认后高置信条目排在 MEMORY-INDEX 最前', () => {
     add('2026-10-27-r1', '甲结论');
     add('2026-10-27-r2', '乙结论');
     generateMemoryIndex(home, index);
@@ -226,7 +222,7 @@ describe('applyReviewDecisions: 热层重建', () => {
     });
 
     expect(readFileSync(files.memoryIndex(home), 'utf8')).toBe(before);
-    expect(fmOf('2026-10-27-s1').verified).toBe(true);
+    expect(fmOf('2026-10-27-s1').confidence).toBe(0.9);
   });
 });
 

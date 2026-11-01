@@ -151,18 +151,18 @@ describe('预算触发时：标记按会话计，恒等式成立', () => {
 });
 
 describe('消灭手写副本：规则句只从 instructions.ts 取', () => {
-  it('guide.ts 源码里 RULE_EVIDENCE / RULE_VERIFIED 的字面串出现 0 次', () => {
+  it('guide.ts 源码里 RULE_EVIDENCE / RULE_CONFIDENCE 的字面串出现 0 次', () => {
     const src = readFileSync(join(process.cwd(), 'src/process/guide.ts'), 'utf8');
     expect(src).not.toContain('at least 12 consecutive characters copied from a');
     expect(src).not.toContain('comes only from `omem add` or `omem review --confirm`');
     expect(src).toContain('RULE_EVIDENCE');
-    expect(src).toContain('RULE_VERIFIED');
+    expect(src).toContain('RULE_CONFIDENCE');
   });
 
   it('渲染产物里仍然含这两条规则（去重不是删掉）', () => {
     seq = 0;
     const text = renderGuide([group('local:ccc', refs(1))], 0, []);
     expect(text).toContain('copied from a `## user` section');
-    expect(text).toContain('comes only from `omem add` or `omem review --confirm`');
+    expect(text).toContain('is the only trust number');
   });
 });

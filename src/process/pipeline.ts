@@ -335,7 +335,6 @@ function commitDoc(
     session_id: item.sessionId,
     source: 'llm',
     confidence: scored.confidence,
-    verified: false,
     // pipeline 也不截断：LLM 产物超限说明这一份本身不合格，落半截比不落更危险。
     // 拒绝会进 report.excluded，由 run summary 说话。
     overCap: 'reject',

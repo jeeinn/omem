@@ -23,7 +23,6 @@ export interface EntryRow {
   status: string;
   source: string;
   confidence: number;
-  verified: number;
   session_id: string | null;
   project: string | null;
   source_sessions: string | null;
@@ -125,7 +124,6 @@ export class OmemIndex {
         status: fm.status,
         source: fm.source,
         confidence: fm.confidence,
-        verified: fm.verified ? 1 : 0,
         session_id: fm.session_id ?? null,
         project: fm.project ?? null,
         source_sessions: JSON.stringify(fm.source_sessions ?? []),

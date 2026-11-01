@@ -198,7 +198,7 @@ describe('score: 证据锚定与归一化（V15/V16/V17/V32）', () => {
     expect(viaApi.confidence).toBe(0.75);
   });
 
-  it('V17: API-doc confidence never exceeds the cap and stays unverified', () => {
+  it('V17: API-doc confidence never exceeds the cap and stays below the human-review cap', () => {
     seedSession('e3', '## user\nplease deploy the new release thanks\n\n## assistant\nok', '2026-10-20T10:05:00.000Z');
     index.catchUp();
     const r = scoreApiDoc(home, { sessionId: 'e3', evidence: ['please deploy the new release thanks'], content: 'x' }, index);
@@ -278,7 +278,7 @@ describe('extractWithApi: 响应校验（V31）', () => {
 });
 
 describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
-  it('V17: entry lands with confidence ≤0.75 and verified false', async () => {
+  it('V17: entry lands with confidence ≤0.75 and no human review', async () => {
     seedSession('s1', '## user\nplease deploy the new release thanks\n\n## assistant\nok', '2026-10-20T10:05:00.000Z');
     index.catchUp();
     const stub = await startStub(() => docReply([{ topic: 'release-doc', content: 'conclusion text', type: 'fact', domain: 'coding', evidence: ['please deploy the new release thanks'], tags: [] }]));
@@ -286,7 +286,7 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     const docs = activeEntry(['release-doc']);
     expect(docs).toHaveLength(1);
     expect(docs[0].entry.fm.confidence).toBeLessThanOrEqual(0.75);
-    expect(docs[0].entry.fm.verified).toBe(false);
+    expect(docs[0].entry.fm.confirmations).toBe(0);
     expect(docs[0].entry.fm.source).toBe('llm');
     expect(docs[0].entry.fm.evidence).toEqual(['please deploy the new release thanks']);
   });
@@ -397,7 +397,7 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     expect(String(dup[0].note)).toContain('skipped');
   });
 
-  it('omem review --confirm raises an API doc to 0.9 + verified (V19)', async () => {
+  it('omem review --confirm raises an API doc to 0.9 + confirmations=1 (V19)', async () => {
     seedSession('s1', '## user\nplease deploy the new release thanks\n\n## assistant\nok', '2026-10-20T10:05:00.000Z');
     index.catchUp();
     const stub = await startStub(() => docReply([{ topic: 'release-doc', content: 'conclusion text', type: 'fact', domain: 'coding', evidence: ['please deploy the new release thanks'], tags: [] }]));
@@ -414,6 +414,6 @@ describe('pipeline: 活文档提交（§7.3/§7.4 + O1）', () => {
     }
     const after = listEntries(home).find((l) => l.entry.fm.topic === id)!;
     expect(after.entry.fm.confidence).toBe(0.9);
-    expect(after.entry.fm.verified).toBe(true);
+    expect(after.entry.fm.confirmations).toBe(1);
   });
 });

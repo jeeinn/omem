@@ -1,5 +1,5 @@
 // omem review：短队列 + 按 topic 打开正文。
-// 默认只收「近 14 天写下的」和「置信度 ≤0.35 或带 ungrounded」的未确认活文档。
+// 默认只收「近 14 天写下的」和「置信度 ≤0.35 或带 ungrounded」的未过目活文档。
 // --confirm / --dismiss / --stale 仍是原来的三个动作；身份是 topic（D1-B′）。
 import { openCtx } from '../core/ctx.js';
 import { findTopicIndexed, listEntries, moveToArchive, updateTopic } from '../core/store.js';
@@ -20,9 +20,10 @@ function topicList(raw: string | undefined): string[] {
   return (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** 抽检队列：近两周的未确认文档，加上锚不上证据的（不随时间退出队列）。 */
+/** 抽检队列：近两周的未过目文档，加上锚不上证据的（不随时间退出队列）。 */
 export function inReviewInbox(fm: Frontmatter, now = Date.now()): boolean {
-  if (fm.verified || fm.status !== 'active') return false;
+  // D2：没有 `verified` 位了——「被人工过目过」= confirmations > 0。
+  if (fm.confirmations > 0 || fm.status !== 'active') return false;
   if (fm.confidence <= 0.35 || fm.tags.includes('ungrounded')) return true;
   const created = Date.parse(fm.created);
   if (!Number.isFinite(created)) return false;
@@ -75,12 +76,12 @@ async function reviewBody(
 
   if (confirmTopics.length > 0) {
     // 终端里敲 --confirm 是显式动作。没有「展开详情」的概念，所以不降级为 assent，
-    // 保持 verified=true / confidence=0.9 的既有语义。
+    // 保持 confidence=0.9 的既有语义。
     const outcomes = applyReviewDecisions(
       home,
       index,
       confirmTopics.map((topic) => ({ topic, action: 'confirm' as const })),
-      { requireReadForVerified: false },
+      { requireReadForReview: false },
     );
     const ok = outcomes.filter((o) => o.status === 'ok');
     const failed = outcomes.filter((o) => o.status !== 'ok');
@@ -89,7 +90,7 @@ async function reviewBody(
     }
     for (const o of ok) {
       const loc = findTopicIndexed(home, index, o.topic, { includeArchived: true });
-      console.log(`Confirmed: ${o.topic} (verified=true, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
+      console.log(`Reviewed: ${o.topic} (confidence ${o.confidence?.toFixed(2) ?? '?'}, confirmations=${loc?.entry.fm.confirmations ?? '?'})`);
     }
     if (confirmTopics.length > 1) {
       console.log(`Confirmed ${ok.length} of ${confirmTopics.length} entries.`);
@@ -120,14 +121,14 @@ async function reviewBody(
   if (openTopic) return showEntry(home, index, openTopic);
 
   const all = listEntries(home);
-  const unverified = all.filter((l) => !l.entry.fm.verified && l.entry.fm.status === 'active');
-  const inbox = unverified.filter((l) => inReviewInbox(l.entry.fm));
+  const unreviewed = all.filter((l) => l.entry.fm.confirmations === 0 && l.entry.fm.status === 'active');
+  const inbox = unreviewed.filter((l) => inReviewInbox(l.entry.fm));
 
   // D5：主题级策略（review.toml）已删除。队列只按「未过目 + 在时间窗口内或低置信」收，
   // 没有第二条静默通道——静默就是把「要不要看一眼」交给配置文件决定，那正是要删的东西。
   let queue = inbox;
   // 只统计 14 天窗口外的旧条目（「older」这个词必须准确）。
-  const olderParked = unverified.length - inbox.length;
+  const olderParked = unreviewed.length - inbox.length;
 
   const printSilenced = (): void => { /* 策略已删，保留调用点以免大改结构 */ };
   const source = flagStr(args.flags, 'source');
@@ -145,7 +146,7 @@ async function reviewBody(
       console.log('Queue is empty.');
       printSilenced();
       if (!source && !topic && olderParked > 0) {
-        console.log(`${olderParked} older unverified ${olderParked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
+        console.log(`${olderParked} older unreviewed ${olderParked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
       }
       return 0;
     }

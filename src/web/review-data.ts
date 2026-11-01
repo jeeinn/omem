@@ -31,7 +31,8 @@ export interface ReviewItem {
   domain: string;
   source: string;
   confidence: number;
-  verified: boolean;
+  /** 是否被人工过目过（D2：替代已删除的 `verified` 布尔位）。 */
+  reviewed: boolean;
   created: string;
   title: string;
   summary: string;
@@ -158,7 +159,7 @@ export function buildReviewItem(home: string, loc: Located, index?: OmemIndex): 
     domain: fm.domain,
     source: fm.source,
     confidence: fm.confidence,
-    verified: fm.verified,
+    reviewed: (fm.confirmations ?? 0) > 0,
     created: fm.created,
     title: deriveTitle(body),
     summary: deriveSummary(body, 160),

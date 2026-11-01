@@ -83,10 +83,12 @@ export async function cmdTopics(args: ParsedArgs): Promise<number> {
     if (sub === 'rename') return cmdTopicsRename(ctx, args, dryRun);
 
     const all = listEntries(ctx.home, { includeArchived: true });
-    const active = all.filter((l) => l.entry.fm.status === 'active');
+    // 词表要含冷却（stale）的主题：它仍是活文档，只是不再「新鲜」。
+    // 把 cooled 的主题藏起来，用户就会再造一个近重复的 topic——那正是这个命令要防的事。
+    const living = all.filter((l) => l.entry.fm.status !== 'archived');
 
     const groups = new Map<string, Located[]>();
-    for (const loc of active) {
+    for (const loc of living) {
       const name = loc.entry.fm.topic;
       const list = groups.get(name);
       if (list) list.push(loc);
@@ -111,7 +113,7 @@ export async function cmdTopics(args: ParsedArgs): Promise<number> {
       return 0;
     }
 
-    console.log(`${rows.length} topic(s) · ${active.length} living document(s)`);
+    console.log(`${rows.length} topic(s) · ${living.length} living document(s)`);
     console.log('');
     console.log(`${'TOPIC'.padEnd(NAME_WIDTH)}PROJECT  LAST        CONF  TITLE`);
     for (const r of rows) {

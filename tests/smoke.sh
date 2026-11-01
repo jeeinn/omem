@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# omem V0.1 端到端冒烟（对应已归档的实施计划 §6.1 的 S1–S14，另加 S15 supersede）。
+# omem v0.2 端到端冒烟：13 条命令面 + topic 即身份 + 置信度五档。
 # 全程使用隔离的 OMEM_HOME 与合成 fixture，不触碰真实 ~/.omem。
+#
+# 2026-11-01 重写：v0.2 的命令面与语义都变了（rebuild→verify、gc→review --gc、
+# snapshot→backup、context 已删、add 必带 --topic、supersede 已删）。
+# 旧脚本还在测「删掉的命令」，它绿了也说明不了任何事。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OMEM=(node "$ROOT/bin/omem.js")
-# 每次运行用独立的 home：Windows 上 `rm -rf .omem-test` 会因为遗留的 omem.db 句柄
-# 静默失败（脚本没有 set -e），于是上一轮的 knowledge/ 会被 init 重新收进索引，
-# 下一步的写入就撞上 content-hash 去重，报成「save_memory first save ✗」这种
-# 与改动毫不相关的假失败。用 run-scoped 路径，残留就影响不到本轮。
+# 每次运行用独立的 home：Windows 上残留文件会让下一轮的 knowledge/ 撞上 content-hash
+# 去重，报成「save_memory first save ✗」这种与改动毫不相关的假失败。
 RUN_ID="$(date +%s)-$$"
 rm -rf "$ROOT/.omem-test" 2>/dev/null
 export OMEM_HOME="$ROOT/.omem-test/home-$RUN_ID"
@@ -42,8 +44,8 @@ ok()  { PASS=$((PASS+1)); echo "  ✓ $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  ✗ $1"; }
 run() { "${OMEM[@]}" "$@" 2>&1; }
 
-echo "== S1 omem init --no-scan =="
-OUT=$(run init --no-scan); CODE=$?
+echo "== S1 omem init =="
+OUT=$(run init); CODE=$?
 [ $CODE -eq 0 ] && ok "exit code 0" || bad "exit code $CODE: $OUT"
 [ -f "$OMEM_HOME/config.toml" ] && ok "config.toml generated" || bad "config.toml missing"
 [ -d "$OMEM_HOME/knowledge" ] && ok "knowledge/ generated" || bad "knowledge/ missing"
@@ -51,41 +53,51 @@ OUT=$(run init --no-scan); CODE=$?
 [ -d "$OMEM_HOME/.git" ] && ok "git data repo initialized" || bad "git data repo missing"
 [ -f "$OMEM_HOME/MEMORY-INDEX.md" ] && ok "MEMORY-INDEX.md generated" || bad "MEMORY-INDEX.md missing"
 
-echo "== S2 omem add + search (≥3-char trigram) =="
-OUT=$(run add "本项目使用 Postgres 而非 MySQL 作为主数据库"); CODE=$?
+echo "== S2 omem add --topic + search =="
+OUT=$(run add "本项目使用 Postgres 而非 MySQL 作为主数据库" --topic postgres-db); CODE=$?
 [ $CODE -eq 0 ] && ok "add exit code 0" || bad "add exit code $CODE: $OUT"
-OUT=$(run search "Postgres 而非"); CODE=$?
+echo "$OUT" | grep -q "Saved topic: postgres-db" && ok "add reports the topic (identity = filename)" || bad "add did not report the topic: $OUT"
+[ -f "$OMEM_HOME/knowledge/coding/postgres-db.md" ] && ok "living document written at knowledge/<domain>/<topic>.md" || bad "living document path wrong"
+OUT=$(run search "而非 mysql"); CODE=$?
 [ $CODE -eq 0 ] && ok "search exit code 0" || bad "search exit code $CODE"
-echo "$OUT" | grep -q "Postgres" && ok "multi-word trigram hit" || bad "multi-word trigram miss: $OUT"
-echo "$OUT" | grep -q "confirmed" && ok "output carries freshness label" || bad "output missing freshness label"
+# 注意：断言要用「正文里才有、查询里没有」的词。零结果文案会回显查询词，
+# 拿查询词本身去 grep，命中与否都说明不了任何事。
+echo "$OUT" | grep -q "主数据库" && ok "multi-word hit" || bad "multi-word miss: $OUT"
+echo "$OUT" | grep -q 'topic `postgres-db`' && ok "the hit line carries the topic" || bad "hit line has no topic: $OUT"
+echo "$OUT" | grep -q "not reviewed" && ok "output carries the freshness label" || bad "output missing freshness label: $OUT"
 
-echo "== S2b auto commit (T05: 一次写入一个 commit) =="
+echo "== S2b add 缺 --topic 必须被拒（topic 是身份，不是可选元数据）=="
+OUT=$(run add "没有主题的随手记"); CODE=$?
+[ $CODE -eq 1 ] && ok "missing --topic rejected with exit 1" || bad "missing --topic exit $CODE (expected 1): $OUT"
+
+echo "== S2c auto commit (一次写入一个 commit) =="
 COMMITS=$(git -C "$OMEM_HOME" rev-list --count HEAD 2>/dev/null || echo 0)
 [ "$COMMITS" -ge 2 ] && ok "omem add produced a commit (init + add = $COMMITS)" || bad "no commit after add (count $COMMITS)"
 DIRTY=$(git -C "$OMEM_HOME" status --porcelain | wc -l | tr -d ' ')
 [ "$DIRTY" -eq 0 ] && ok "working tree clean after add (auto commit flushed it)" || bad "$DIRTY file(s) left uncommitted after add"
 
-echo "== S3 short query LIKE fallback (trigram invalid for <3 chars) =="
+echo "== S3 short query fallback (<3 chars) =="
 OUT=$(run search "库")
-echo "$OUT" | grep -q "Postgres" && ok "single-char query LIKE fallback hit" || bad "single-char query miss: $OUT"
+echo "$OUT" | grep -q "Postgres" && ok "single-char query hit" || bad "single-char query miss: $OUT"
 
-echo "== S4 external edit → catch-up (spec §2.3, detected on next access) =="
+echo "== S4 external edit → catch-up (改 md 后下次调用可见) =="
 F=$(find "$OMEM_HOME/knowledge" -name '*.md' | head -1)
 echo "" >> "$F"; echo "外部编辑标记 handedit-marker-123 由 Obsidian 追加" >> "$F"
 OUT=$(run search "handedit-marker-123")
-echo "$OUT" | grep -q "handedit-marker-123" && ok "external edit absorbed by catch-up" || bad "external edit not absorbed: $OUT"
+echo "$OUT" | grep -q "Obsidian 追加" && ok "external edit absorbed" || bad "external edit not absorbed: $OUT"
 
-echo "== S5 delete index → rebuild full recovery =="
-rm -f "$OMEM_HOME/index/omem.db"
-OUT=$(run rebuild); CODE=$?
-[ $CODE -eq 0 ] && ok "rebuild exit code 0" || bad "rebuild exit code $CODE: $OUT"
-echo "$OUT" | grep -q "Index fully rebuilt" && ok "rebuild reports output" || bad "rebuild report missing"
-OUT=$(run search "Postgres 而非")
-echo "$OUT" | grep -q "Postgres" && ok "search recovered after rebuild" || bad "search not recovered after rebuild"
+echo "== S5 omem verify (从 md 重建内存视图 + 重渲染 MEMORY-INDEX) =="
+rm -f "$OMEM_HOME/MEMORY-INDEX.md"
+OUT=$(run verify); CODE=$?
+[ $CODE -eq 0 ] && ok "verify exit code 0" || bad "verify exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Index fully rebuilt" && ok "verify reports the rebuild" || bad "verify report missing: $OUT"
+[ -f "$OMEM_HOME/MEMORY-INDEX.md" ] && ok "MEMORY-INDEX.md regenerated" || bad "MEMORY-INDEX.md not regenerated"
+OUT=$(run search "而非 mysql")
+echo "$OUT" | grep -q "主数据库" && ok "search recovered after verify" || bad "search not recovered after verify"
 
-echo "== S6 omem sync (ingest transcripts; rules tier removed) =="
+echo "== S6 omem sync (采集会话原文，不抽结论) =="
 OUT=$(run sync); CODE=$?
-[ $CODE -eq 0 ] && ok "sync collect exit code 0" || bad "sync exit code $CODE: $OUT"
+[ $CODE -eq 0 ] && ok "sync exit code 0" || bad "sync exit code $CODE: $OUT"
 echo "$OUT" | grep -q "Summary" && ok "sync prints a summary" || bad "summary missing: $OUT"
 find "$OMEM_HOME/sessions" -name '*.md' | grep -q . && ok "session file written" || bad "no session file"
 if grep -rq "source: rules" "$OMEM_HOME/knowledge" 2>/dev/null; then bad "rule fragments written"; else ok "no rule fragments"; fi
@@ -93,6 +105,7 @@ if grep -rq "sk-ant-abc123" "$OMEM_HOME/sessions" 2>/dev/null; then bad "secrets
 grep -rq "REDACTED" "$OMEM_HOME/sessions" 2>/dev/null && ok "redaction marker written" || bad "redaction marker missing"
 if grep -rq "sidechain-marker-xyz" "$OMEM_HOME/sessions" 2>/dev/null; then bad "sidechain not filtered"; else ok "sidechain sub-agent entries filtered"; fi
 if grep -rq "会话摘要" "$OMEM_HOME/sessions" 2>/dev/null; then bad "summary not filtered"; else ok "summary entries filtered"; fi
+
 echo "== S6c PROCESS.md: 预算 / 行数 / 会话行不带绝对路径 =="
 GUIDE="$OMEM_HOME/PROCESS.md"
 [ -f "$GUIDE" ] && ok "PROCESS.md generated" || bad "PROCESS.md missing"
@@ -101,16 +114,14 @@ GBYTES=$(wc -c < "$GUIDE" | tr -d ' ')
 [ "$GBYTES" -le 45000 ] && ok "PROCESS.md within the 45000 B budget ($GBYTES)" || bad "PROCESS.md over budget: $GBYTES"
 # 注意：这里必须用 grep -F。本机 Git-Bash 的 BRE 会把 '\\' 解释掉，`grep -c 'C:\Users'`
 # 对含 551 条盘符路径的文件也返回 0 —— 那是假阴性（QA 2026-10-29 实测）。
-# 断言只作用在「会话行」上：`## X:\ai-dev` 这类 project_fp 是数据，不是冗余路径。
 SESS_LINES=$(grep -cF '  - `' "$GUIDE" || true)
 SESS_WITH_DRIVE=$(grep -F '  - `' "$GUIDE" | grep -cF ':\' || true)
 [ "${SESS_WITH_DRIVE:-0}" -eq 0 ] && ok "no drive letters in session lines (grep -F, $SESS_LINES line(s))" || bad "$SESS_WITH_DRIVE session line(s) carry a drive letter"
-# 行数不减：fixture 的那份会话必须在清单里（不是被预算藏起来）
 [ "${SESS_LINES:-0}" -ge 1 ] && ok "the pending fixture session is listed" || bad "no session line rendered"
 grep -qF 'hidden by the size budget' "$GUIDE" && bad "budget tripped on the smoke fixture (should fit)" || ok "no degradation on the smoke fixture"
 
-BAD=$(run sync --tier rules); CODE=$?
-[ $CODE -eq 1 ] && ok "tier rules rejected" || bad "tier rules exit $CODE: $BAD"
+OUT=$(run sync --tier rules); CODE=$?
+[ $CODE -eq 1 ] && ok "tier rules rejected (exit 1)" || bad "tier rules exit $CODE (expected 1): $OUT"
 
 echo "== S6b isolation self-check (no real session directories were read) =="
 # 采集产物只能来自 claude-code fixture——其余采集器都指向空目录。
@@ -121,38 +132,35 @@ if [ -z "$STRAY" ]; then ok "no stray agent directories in sessions/"; else bad 
 NFILES=$(find "$OMEM_HOME/sessions" -name '*.md' | wc -l | tr -d ' ')
 [ "$NFILES" = "1" ] && ok "exactly 1 session ingested (fixture only)" || bad "expected 1 session file, got $NFILES"
 
-echo "== S7 omem review --confirm =="
-RID=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1 | xargs basename | sed 's/\.md$//')
-OUT=$(run review --confirm "$RID"); CODE=$?
+echo "== S7 omem review --confirm（人工过目 → confidence 0.90）=="
+OUT=$(run review --confirm postgres-db); CODE=$?
 [ $CODE -eq 0 ] && ok "confirm exit code 0" || bad "confirm exit code $CODE: $OUT"
-echo "$OUT" | grep -q "Confirmed" && ok "confirm takes effect" || bad "confirm not effective"
-F=$(find "$OMEM_HOME/knowledge" -name "$RID.md")
-grep -q "verified: true" "$F" && ok "verified promotion written" || bad "verified not promoted"
+echo "$OUT" | grep -q "Reviewed" && ok "confirm takes effect" || bad "confirm not effective: $OUT"
+F="$OMEM_HOME/knowledge/coding/postgres-db.md"
+grep -q "^confidence: 0.9$" "$F" && ok "confidence raised to 0.9" || bad "confidence not raised: $(grep '^confidence' "$F")"
+grep -q "^confirmations: 1$" "$F" && ok "confirmations incremented" || bad "confirmations not incremented"
+grep -q "^verified" "$F" && bad "the verified field is still on disk (D2: it must be gone)" || ok "no verified field on disk (D2)"
 
-echo "== S8 omem gc (mark stale only) =="
-F=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1)
-sed -i 's/^last_confirmed:.*/last_confirmed: 2026-01-01T00:00:00.000Z/' "$F"
-OUT=$(run gc); CODE=$?
+echo "== S8 omem review --gc（只标 stale，不删）=="
+sed -i 's/^last_confirmed:.*/last_confirmed: 2020-01-01T00:00:00.000Z/' "$F"
+OUT=$(run review --gc --days 1); CODE=$?
 [ $CODE -eq 0 ] && ok "gc exit code 0" || bad "gc exit code $CODE: $OUT"
 echo "$OUT" | grep -qE "marked [1-9] stale" && ok "gc marks stale" || bad "gc did not mark: $OUT"
-grep -q "status: stale" "$F" && ok "stale written" || bad "stale not written"
+grep -q "^status: stale$" "$F" && ok "stale written" || bad "stale not written"
+[ -f "$F" ] && ok "the file is still there (nothing deleted)" || bad "the file was deleted (gc must never delete)"
+run review --confirm postgres-db >/dev/null
 
-echo "== S9 omem context --for =="
-OUT=$(run context --for claude-code); CODE=$?
-[ $CODE -eq 0 ] && ok "claude-code export exit code 0" || bad "exit code $CODE: $OUT"
-echo "$OUT" | grep -q "MEMORY-INDEX" && ok "claude-code exports INDEX" || bad "claude-code export abnormal"
-OUT=$(run context --for cursor)
-echo "$OUT" | grep -q "alwaysApply: true" && ok "cursor .mdc export" || bad "cursor export abnormal"
-echo "$OUT" | grep -q "OMEM:INSTRUCTIONS:START" && ok "cursor export carries instructions" || bad "instructions section missing"
-OUT=$(run context --for codex)
-echo "$OUT" | grep -q "OMEM:START" && ok "codex AGENTS.md section export" || bad "codex export abnormal"
+echo "== S9 omem topics list（主题词表）=="
+OUT=$(run topics list); CODE=$?
+[ $CODE -eq 0 ] && ok "topics exit code 0" || bad "topics exit code $CODE: $OUT"
+echo "$OUT" | grep -q "postgres-db" && ok "the topic shows up in the vocabulary" || bad "topic missing from the list: $OUT"
 
 echo "== S10 omem backup (no remote → local commit) =="
 OUT=$(run backup status); CODE=$?
 [ $CODE -eq 0 ] && ok "backup status exit code 0" || bad "exit code $CODE: $OUT"
 echo "$OUT" | grep -q "Backend: git" && ok "git backend status" || bad "backend status abnormal: $OUT"
 OUT=$(run backup); CODE=$?
-[ $CODE -eq 0 ] && ok "backup exit code 0" || bad "backup exit code $CODE: $OUT"
+[ $CODE -eq 0 ] && ok "backup exit code 0" || bad "exit code $CODE: $OUT"
 echo "$OUT" | grep -q "No remote configured" && ok "local commit and note when no remote" || bad "no-remote note missing: $OUT"
 OUT=$(run backup status)
 echo "$OUT" | grep -q "Ahead: 0" && ok "nothing to push after commit" || bad "still ahead: $OUT"
@@ -160,66 +168,47 @@ echo "$OUT" | grep -q "Ahead: 0" && ok "nothing to push after commit" || bad "st
 echo "== S11 work profile rejects backup (exit code 2) =="
 run profile use work >/dev/null
 OUT=$(run backup); CODE=$?
-[ $CODE -eq 2 ] && ok "work profile rejects sync" || bad "exit code $CODE (expected 2)"
-echo "$OUT" | grep -q "work profile" && ok "actionable hint given" || bad "hint missing"
+[ $CODE -eq 2 ] && ok "work profile rejects backup" || bad "exit code $CODE (expected 2)"
+echo "$OUT" | grep -q "work profile" && ok "actionable hint given" || bad "hint missing: $OUT"
 run profile use home >/dev/null
 
-echo "== S12 omem redact (the only hard delete) =="
-F2=$(grep -rl "Postgres" "$OMEM_HOME/knowledge" | head -1)
-ID2=$(basename "$F2" .md)
-OUT=$(run redact --id "$ID2"); CODE=$?
+echo "== S12 omem redact --topic（唯一硬删）=="
+run add "待硬删的条目 redact-target-marker" --topic redact-target >/dev/null
+F2=$(find "$OMEM_HOME/knowledge" -name 'redact-target.md')
+[ -n "$F2" ] && ok "the document was written" || bad "document not written"
+OUT=$(run redact --topic redact-target); CODE=$?
 [ $CODE -eq 0 ] && ok "redact exit code 0" || bad "redact exit code $CODE: $OUT"
 [ ! -f "$F2" ] && ok "file deleted" || bad "file not deleted"
-OUT=$(run search "Postgres 而非")
-if echo "$OUT" | grep -q "主数据库"; then bad "index entry not removed"; else ok "index entry removed"; fi
+OUT=$(run search "待硬删")
+if echo "$OUT" | grep -q "redact-target-marker"; then bad "index entry not removed"; else ok "index entry removed"; fi
 
-echo "== S13 omem snapshot (rolling retention) =="
-OUT=$(run snapshot); CODE=$?
-[ $CODE -eq 0 ] && ok "snapshot exit code 0" || bad "exit code $CODE: $OUT"
-ls "$OMEM_HOME/snapshots" 2>/dev/null | grep -q "$(date +%Y-%m-%d)" && ok "today's snapshot created" || bad "snapshot missing"
+echo "== S13 同 topic 再写一次 = 覆盖（一份活文档，git 留历史）=="
+run add "第一版内容 overwrite-demo-v1" --topic overwrite-demo >/dev/null
+OUT=$(run add "第二版内容 overwrite-demo-v2" --topic overwrite-demo); CODE=$?
+[ $CODE -eq 0 ] && ok "second write exit code 0" || bad "second write exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Updated topic: overwrite-demo" && ok "the second write updates the same document" || bad "not reported as an update: $OUT"
+NFILES=$(find "$OMEM_HOME/knowledge" -name 'overwrite-demo.md' | wc -l | tr -d ' ')
+[ "$NFILES" = "1" ] && ok "exactly 1 living document for the topic" || bad "$NFILES files for one topic"
+OUT=$(run search "第二版内容")
+echo "$OUT" | grep -q "overwrite-demo-v2" && ok "the new body is searchable" || bad "new body not searchable: $OUT"
 
 echo "== S14 MCP probe (handshake + tool calls) =="
-run add "这个项目以后都用手写 SQL" --type preference >/dev/null
+run add "这个项目以后都用手写 SQL" --topic sql-policy >/dev/null
 OUT=$(node "$ROOT/tests/mcp-probe.mjs" "$ROOT/bin/omem.js"); CODE=$?
 [ $CODE -eq 0 ] && ok "MCP handshake and tool calls all pass" || { bad "MCP probe failed"; echo "$OUT" | sed 's/^/    /'; }
 
-echo "== S15 supersede explicit entry =="
-OUT=$(run add "S15旧约定使用本地磁盘保存日志 s15-old-marker")
-OLD=$(printf '%s\n' "$OUT" | sed -n 's/^Saved id: //p' | head -1)
-[ -n "$OLD" ] && ok "old entry id=$OLD" || bad "failed to parse old id: $OUT"
-OUT=$(run add "S15新约定日志改走标准输出 s15-new-marker" --supersedes "$OLD")
-echo "$OUT" | grep -q "Supersedes" && ok "add --supersedes declares supersession" || bad "supersession not declared: $OUT"
-OUT=$(run search "s15-old-marker")
-echo "$OUT" | grep -q "No memories found" && ok "default search excludes superseded" || bad "default search still returns old entry: $OUT"
-OUT=$(run search "s15-old-marker" --all)
-echo "$OUT" | grep -q "s15-old-marker" && ok "--all brings back superseded" || bad "--all did not bring back: $OUT"
-OUT=$(run search "s15-new-marker")
-echo "$OUT" | grep -q "s15-new-marker" && ok "new entry still searchable" || bad "new entry not hit: $OUT"
-REV=$(run review)
-# review 的候选行是 "  <id>  <conf>  <source>  <topic>"（896bd19 精简后不再有反引号）
-CAND=$(printf '%s\n' "$REV" | sed -n 's/^[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}-[0-9a-f]\{6\}\)[[:space:]].*/\1/p' | head -1)
-if [ -n "$CAND" ]; then
-  OUT=$(run review --confirm "$CAND" --supersedes "$OLD")
-  echo "$OUT" | grep -q "Confirmed" && ok "review --confirm --supersedes confirms" || bad "review not confirmed: $OUT"
-  echo "$OUT" | grep -q "Superseded" && ok "review declares supersession" || bad "review did not supersede: $OUT"
-else
-  bad "review queue empty, cannot verify --supersedes"
-fi
-
-echo "== S16 redact --source previews first, --yes deletes =="
-run add "S16 批量删除确认 s16-batch-marker" >/dev/null
+echo "== S15 redact --source 先预览，--yes 才删 =="
+run add "S15 批量删除确认 s15-batch-marker" --topic batch-delete >/dev/null
 OUT=$(run redact --source manual)
 echo "$OUT" | grep -q "Dry run" && ok "previews by default" || bad "no dry-run output: $OUT"
-grep -rq "s16-batch-marker" "$OMEM_HOME/knowledge" 2>/dev/null && ok "nothing deleted without --yes" || bad "deleted without --yes"
+grep -rq "s15-batch-marker" "$OMEM_HOME/knowledge" 2>/dev/null && ok "nothing deleted without --yes" || bad "deleted without --yes"
 echo "$OUT" | grep -q -- "--yes" && ok "re-run command shown" || bad "no re-run hint"
 OUT=$(run redact --source manual --yes)
 echo "$OUT" | grep -q "Hard deleted" && ok "--yes performs the delete" || bad "--yes did not delete: $OUT"
 OUT=$(run redact --source llm)
 echo "$OUT" | grep -q "No entries match" && ok "zero matches is a no-op" || bad "unexpected zero-match output: $OUT"
 
-echo "== S17 (V12) backup warns about non-empty [api].key before any git action =="
-# D9 的扫描挂在 git 路径上（omem backup），不在采集路径（omem sync）——
-# c1c9df8 改名后二者是分开的命令。
+echo "== S16 backup 在任何 git 动作前警告非空 [api].key =="
 sed -i 's/^key = ""$/key = "sk-smoke-guard"/' "$OMEM_HOME/config.toml"
 OUT=$(run backup); CODE=$?
 [ $CODE -eq 0 ] && ok "backup with key in config exits 0" || bad "exit code $CODE: $OUT"

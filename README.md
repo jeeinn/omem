@@ -39,7 +39,7 @@ V0.1，公开测试版 `0.1.0-beta.7`（`npm install -g @jeeinn/omem@beta`）。
 
 ## 环境
 
-- Node.js ≥ 22.5（内建 `node:sqlite`，无需原生编译）
+- Node.js ≥ 22.5（无数据库、无原生编译；检索索引是从 Markdown 派生的内存视图）
 - git（仅 `omem backup` 需要；没有 git 时给出安装提示，不抛栈）
 
 唯一需要原生二进制的依赖是 `@toondepauw/node-zstd`——DeepSeek Harness 的会话是 zstd 压缩的，采集时要解压。它提供预编译包（Windows / macOS / Linux，x64 与 arm64），不需要本地编译工具链。

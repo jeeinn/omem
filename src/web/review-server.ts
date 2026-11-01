@@ -3,7 +3,7 @@
 // 设计约束（文档 docs/omem-review-ui设计方案.md §4.4-4.5）：
 // - 三个端点全部校验 token。detail 返回正文，漏校验等于本机任意进程可读全部记忆。
 // - 「已阅」只由服务端在 GET /api/detail/:id 成功时记录。前端改动不了它，
-//   这是 verified 门槛的唯一真源。
+//   这是「过目才算数」的唯一真源。
 // - 提交只接受一次；重复 POST 返回 409，避免用户双击造成二次写入。
 // - 写盘由调用方通过 onApply 注入（命令层负责 snapshot 前置），服务本身不直接写。
 import { createServer } from 'node:http';
@@ -19,7 +19,11 @@ import type { ReviewItem, SessionPathIndex } from './review-data.js';
 import { renderReviewPage } from './review-page.js';
 
 const ACTIONS: ReviewAction[] = ['confirm', 'assent', 'dismiss', 'stale'];
-const ID_RE = /^[0-9A-Za-z-]{1,64}$/;
+/**
+ * 身份 = topic（D1-B′）。字符集要含 CJK：topic 可以是中文，
+ * 只放行 ASCII 会让中文主题的详情请求直接 400。
+ */
+const ID_RE = /^[\p{L}\p{N}_-]{1,64}$/u;
 const DEFAULT_TIMEOUT_MS = 600_000;
 
 export interface SubmitResult {

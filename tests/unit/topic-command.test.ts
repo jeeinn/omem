@@ -28,7 +28,7 @@ afterEach(() => {
 
 function seed(topic: string, fm: Partial<Frontmatter> = {}, body = `正文 ${topic}`): string {
   const entry = {
-    fm: newFrontmatter({ topic, type: 'fact', domain: 'coding', verified: true, confidence: 0.9, ...fm }),
+    fm: newFrontmatter({ topic, type: 'fact', domain: 'coding', confidence: 0.9, ...fm }),
     body,
   };
   const { path, content } = writeEntry(home, entry);

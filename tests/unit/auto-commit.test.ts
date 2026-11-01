@@ -135,7 +135,6 @@ describe('非 git 仓库：静默跳过 + 回执给 warning', () => {
       type: 'fact',
       source: 'manual',
       confidence: 0.9,
-      verified: true,
       overCap: 'reject',
     });
     expect(r.status).toBe('written');
@@ -198,9 +197,9 @@ describe('P1-B 写入台账：写过的都提交、没写过的不碰', () => {
   it('PROCESS.md（已跟踪但被 ignore）+ 结论 + 热层索引全部提交，提交后工作区为空', () => {
     initRepoWithTrackedGuide();
     beginWriteJournal();
-    const r = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+    const r = commitEntry(home, defaultConfig(), index, {
       content: '台账测试：写入的每个文件都要进提交 journal-marker-1',
-      type: 'fact', topic: 'journal-topic', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
+      type: 'fact', topic: 'journal-topic', source: 'agent', confidence: 0.55, overCap: 'reject',
     });
     const touched = endWriteJournal();
     // 台账必须覆盖：结论文件 + MEMORY-INDEX.md + PROCESS.md
@@ -226,7 +225,7 @@ describe('P1-B 写入台账：写过的都提交、没写过的不碰', () => {
     beginWriteJournal();
     commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
       content: '台账测试：只提交自己写过的 journal-marker-2',
-      type: 'fact', source: 'agent', confidence: 0.55, verified: false, overCap: 'reject',
+      type: 'fact', source: 'agent', confidence: 0.55, overCap: 'reject',
     });
     const vcs = autoCommit(home, defaultConfig(), 'omem: save test 2', endWriteJournal());
 

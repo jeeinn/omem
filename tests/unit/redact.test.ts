@@ -27,7 +27,6 @@ function write(content: string, source: 'rules' | 'manual') {
     type: 'fact',
     source,
     confidence: source === 'manual' ? 0.9 : 0.4,
-    verified: source === 'manual',
   });
 }
 

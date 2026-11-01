@@ -9,12 +9,16 @@ import type { Frontmatter } from './entry.js';
 import { deriveTitle, serializeEntry } from './entry.js';
 import { relTime, truncate, atomicWrite, nowIso } from './util.js';
 
-/** 时效标注（规格 §4.4）：把事实和时效一起给消费者，把判断权交给它。 */
+/** 时效标注（规格 §4.4）：把事实和时效一起给消费者，把判断权交给它。
+ *
+ * D2：不再有 `verified` 分支——「过目」由 `confirmations > 0` 表达（人工过目后 confidence = 0.9）。
+ * 未过目的条目照实说「not reviewed」，而不是假装它没被记录过。
+ */
 export function formatStaleness(fm: Frontmatter): string {
   if (fm.status === 'archived') return '— archived';
-  if (fm.verified) return `— confirmed ${relTime(fm.last_confirmed)}`;
-  if (fm.status === 'stale') return `— recorded ${relTime(fm.created)}, not reconfirmed (cooled)`;
-  return `— recorded ${relTime(fm.created)}, unconfirmed`;
+  if (fm.confirmations > 0) return `— reviewed ${relTime(fm.last_confirmed)}`;
+  if (fm.status === 'stale') return `— recorded ${relTime(fm.created)}, not reviewed (cooled)`;
+  return `— recorded ${relTime(fm.created)}, not reviewed`;
 }
 
 /** gc：只标记 stale，只报告不删除（规格 §4.2/§7）。 */
@@ -47,11 +51,14 @@ export function gcScan(
   return { marked, total };
 }
 
-/** 确认刷新（规格 §4.2-2）：被 detail 取用或 review 确认时刷新 last_confirmed。 */
+/** 确认刷新（规格 §4.2-2）：被 detail 取用或 review 确认时刷新 last_confirmed。
+ *
+ * D2：不再置 `verified`。过目的产出物是 confidence=0.9 + confirmations 递增 + last_confirmed 刷新，
+ * 三者都能被复算，「过目」不再是一个会随时间漂移的布尔标记。
+ */
 export function reconfirm(home: string, index: OmemIndex, topic: string): Located | null {
   const updated = updateTopic(home, topic, (fm: Frontmatter) => {
-    fm.verified = true;
-    fm.confidence = 0.9;
+    fm.confidence = REVIEW_CAP;
     fm.last_confirmed = nowIso();
     fm.confirmations += 1;
   });
@@ -59,15 +66,19 @@ export function reconfirm(home: string, index: OmemIndex, topic: string): Locate
   return updated;
 }
 
+/** 人工过目后的置信度。与 process/score.ts 的 SCORE_CONFIRMED 同值同义；
+ * 分开定义是为了避免 core ↔ process 循环依赖。 */
+export const REVIEW_CAP = 0.9;
+
 /** 自动产出上限。与 process/score.ts 的 SCORE_AUTO_CAP 同值同义；分开定义是为了避免 core ↔ process 循环依赖。 */
 export const ASSENT_CAP = 0.8;
 
 /**
- * 对话里的一次「同意」（assent）：分数提底到自动上限，verified 保持原样。
- * omem 看不到聊天记录，不能据此把条目标成已确认。
+ * 对话里的一次「同意」（assent）：分数提底到自动上限（0.8）。
+ * omem 看不到聊天记录，不能据此把条目算作人工过目——过目只发生在 `omem review`。
  *
- * confidence 是 max 语义（只升不降）：一条已经是 0.9 但未 verified 的条目，
- * assent 之后仍是 0.9。被限制的是 verified，不是分数。
+ * confidence 是 max 语义（只升不降）：一条已经是 0.9 的条目，assent 之后仍是 0.9。
+ * 被限制的是「自动产出的上限」，不是分数。
  *
  * opts.refreshIndex 默认 true（保持 save_memory 的既有行为）；批量调用方传 false，
  * 由调用方在整批结束后统一重建一次热层。
@@ -121,12 +132,13 @@ export interface ReviewOutcome {
   status: 'ok' | 'skipped' | 'missing';
   reason?: string;
   confidence?: number;
-  verified?: boolean;
+  /** 是否被人工过目过（D2：替代已删除的 `verified` 布尔位）。 */
+  reviewed?: boolean;
 }
 
 export interface ApplyReviewOpts {
   /** 未读的 confirm 是否降级为 assent。默认 true（--ui 用）；CLI 显式确认传 false。 */
-  requireReadForVerified?: boolean;
+  requireReadForReview?: boolean;
   /** 末尾是否重建 MEMORY-INDEX。默认 true。 */
   refreshIndex?: boolean;
 }
@@ -145,7 +157,7 @@ export function applyReviewDecisions(
   decisions: ReviewDecision[],
   opts: ApplyReviewOpts = {},
 ): ReviewOutcome[] {
-  const requireRead = opts.requireReadForVerified !== false;
+  const requireRead = opts.requireReadForReview !== false;
   const refresh = opts.refreshIndex !== false;
   const outcomes: (ReviewOutcome | null)[] = Array.from({ length: decisions.length }, () => null);
   const seen = new Set<string>();
@@ -173,7 +185,7 @@ export function applyReviewDecisions(
         applied: 'dismiss',
         status: 'ok',
         confidence: moved.entry.fm.confidence,
-        verified: moved.entry.fm.verified,
+        reviewed: moved.entry.fm.confirmations > 0,
       };
       return;
     }
@@ -192,13 +204,13 @@ export function applyReviewDecisions(
         applied: 'stale',
         status: 'ok',
         confidence: upd.entry.fm.confidence,
-        verified: upd.entry.fm.verified,
+        reviewed: upd.entry.fm.confirmations > 0,
       };
       return;
     }
 
     // confirm / assent：只对 active 条目录用。已归档的条目确认无意义，
-    // 而且会把 verified 写进一个不参与检索的文件。
+    // 而且会把 0.9 的置信度写进一个不参与检索的文件。
     if (fm.status !== 'active') {
       return skip('skipped', `status is ${fm.status}`);
     }
@@ -225,7 +237,7 @@ export function applyReviewDecisions(
         applied: 'assent',
         status: 'ok',
         confidence: after?.entry.fm.confidence,
-        verified: after?.entry.fm.verified,
+        reviewed: (after?.entry.fm.confirmations ?? 0) > 0,
       };
     }
   }
@@ -245,7 +257,7 @@ export function applyReviewDecisions(
       applied: 'confirm',
       status: 'ok',
       confidence: loc.entry.fm.confidence,
-      verified: loc.entry.fm.verified,
+      reviewed: loc.entry.fm.confirmations > 0,
     };
   }
 
@@ -269,7 +281,7 @@ export function generateMemoryIndex(home: string, index: OmemIndex): { path: str
   const archivedCount = all.filter((l) => l.entry.fm.status === 'archived').length;
 
   active.sort((a, b) => {
-    if (a.entry.fm.verified !== b.entry.fm.verified) return a.entry.fm.verified ? -1 : 1;
+    // D2：没有 `verified` 位了。排序落 confidence → last_confirmed：数字可复算、结果确定。
     if (b.entry.fm.confidence !== a.entry.fm.confidence) return b.entry.fm.confidence - a.entry.fm.confidence;
     return b.entry.fm.last_confirmed.localeCompare(a.entry.fm.last_confirmed);
   });

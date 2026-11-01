@@ -2,7 +2,7 @@
 //
 // 不测 DOM。页面退化成字符串模板，真正需要守住的是端点行为：
 // detail 不校验 token 就等于本机任意进程可读全部记忆；readIds 由前端控制
-// 就等于「展开才 verified」形同虚设。
+// 就等于「展开才算过目」形同虚设。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { request as httpRequest } from 'node:http';
 import { OmemIndex } from '../../src/core/index.js';
@@ -159,7 +159,7 @@ describe('review server: 详情与已阅集合', () => {
 });
 
 describe('review server: 提交与分级落章', () => {
-  it('未展开详情就 confirm → 服务端落地为 assent（verified 仍 false）', async () => {
+  it('未展开详情就 confirm → 服务端落地为 assent（不算过目）', async () => {
     add('2026-10-27-c1', '结论', { confidence: 0.55 });
     const { server, applied } = await start(['2026-10-27-c1']);
 
@@ -172,11 +172,11 @@ describe('review server: 提交与分级落章', () => {
 
     expect(res.status).toBe(200);
     expect(body.outcomes[0]).toMatchObject({ status: 'ok', requested: 'confirm', applied: 'assent' });
-    expect(findByTopic(home, '2026-10-27-c1')!.entry.fm.verified).toBe(false);
+    expect(findByTopic(home, '2026-10-27-c1')!.entry.fm.confidence).toBe(0.8);
     expect(applied()[0].read).toBe(false);
   });
 
-  it('先 GET detail（=展开）再 confirm → verified，且前端传来的 read 被忽略', async () => {
+  it('先 GET detail（=展开）再 confirm → 过目（confidence 0.9），且前端传来的 read 被忽略', async () => {
     add('2026-10-27-c2', '结论', { confidence: 0.55 });
     const { server } = await start(['2026-10-27-c2']);
 
@@ -194,7 +194,7 @@ describe('review server: 提交与分级落章', () => {
     const body = await res.json();
 
     expect(body.outcomes[0]).toMatchObject({ status: 'ok', applied: 'confirm' });
-    expect(findByTopic(home, '2026-10-27-c2')!.entry.fm.verified).toBe(true);
+    expect(findByTopic(home, '2026-10-27-c2')!.entry.fm.confidence).toBe(0.9);
   });
 
   it('重复提交 → 409，且不二次写入', async () => {
@@ -254,7 +254,7 @@ describe('review server: 超时与取消', () => {
     const result = await server.waitForResult();
 
     expect(result).toBeNull();
-    expect(findByTopic(home, '2026-10-27-d1')!.entry.fm.verified).toBe(false);
+    expect(findByTopic(home, '2026-10-27-d1')!.entry.fm.confirmations).toBe(0);
   });
 
   it('close() 立刻唤醒等待方，不必等满超时（Ctrl+C 路径）', async () => {

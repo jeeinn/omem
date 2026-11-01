@@ -48,7 +48,7 @@ const COMMANDS: Record<string, Command> = {
     run: cmdSkip,
   },
   add: {
-    desc: 'Manually add a memory (verified)',
+    desc: 'Manually add a memory (source: manual, confidence 0.9)',
     usage: 'omem add <content> --topic <name> [--type X] [--domain Y] [--tags a,b] [--project fp] [--force]',
     run: cmdAdd,
   },
@@ -58,13 +58,13 @@ const COMMANDS: Record<string, Command> = {
     run: cmdSearch,
   },
   review: {
-    desc: 'Review a short queue; open one entry by id, or review in the browser',
+    desc: 'Review a short queue; open one entry by topic, or review in the browser',
     usage: 'omem review [<topic>] [--all] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
   topics: {
     desc: 'List living-document topics; rename one (a rename moves the file)',
-    usage: 'omem topics [list] | omem topics policy <topic> always|once|never|default | omem topics rename <old> <new> [--dry-run]',
+    usage: 'omem topics [list] | omem topics rename <old> <new> [--dry-run]',
     run: cmdTopics,
   },
   verify: {
@@ -84,7 +84,7 @@ const COMMANDS: Record<string, Command> = {
   },
   redact: {
     desc: 'Hard delete (the only way); --source previews by default, --yes deletes',
-    usage: 'omem redact --id <id> | omem redact --source rules|agent|llm|manual [--yes]',
+    usage: 'omem redact --topic <name> | omem redact --source rules|agent|llm|manual [--yes]',
     run: cmdRedact,
   },
   serve: {

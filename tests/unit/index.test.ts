@@ -13,13 +13,12 @@ import { makeHome, cleanupHome } from './helpers.js';
 let home: string;
 let index: OmemIndex;
 
-function add(id: string, body: string, opts: Partial<{ domain: string; verified: boolean; status: 'active' | 'stale' | 'archived'; confidence: number; tags: string[] }> = {}) {
+function add(id: string, body: string, opts: Partial<{ domain: string; status: 'active' | 'stale' | 'archived'; confidence: number; tags: string[] }> = {}) {
   const e = {
     fm: newFrontmatter({
       topic: id,
       type: 'fact',
       domain: opts.domain ?? 'coding',
-      verified: opts.verified ?? false,
       status: opts.status ?? 'active',
       confidence: opts.confidence ?? 0.5,
       tags: opts.tags ?? [],
@@ -49,9 +48,9 @@ describe('index: FTS5 trigram search', () => {
     expect(hits[0].topic).toBe('2026-10-15-e1');
   });
 
-  it('LIKE ranks confidence ahead of verified', () => {
-    add('2026-10-15-low', '短词检索甲已确认', { verified: true, confidence: 0.35 });
-    add('2026-10-15-high', '短词检索乙未确认', { verified: false, confidence: 0.8 });
+  it('ranks by confidence, not by a review flag (D2: no verified column)', () => {
+    add('2026-10-15-low', '短词检索甲已确认', { confidence: 0.35 });
+    add('2026-10-15-high', '短词检索乙未确认', { confidence: 0.8 });
     const hits = searchEntries(index, { query: '短', limit: 5 });
     expect(hits[0].topic).toBe('2026-10-15-high');
   });

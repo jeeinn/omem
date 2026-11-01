@@ -56,7 +56,6 @@ describe('PROCESS.md refresh after a write', () => {
       type: 'fact',
       source: 'agent',
       confidence: 0.5,
-      verified: false,
     });
     expect(guideText()).toContain('sess-1');
 
@@ -67,7 +66,6 @@ describe('PROCESS.md refresh after a write', () => {
       session_id: 'sess-1',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
     });
     expect(guideText()).not.toContain('sess-1');
   });
@@ -79,7 +77,6 @@ describe('PROCESS.md refresh after a write', () => {
       type: 'fact',
       source: 'agent',
       confidence: 0.5,
-      verified: false,
     });
     expect(existsSync(files.processGuide(home))).toBe(true);
     expect(guideText()).toContain('No topics are waiting');
@@ -94,7 +91,6 @@ describe('PROCESS.md refresh after a write', () => {
       session_id: 'sess-batch',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
     }, { refreshGuide: false });
     // 清单没有被重算：文件不存在（首次也没写）且内容不含新会话。
     expect(guideText()).toBe(before);
@@ -111,7 +107,6 @@ describe('PROCESS.md refresh after a write', () => {
       type: 'fact',
       source: 'agent',
       confidence: 0.5,
-      verified: false,
     });
     expect(result.status).toBe('written');
     expect(result.topic).toBeTruthy();
@@ -125,24 +120,22 @@ describe('PROCESS.md refresh after a write', () => {
     // 此时 Current document 应指向最新那份活文档（不是被 supersede 掉的旧版）。
     put('sess-old', 'proj-c');
     put('sess-pending', 'proj-c');
-    const first = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+    const first = commitEntry(home, defaultConfig(), index, {
       content: 'proj-c 的第一版活文档',
       type: 'fact',
       topic: 'proj-c-topic',
       session_id: 'sess-old',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
     });
     expect(first.topic).toBeTruthy();
-    const second = commitEntry(home, defaultConfig(), index, { topic: 'test-topic',
+    const second = commitEntry(home, defaultConfig(), index, {
       content: 'proj-c 的第二版活文档，覆盖第一版',
       type: 'fact',
       topic: 'proj-c-topic',
       session_id: 'sess-old',
       source: 'agent',
       confidence: 0.55,
-      verified: false,
       supersedes: [first.id!],
     });
     expect(second.topic).toBeTruthy();

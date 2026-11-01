@@ -57,7 +57,7 @@ describe('cli: omem search output', () => {
 
   it('prints the topic on the hit line so it is visible without opening the file', async () => {
     writeEntry(home, {
-      fm: newFrontmatter({ topic: '2026-10-15-e1b2c3', type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
+      fm: newFrontmatter({ type: 'fact', domain: 'coding', topic: 'pool-tuning' }),
       body: 'Doris 连接池上限的笔记',
     });
     const out = capture();

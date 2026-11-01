@@ -1,8 +1,13 @@
 // 置信度阶梯的契约（2026-10-27 核查后新增）：
 // 「举证有回报」必须能测出来，否则评分口径一改，激励方向反了也没人发现。
+//
+// D2 / M1：`verified` 布尔位已删，置信度是唯一的信任数字。这个文件把五档
+// （0.35 未锚定 / 0.55 已锚定 / +印证加成 / 0.80 自动上限 / 0.90 人工过目）
+// 钉在同一个地方：口径变了这里会红，而口径是产品承诺的一部分。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { OmemIndex } from '../../src/core/index.js';
-import { scoreEvidence } from '../../src/process/score.js';
+import { SCORE_AUTO_CAP, SCORE_CONFIRMED, SCORE_GROUNDED, SCORE_UNGROUNDED, scoreEvidence } from '../../src/process/score.js';
+import { REVIEW_CAP } from '../../src/core/lifecycle.js';
 import { writeSessionFile } from '../../src/collect/session-store.js';
 import { makeHome, cleanupHome } from './helpers.js';
 
@@ -154,5 +159,63 @@ describe('score ladder: 证据与引用的组合', () => {
     expect(r.confidence).toBe(0.55);
     expect(r.tags).toEqual([]);
     expect(r.anchors?.matched).toHaveLength(1);
+  });
+});
+
+describe('score ladder: M1 五档固化', () => {
+  it('档位常量与文档一致（0.35 / 0.55 / 0.80 / 0.90）', () => {
+    expect(SCORE_UNGROUNDED).toBe(0.35);
+    expect(SCORE_GROUNDED).toBe(0.55);
+    expect(SCORE_AUTO_CAP).toBe(0.8);
+    expect(SCORE_CONFIRMED).toBe(0.9);
+    // core 与 process 各有一份同值常量（避免循环依赖），必须一致。
+    expect(REVIEW_CAP).toBe(SCORE_CONFIRMED);
+  });
+
+  it('第 1 档 未锚定 = 0.35', () => {
+    const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [ASSISTANT_LINE] });
+    expect(r.confidence).toBe(SCORE_UNGROUNDED);
+  });
+
+  it('第 2 档 已锚定 = 0.55', () => {
+    const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [QUOTE] });
+    expect(r.confidence).toBe(SCORE_GROUNDED);
+  });
+
+  it('第 3 档 印证加成：多一份独立会话就往上加', () => {
+    addSession('probe-0002', QUOTE, 'qwenwork');
+    index.catchUp();
+    const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [QUOTE] });
+    expect(r.confidence).toBeGreaterThan(SCORE_GROUNDED);
+    expect(r.confidence).toBeLessThanOrEqual(SCORE_AUTO_CAP);
+  });
+
+  it('第 4 档 自动上限 = 0.80（再多印证也不越过）', () => {
+    for (const [i, agent] of ['qwenwork', 'cursor', 'deepseek', 'doubao'].entries()) {
+      addSession(`probe-1${i}0`, QUOTE, agent);
+    }
+    index.catchUp();
+    const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [QUOTE] });
+    expect(r.confidence).toBeLessThanOrEqual(SCORE_AUTO_CAP);
+    expect(r.confidence).toBeGreaterThan(0.75);
+  });
+
+  it('第 5 档 人工过目 = 0.90（只有 review 能到）', async () => {
+    const { reconfirm } = await import('../../src/core/lifecycle.js');
+    const { commitEntry } = await import('../../src/core/commit.js');
+    const { defaultConfig } = await import('../../src/core/config.js');
+    const r = commitEntry(home, defaultConfig(), index, {
+      content: '人工过目的活文档',
+      type: 'fact',
+      topic: 'review-cap',
+      source: 'agent',
+      confidence: 0.55,
+      overCap: 'reject',
+    });
+    expect(r.status).toBe('written');
+    reconfirm(home, index, 'review-cap');
+    const loc = index.getByTopic('review-cap')!;
+    expect(loc.confidence).toBe(SCORE_CONFIRMED);
+    expect(loc.confirmations).toBe(1);
   });
 });

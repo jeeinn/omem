@@ -57,12 +57,12 @@ describe('lifecycle: gc (mark stale only)', () => {
 });
 
 describe('lifecycle: reconfirm', () => {
-  it('人工过目刷新 verified / last_confirmed / confirmations', () => {
+  it('人工过目刷新 confidence / last_confirmed / confirmations', () => {
     add('review-me', '条目');
     const loc = reconfirm(home, index, 'review-me')!;
-    expect(loc.entry.fm.verified).toBe(true);
+    expect(loc.entry.fm.confidence).toBe(0.9);
     expect(loc.entry.fm.confirmations).toBe(1);
-    expect(index.getByTopic('review-me')!.verified).toBe(1);
+    expect(index.getByTopic('review-me')!.confidence).toBe(0.9);
 
     reconfirm(home, index, 'review-me');
     expect(index.getByTopic('review-me')!.confirmations).toBe(2);
@@ -74,9 +74,9 @@ describe('lifecycle: reconfirm', () => {
 });
 
 describe('lifecycle: MEMORY-INDEX 热层', () => {
-  it('≤80 行，verified 优先于低置信', () => {
+  it('≤80 行，高置信优先于低置信', () => {
     add('low-topic', '低置信条目');
-    add('high-topic', '高置信已验证条目', { verified: true, confidence: 0.9 });
+    add('high-topic', '高置信已验证条目', { confidence: 0.9 });
 
     const { lines, total } = generateMemoryIndex(home, index);
 
@@ -99,17 +99,17 @@ describe('lifecycle: MEMORY-INDEX 热层', () => {
 });
 
 describe('lifecycle: 时效标注', () => {
-  it('四种形态：confirmed / cooled / archived / unconfirmed', () => {
+  it('四种形态：reviewed / cooled / archived / not reviewed', () => {
     const base = { type: 'fact' as const, domain: 'd' };
-    expect(formatStaleness(newFrontmatter({ ...base, topic: 'x', verified: true }))).toContain('confirmed');
+    expect(formatStaleness(newFrontmatter({ ...base, topic: 'x', confirmations: 1 }))).toContain('reviewed');
     expect(formatStaleness(newFrontmatter({ ...base, topic: 'x', status: 'stale' }))).toContain('cooled');
     expect(formatStaleness(newFrontmatter({ ...base, topic: 'x', status: 'archived' }))).toContain('archived');
-    expect(formatStaleness(newFrontmatter({ ...base, topic: 'x' }))).toContain('unconfirmed');
+    expect(formatStaleness(newFrontmatter({ ...base, topic: 'x' }))).toContain('not reviewed');
   });
 
-  it('归档优先于 verified：已作废的记忆不能显示成有效确认', () => {
-    const fm = newFrontmatter({ topic: 'x', type: 'fact', domain: 'd', verified: true, status: 'archived' });
+  it('归档优先于过目：已作废的记忆不能显示成有效确认', () => {
+    const fm = newFrontmatter({ topic: 'x', type: 'fact', domain: 'd', confirmations: 1, status: 'archived' });
     expect(formatStaleness(fm)).toContain('archived');
-    expect(formatStaleness(fm)).not.toContain('confirmed');
+    expect(formatStaleness(fm)).not.toContain('reviewed');
   });
 });

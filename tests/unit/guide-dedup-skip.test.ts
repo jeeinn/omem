@@ -70,7 +70,6 @@ describe('片段级去重（user_hash）', () => {
       session_id: 'dup-a',
       project: 'local:aaa',
       confidence: 0.55,
-      verified: false,
     });
     index.catchUp();
     const [topics, , , counts] = pendingTopics(home, index);
@@ -215,7 +214,6 @@ describe('T13: same-user-text 只说「用户原话相同」', () => {
       session_id: 'sib-1',
       project: 'local:siblings',
       confidence: 0.55,
-      verified: false,
     });
     index.catchUp();
 
