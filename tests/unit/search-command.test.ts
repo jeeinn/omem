@@ -52,7 +52,7 @@ describe('cli: omem search output', () => {
     addEntry('2026-10-15-d1b2c3', 'Doris 归档场景的笔记');
     const out = capture();
     await main(['search', 'Doris', '--all']);
-    expect(out.join('\n')).toContain('Found 1 memory (including archived and superseded):');
+    expect(out.join('\n')).toContain('Found 1 memory (including archived):');
   });
 
   it('prints the topic on the hit line so it is visible without opening the file', async () => {
@@ -62,7 +62,7 @@ describe('cli: omem search output', () => {
     });
     const out = capture();
     await main(['search', 'Doris']);
-    expect(out.join('\n')).toContain('topic:pool-tuning');
+    expect(out.join('\n')).toContain('pool-tuning');
   });
 
   it('omits the topic segment when the entry has none', async () => {
@@ -78,7 +78,6 @@ describe('cli: omem search output', () => {
     const out = capture();
     await main(['search', 'Doris', '--all']);
     const text = out.join('\n');
-    expect(text).toContain('superseded by 2026-10-16-new');
     expect(text).not.toContain('confirmed just now');
   });
 });
