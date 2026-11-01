@@ -84,43 +84,40 @@ describe('save_memory: 锚定结果必须出现在响应里', () => {
       content: '多会话吸收', session_id: 'probe-0001, probe-0002', evidence: [QUOTE], topic: 'multi-absorb',
     }, ctx);
     expect(textOf(r)).toContain('used the first as the primary session');
-    const id = (r.structuredContent as any).id as string;
-    const saved = readEntryFile(index.pathById(id)!);
+    const id = (r.structuredContent as any).topic as string;
+    const saved = readEntryFile(index.pathByTopic(id)!);
     expect(saved?.fm.session_id).toBe('probe-0001');
     expect(saved?.fm.source_sessions).toContain('probe-0002');
   });
 });
 
 describe('save_memory: 拒绝与去重的文案要能执行', () => {
-  it('topic 冲突时 MCP 文案只给 supersedes 形式，不出现 -- 前缀', async () => {
+  it('同 topic 再写一次就覆盖，回执不说 supersedes，也不出现 -- 前缀', async () => {
     const first = await handleTool('save_memory', { content: '第一版正文 alpha', topic: 'conflict-topic' }, ctx);
     expect(first.isError).toBeFalsy();
     const r = await handleTool('save_memory', { content: '第二版正文 beta', topic: 'conflict-topic' }, ctx);
     const text = textOf(r);
-    expect(text).toContain('already has an active document');
-    expect(text).toContain('supersedes: ["');
+    expect(text).toContain('Updated (topic: conflict-topic');
+    expect((r.structuredContent as any).updated).toBe(true);
+    expect(text).not.toContain('supersedes');
     expect(text).not.toContain('--force');
     expect(text).not.toContain('--supersedes');
   });
 
-  it('supersedes 指向不存在的 id 时，同时给了 topic 就指出当前活文档', async () => {
-    const first = await handleTool('save_memory', { content: '当前活文档正文 gamma', topic: 'hint-topic' }, ctx);
-    const activeId = (first.structuredContent as any).id as string;
-    const r = await handleTool('save_memory', {
-      content: '内容不同 delta', topic: 'hint-topic', supersedes: ['2099-01-01-zzzzzz'],
-    }, ctx);
-    expect(textOf(r)).toContain('Old entries not found');
-    expect(textOf(r)).toContain(activeId);
+  it('缺少 topic 是工具级错误（不允许静默生成名字）', async () => {
+    const r = await handleTool('save_memory', { content: '没有主题的正文 gamma' }, ctx);
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toContain('topic is required');
   });
 
-  it('dedup 命中但 topic 不同时，说明元数据没写进去并给出两条出路', async () => {
-    const first = await handleTool('save_memory', { content: '完全相同的正文 epsilon' }, ctx);
-    const id = (first.structuredContent as any).id as string;
+  it('dedup 命中但 topic 不同时，说明元数据没写进去', async () => {
+    const first = await handleTool('save_memory', { content: '完全相同的正文 epsilon', topic: 'epsilon-owner' }, ctx);
+    expect(first.isError).toBeFalsy();
     const r = await handleTool('save_memory', { content: '完全相同的正文 epsilon', topic: 'wanted-topic' }, ctx);
     const text = textOf(r);
     expect(text).toContain('nothing was written again');
     expect(text).toContain('wanted-topic');
-    expect(text).toContain(`supersedes: ["${id}"]`);
+    expect(text).toContain('epsilon-owner');
     expect((r.structuredContent as any).status).toBe('deduped');
   });
 
@@ -135,13 +132,13 @@ describe('save_memory: 拒绝与去重的文案要能执行', () => {
   });
 
   it('非法 type 提示回落，不静默存成 fact', async () => {
-    const r = await handleTool('save_memory', { content: '类型写错了 eta', type: 'note' }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '类型写错了 eta', type: 'note' }, ctx);
     expect(textOf(r)).toContain('stored as fact');
   });
 
   it('超长内容被拒绝而不是截断，回执给出超限量与两个出口', async () => {
     const long = '很长'.repeat(1500); // 3000 字符
-    const r = await handleTool('save_memory', { content: long }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: long }, ctx);
     const text = textOf(r);
     expect(text).toContain('Not written: content is 3,000 characters, over the 2,000 limit by 1,000.');
     expect(text).toContain('Options: (a) tighten the body');
@@ -153,10 +150,10 @@ describe('save_memory: 拒绝与去重的文案要能执行', () => {
 
 describe('save_memory: dry_run 的「不落盘」承诺', () => {
   it('dry_run 带着 confirm_ids 只预告，不动既有条目的置信度', async () => {
-    const first = await handleTool('save_memory', { content: '待预演的正文 theta' }, ctx);
-    const id = (first.structuredContent as any).id as string;
+    const first = await handleTool('save_memory', { topic: 'auto-topic', content: '待预演的正文 theta' }, ctx);
+    const id = (first.structuredContent as any).topic as string;
     const before = index.getByTopic(id)!.confidence;
-    const r = await handleTool('save_memory', { content: '预演的新正文 iota', dry_run: true, confirm_ids: [id] }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '预演的新正文 iota', dry_run: true, confirm_ids: [id] }, ctx);
     const text = textOf(r);
     expect(text).toContain('[dry-run] Would record assent');
     expect(text).not.toContain('Assent recorded');
@@ -168,9 +165,9 @@ describe('save_memory: dry_run 的「不落盘」承诺', () => {
   });
 
   it('去掉 dry_run 后同样的 confirm_ids 才真的生效', async () => {
-    const first = await handleTool('save_memory', { content: '待确认的正文 kappa' }, ctx);
-    const id = (first.structuredContent as any).id as string;
-    const r = await handleTool('save_memory', { confirm_ids: [id] }, ctx);
+    const first = await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的正文 kappa' }, ctx);
+    const id = (first.structuredContent as any).topic as string;
+    const r = await handleTool('save_memory', { topic: 'auto-topic', confirm_ids: [id] }, ctx);
     expect(textOf(r)).toContain('Assent recorded');
     expect(index.getByTopic(id)!.confidence).toBeGreaterThanOrEqual(0.8);
     expect((r.structuredContent as any).confirmed).toEqual([id]);
@@ -206,8 +203,8 @@ describe('save_memory: 锚定归因进审计日志', () => {
 
 describe('save_memory: 去重漂移的口径与误伤', () => {
   it('请求的 tags 没写进既有条目时说出来', async () => {
-    await handleTool('save_memory', { content: '完全相同的正文 nu' }, ctx);
-    const r = await handleTool('save_memory', { content: '完全相同的正文 nu', tags: ['wanted-tag'] }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '完全相同的正文 nu' }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '完全相同的正文 nu', tags: ['wanted-tag'] }, ctx);
     expect(textOf(r)).toContain('wanted-tag');
     expect((r.structuredContent as any).metadata_drift)
       .toEqual([expect.stringContaining('wanted-tag')]);
@@ -221,13 +218,13 @@ describe('save_memory: 去重漂移的口径与误伤', () => {
   });
 
   it('没给 type 时不因回落成 fact 而误报漂移', async () => {
-    await handleTool('save_memory', { content: '经验类型的正文 omicron', type: 'experience' }, ctx);
-    const r = await handleTool('save_memory', { content: '经验类型的正文 omicron' }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '经验类型的正文 omicron', type: 'experience' }, ctx);
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '经验类型的正文 omicron' }, ctx);
     expect((r.structuredContent as any).metadata_drift).toEqual([]);
   });
 
   it('dry_run 预演命中去重时也报出会丢哪些元数据', async () => {
-    await handleTool('save_memory', { content: '预演去重的正文 pi' }, ctx);
+    await handleTool('save_memory', { topic: 'auto-topic', content: '预演去重的正文 pi' }, ctx);
     const r = await handleTool('save_memory', { content: '预演去重的正文 pi', topic: 'preview-topic', dry_run: true }, ctx);
     expect(textOf(r)).toContain('Metadata that would be lost to content dedup');
     expect(textOf(r)).toContain('preview-topic');

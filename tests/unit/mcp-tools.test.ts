@@ -201,7 +201,7 @@ describe('mcp: handleTool', () => {
     expect(textOf(r2)).toContain('nothing was written again');
     // 库里按 content-hash 只有一条
     expect(index.getByBodyHash(contentHash('探针唯一内容 probe-unique-xyz'))).not.toBeNull();
-    const rows = index.db.prepare('SELECT id FROM entries').all() as unknown as { id: string }[];
+    const rows = index.db.prepare('SELECT topic FROM entries').all() as unknown as { topic: string }[];
     expect(rows).toHaveLength(1);
   });
 
