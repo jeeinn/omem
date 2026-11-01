@@ -80,10 +80,11 @@ export const ASSENT_CAP = 0.8;
  * confidence 是 max 语义（只升不降）：一条已经是 0.9 的条目，assent 之后仍是 0.9。
  * 被限制的是「自动产出的上限」，不是分数。
  *
- * opts.refreshIndex 默认 true（保持 save_memory 的既有行为）；批量调用方传 false，
- * 由调用方在整批结束后统一重建一次热层。
- * opts.touchLastConfirmed 默认 false：MCP 的 confirm_ids 由 Agent 代传，可靠性低于
- * 用户在 --ui 页面亲手点击，因此只有后者刷新 last_confirmed。
+ * A-5 之后唯一的调用方是 `review --ui` 的分级落章：没展开正文就点「确认」的，
+ * 降级成 assent（0.8），不算过目。MCP 侧已无盖章通道。
+ *
+ * opts.refreshIndex 默认 true；批量调用方传 false，由调用方在整批结束后统一重建一次热层。
+ * opts.touchLastConfirmed 默认 false：只有用户在 --ui 页面亲手点击才算人工介入，才刷新 last_confirmed。
  */
 export function applyAssent(
   home: string,

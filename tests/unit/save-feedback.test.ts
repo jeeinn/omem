@@ -149,28 +149,29 @@ describe('save_memory: 拒绝与去重的文案要能执行', () => {
 });
 
 describe('save_memory: dry_run 的「不落盘」承诺', () => {
-  it('dry_run 带着 confirm_ids 只预告，不动既有条目的置信度', async () => {
+  it('dry_run 只预告，不动既有条目的置信度', async () => {
     const first = await handleTool('save_memory', { topic: 'auto-topic', content: '待预演的正文 theta' }, ctx);
-    const id = (first.structuredContent as any).topic as string;
-    const before = index.getByTopic(id)!.confidence;
-    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '预演的新正文 iota', dry_run: true, confirm_ids: [id] }, ctx);
+    const topic = (first.structuredContent as any).topic as string;
+    const before = index.getByTopic(topic)!.confidence;
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '预演的新正文 iota', dry_run: true }, ctx);
     const text = textOf(r);
-    expect(text).toContain('[dry-run] Would record assent');
-    expect(text).not.toContain('Assent recorded');
-    expect(index.getByTopic(id)!.confidence).toBe(before);
-    expect((r.structuredContent as any).confirmed).toBeUndefined();
+    expect(text).toContain('[dry-run]');
+    expect(index.getByTopic(topic)!.confidence).toBe(before);
     expect((r.structuredContent as any).dry_run).toBe(true);
-    // 预演同样不该把正文写进库
+    // 预演不该把正文写进库
     expect(index.rows().map((r) => ({ topic: r.row.topic }))).toHaveLength(1);
   });
 
-  it('去掉 dry_run 后同样的 confirm_ids 才真的生效', async () => {
+  it('A-5：confirm_ids 已删除，MCP 侧没有盖章通道', async () => {
     const first = await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的正文 kappa' }, ctx);
-    const id = (first.structuredContent as any).topic as string;
-    const r = await handleTool('save_memory', { topic: 'auto-topic', confirm_ids: [id] }, ctx);
-    expect(textOf(r)).toContain('Assent recorded');
-    expect(index.getByTopic(id)!.confidence).toBeGreaterThanOrEqual(0.8);
-    expect((r.structuredContent as any).confirmed).toEqual([id]);
+    const topic = (first.structuredContent as any).topic as string;
+    const before = index.getByTopic(topic)!.confidence;
+    // 未知参数会被点名并忽略，而不是偷偷生效
+    const r = await handleTool('save_memory', { topic: 'auto-topic', content: '待确认的正文 kappa', confirm_ids: [topic] }, ctx);
+    const text = textOf(r);
+    expect(text).toContain('confirm_ids');
+    expect(index.getByTopic(topic)!.confidence).toBe(before);
+    expect((r.structuredContent as any).confirmed).toBeUndefined();
   });
 });
 

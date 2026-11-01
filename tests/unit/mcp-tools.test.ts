@@ -64,6 +64,17 @@ describe('mcp: buildTools tool surface', () => {
     expect(topK.minimum).toBe(1);
     expect(topK.maximum).toBe(20);
   });
+
+  it('A-5：save_memory 的入参面没有 supersedes / confirm_ids', () => {
+    const save = buildTools({}).find((x) => x.name === 'save_memory')!;
+    const props = Object.keys((save.inputSchema as any).properties ?? {});
+    expect(props).not.toContain('supersedes');
+    expect(props).not.toContain('confirm_ids');
+    expect(props).toContain('topic');
+    // 描述里也不能再教 Agent 用已删的入参
+    expect(save.description).not.toContain('confirm_ids');
+    expect(save.description).not.toContain('supersedes');
+  });
 });
 
 // outputSchema 刻意宽松（不声明 required、允许附加字段），但「宽松」不等于「可以漏字段」：
@@ -128,10 +139,10 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
     expect(undeclaredHits(schema, r.structuredContent as any)).toEqual([]);
   });
 
-  it('covers a written save, a deduped save with drift, and a dry-run save with confirm', async () => {
+  it('covers a written save, a deduped save with drift, and a dry-run save', async () => {
     const written = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-a' }, ctx);
     const deduped = await handleTool('save_memory', { content: '声明覆盖 alpha', topic: 'decl-b' }, ctx);
-    const preview = await handleTool('save_memory', { topic: 'auto-topic', content: '声明覆盖 beta', dry_run: true, confirm_ids: [(written.structuredContent as any).topic] }, ctx);
+    const preview = await handleTool('save_memory', { topic: 'auto-topic', content: '声明覆盖 beta', dry_run: true }, ctx);
     const schema = schemaOf('save_memory');
     for (const r of [written, deduped, preview]) {
       expect(undeclared(schema, r.structuredContent as any)).toEqual([]);

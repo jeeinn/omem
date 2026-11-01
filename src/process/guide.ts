@@ -103,8 +103,8 @@ export interface ExistingTopic {
  * （project_fp，不是 topic），完全不知道库里已有 25 个主题叫什么。于是它只能自己
  * 新造一个名字——同一主题于是有了两份活文档。这份清单就是它的词表。
  *
- * 2026-10-27：连同 active id 一起给出。只给名字的话，Agent 复用名字之后仍然拿不到
- * supersedes 需要的 id，还得靠「写失败再读拒绝消息」来发现。
+ * D1-B′：topic 就是身份，这份清单就是 Agent 的词表——它复用名字就是覆盖同一份活文档，
+ * 不需要另外拿 id（supersedes 那一整套已经不存在了）。
  */
 export function collectExistingTopics(home: string): ExistingTopic[] {
   const byTopic = new Map<string, ExistingTopic>();
@@ -126,9 +126,10 @@ export function collectExistingTopics(home: string): ExistingTopic[] {
  * 发现名字，比直接把 43 条全列出来贵得多，且分页会让它看不到全量词表 → 新造 topic 名 →
  * 加剧碎片化。
  *
- * 超预算时按「信息价值」降级，不是按「列宽」降级：**id 是最有价值的列**（supersedes 直接要它），
- * 所以先丢 `confidence · created` 这两列装饰，最后才丢 id。反过来（先丢 id）会把一次写入
- * 变成「再来一次 search_memory 查 id」——省字节但费往返，与 T04 的目标相反。
+ * 超预算时按「信息价值」降级，不是按「列宽」降级：**主题名是最有价值的列**
+ * （写回时直接复用它），所以先丢 `confidence · created` 这两列装饰，最后才丢名字。
+ * 反过来（先丢名字）会把一次写入变成「再来一次 search_memory 查名字」——省字节但费往返，
+ * 与 T04 的目标相反。
  */
 type TopicColumnMode = 'full' | 'compact' | 'names';
 
@@ -178,7 +179,7 @@ function renderHeader(): string[] {
     '- Sessions sharing one `## user` fingerprint are collapsed into one line as `(same-user-text: N)`. They share **only what the user typed** — the assistant answers differ across the N sessions, so read every copy you intend to distil, or state in the body which answer you relied on.',
     '- Judged no-value? Record it with `omem skip <session-id>` so it leaves this list for good.',
     '- Organizing this file is not a life event. Do not save this distillation chat as a new topic.',
-    '- After writing, ask once: confirm all, confirm some, or leave them. `confirm_ids` raises confidence to 0.8; only a human review reaches 0.9.',
+    '- After writing, report what you wrote and where it landed (topic, confidence). You cannot record a confirmation — a human review in `omem review` is the only path to 0.9.',
     `- ${RULE_CONFIDENCE}.`,
     '',
   ];

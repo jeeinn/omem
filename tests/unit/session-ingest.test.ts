@@ -171,7 +171,7 @@ describe('evidence score', () => {
     expect(scored.confidence).toBe(0.65);
   });
 
-  it('confirm_ids stops at 0.8 and review --confirm reaches 0.9', () => {
+  it('assent stops at 0.8 and review --confirm reaches 0.9', () => {
     const config = defaultConfig();
     const saved = commitEntry(home, config, index, { topic: 'test-topic',
       content: '待确认的结论条目内容足够长',

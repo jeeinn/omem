@@ -9,7 +9,7 @@
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
 import type { MemoryType } from '../core/entry.js';
-import { readEntryFile, findTopicIndexed } from '../core/store.js';
+import { readEntryFile } from '../core/store.js';
 import { truncate } from '../core/util.js';
 import { searchEntriesPage, searchSessions } from '../core/search.js';
 import type { SessionHit } from '../core/search.js';
@@ -19,7 +19,7 @@ import { appendLog } from '../core/log.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
 import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, vcsNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
-import { applyAssent, scoreEvidence } from '../process/score.js';
+import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
 import type { EntryRow } from '../core/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -186,8 +186,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       title: 'Save memory',
       description:
         'Remember something across sessions. Call when the user asks you to remember something, and proactively at wrap-up for a ' +
-        'stable preference / decision / environment setup / pitfall. Two call shapes: write a body (content + type + domain), or ' +
-        'pass only `confirm_ids` to record the user\'s assent to existing entries.\n\n' +
+        'stable preference / decision / environment setup / pitfall.\n\n' +
         'Choose `type`: preference (how the user wants things done), fact (stable state: paths, versions, accounts, topology), ' +
         'decision (a choice made, with the reason), experience (what went wrong and the fix). An unrecognised value is stored as ' +
         'fact and the response says so.\n\n' +
@@ -208,7 +207,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       inputSchema: {
         type: 'object',
         properties: {
-          content: { type: 'string', description: 'Memory body, 3-10 sentences, one item per entry. Required unless you only pass confirm_ids.' },
+          content: { type: 'string', description: 'Memory body, 3-10 sentences, one item per entry. Required.' },
           type: {
             type: 'string',
             enum: MEMORY_TYPES,
@@ -239,18 +238,13 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
             description: 'One quote per session, each at least 12 consecutive characters copied from a `## user` section of that session file. Assistant text does not count.',
           },
           dry_run: { type: 'boolean', description: 'Validate and preview without writing to disk (no entry, no index row, no PROCESS.md update).' },
-          confirm_ids: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'After the user agrees in this turn, raise those entries to the automatic cap (0.8). A human review in `omem review` is what reaches 0.9.',
-          },
         },
         required: [],
       },
       outputSchema: {
         type: 'object',
         properties: {
-          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / noop (confirm-only call). Under dry_run nothing is written regardless of status.' },
+          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty. Under dry_run nothing is written regardless of status.' },
           topic: { type: 'string', description: 'The document name written (or deduped against).' },
           updated: { type: 'boolean', description: 'true when an existing living document was overwritten.' },
           confidence: { type: 'number' },
@@ -284,9 +278,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
               matched: { type: 'number' },
             },
           },
-          dry_run: { type: 'boolean', description: 'true when this call only previewed; nothing was written or confirmed.' },
-          confirmed: { type: 'array', items: { type: 'string' }, description: 'confirm_ids actually applied (absent under dry_run).' },
-          confirm_missing: { type: 'array', items: { type: 'string' } },
+          dry_run: { type: 'boolean', description: 'true when this call only previewed; nothing was written.' },
           metadata_drift: {
             type: 'array',
             items: { type: 'string' },
@@ -608,7 +600,7 @@ async function toolSearch(
 
 const SAVE_KEYS = new Set([
   'content', 'type', 'domain', 'tags', 'project', 'topic', 'session_id',
-  'source_sessions', 'evidence', 'dry_run', 'confirm_ids',
+  'source_sessions', 'evidence', 'dry_run',
 ]);
 
 /** 常见臆造参数的别名提示。固定表足够——参数面只有十余个键。 */
@@ -618,6 +610,7 @@ const ARG_ALIASES: Record<string, string> = {
   session: 'session_id',
   id: 'topic',
   supersedes: '(removed: writing to the same topic overwrites it)',
+  confirm_ids: '(removed: only a human review in `omem review` raises confidence to 0.9)',
   kind: 'type',
   text: 'content',
   body: 'content',
@@ -640,9 +633,10 @@ function idList(v: unknown): string[] {
 }
 
 function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; structured: Record<string, unknown> } {
-  let content = String(args.content ?? '').trim();
-  const confirmIds = idList(args.confirm_ids);
-  if (!content && confirmIds.length === 0) throw new Error('content must not be empty');
+  const content = String(args.content ?? '').trim();
+  // D5 / A-5：不再有 confirm_ids。MCP 侧没有「盖章」通道——过目只在 `omem review` 里发生，
+  // 由人自己做。Agent 代传「用户同意了」在防投毒上站不住：模型自己声称用户同意，等于没有门槛。
+  if (!content) throw new Error('content must not be empty');
   const dryRun = Boolean(args.dry_run);
   const parts: string[] = [];
   const notes: string[] = [];
@@ -805,26 +799,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
     }
   }
 
-  if (confirmIds.length > 0) {
-    // dry_run 是"不落盘"契约：assent 是真实状态变更（confidence / confirmations / assent 标签），
-    // 预演时只预告会作用哪些 id，不执行。
-    if (dryRun) {
-      const would: string[] = [];
-      const missing: string[] = [];
-      for (const t of confirmIds) (findTopicIndexed(ctx.home, ctx.index, t, { includeArchived: true }) ? would : missing).push(t);
-      if (would.length > 0) parts.push(`[dry-run] Would record assent for ${would.join(', ')} (confidence up to 0.8, not a human review).`);
-      if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
-    } else {
-      const { updated, missing } = applyAssent(ctx.home, ctx.index, confirmIds);
-      if (updated.length > 0) wroteSomething = true;
-      if (updated.length > 0) parts.push(`Assent recorded for ${updated.join(', ')} (confidence up to 0.8, not a human review).`);
-      if (missing.length > 0) parts.push(`Not found: ${missing.join(', ')}.`);
-      Object.assign(structured, { confirmed: updated, confirm_missing: missing });
-    }
-  }
-
   // 一次工具调用 = 一次提交（beta.9 / T05）：把「这次调用改了什么」固化成可回溯的一步。
-  // 落在这里而不是 commitEntry 里，是因为同一次调用还可能包含 confirm_ids 的改动。
+  // 落在这里而不是 commitEntry 里，是因为一次调用可能同时改了索引与 PROCESS.md。
   if (!dryRun) {
     const touched = endWriteJournal();
     if (wroteSomething) {

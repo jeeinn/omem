@@ -30,7 +30,7 @@ export function mcpInstructions(home: string): string {
     '3. The topic is also the document name. To update a subject, reuse its topic; to start a new one, pick a short lowercase name (e.g. "knee-rehab"). Never invent a second name for the same subject.',
     '4. `save_memory` needs `topic` (always), `session_id` copied as the bare id (no collector prefix), and evidence quoted from the `## user` text returned in step 2. Writing to an existing topic overwrites that document; git keeps the previous version.',
     '5. Read the response before assuming success: it reports the topic, whether the document was created or updated, whether the evidence anchored, whether the content was rejected for length, and any topic collisions. Fix and rewrite instead of retrying blindly.',
-    '6. Ask once whether to confirm what you wrote. `confirm_ids` raises confidence to the automatic cap (0.8); only a human review in `omem review` reaches 0.9.',
+    '6. Say what you wrote and where it landed (topic, confidence). Do not ask the user to "confirm" it for the record — you have no way to record a confirmation, and a human review in `omem review` is the only path to 0.9.',
     '',
     `Hard rules: one document per topic — reuse an existing topic name instead of coining a near-duplicate; never delete; the conversation that organises PROCESS.md is not itself a memory; each write leaves one local git commit when the store is a git repo (pushing is omem backup); (${RULE_CONFIDENCE}).`,
     '',

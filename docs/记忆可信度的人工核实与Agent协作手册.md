@@ -25,7 +25,7 @@
 
 1. **`review --confirm` 会把 `confidence` 提到 0.9**，同时 `confirmations+1`、刷新 `last_confirmed`（`reconfirm()` 的实现）。没有 `verified` 位了——过目的证据是那三个字段，不是布尔标记。
 2. **只有人才是高可信度的来源。** 让 Agent 自己给它自己刚写入的条目盖章（路径 B），等于取消整套防投毒设计。
-3. **`save_memory` 写出来的最高 0.8。** `confidence` 由证据锚定深度决定（单会话锚定 0.55，多会话印证到 0.80）；`confirm_ids` 只能提到自动上限 0.8。它必须回到人工队列才升到 0.9。
+3. **`save_memory` 写出来的最高 0.8。** `confidence` 由证据锚定深度决定（单会话锚定 0.55，多会话印证到 0.80）。v0.2 起 MCP 侧**没有盖章通道**（`confirm_ids` 已删）：过目只由人自己在 `omem review` 里做，才能升到 0.9。
 
 ---
 
@@ -101,7 +101,7 @@ omem init                 # 不带 OMEM_HOME，落到 ~/.omem
 
 | 字段 | 含义 | 谁改 |
 | --- | --- | --- |
-| `confidence` | 0~1，**唯一的信任数字**，描述当前这份正文 | 写入时按证据算；`review --confirm` 提到 0.9；`save_memory(confirm_ids)` 提到 ≤0.8 |
+| `confidence` | 0~1，**唯一的信任数字**，描述当前这份正文 | 写入时按证据算；`review --confirm` 提到 0.9；MCP 侧只能到自动上限 0.8 |
 | `confirmations` | 人工过目次数，**无节流，可无限累加** | `review --confirm` / `memory_feedback(helpful=true)`（每次 +1） |
 | `last_confirmed` | 最近一次过目的时间 | 同上（刷新） |
 | `source` | 来源：`agent` / `manual` / `api` | 写入时确定 |

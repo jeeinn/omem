@@ -227,7 +227,7 @@ describe('applyReviewDecisions: 热层重建', () => {
 });
 
 describe('applyAssent: opts 契约', () => {
-  it('touchLastConfirmed 默认 false：save_memory 的 confirm_ids 路径不刷新时间戳', () => {
+  it('touchLastConfirmed 默认 false：批量 assent 不刷新时间戳', () => {
     add('2026-10-27-t1', '结论', { confidence: 0.55, last_confirmed: '2020-01-01T00:00:00.000Z' });
 
     applyAssent(home, index, ['2026-10-27-t1']);

@@ -374,12 +374,16 @@ describe('install: marker-fenced instruction section', () => {
     expect(text).toContain('保持原样');
   });
 
-  it('markerSection contains four instructions', () => {
+  it('markerSection contains the v0.2 instructions', () => {
     const s = markerSection();
     expect(s).toContain('omem search');
     expect(s).toContain('omem add');
-    expect(s).toContain('omem context --for');
+    expect(s).toContain('--topic');
+    expect(s).toContain('omem topics list');
     expect(s).toContain('save_memory');
+    // C-1 删了 `omem context`，A-5 删了 supersedes —— marker 里不能再出现它们
+    expect(s).not.toContain('omem context');
+    expect(s).not.toContain('supersedes');
   });
 });
 
