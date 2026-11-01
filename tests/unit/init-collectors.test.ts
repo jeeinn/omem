@@ -207,3 +207,22 @@ describe('init --clone', () => {
     expect(out.join('\n')).toContain('already exists');
   });
 });
+
+describe('init --force 的回退点（D9）', () => {
+  it('重置 .git 之前先打一份快照', async () => {
+    const home = makeHome();
+    homes.push(home);
+    vi.stubEnv('OMEM_HOME', home);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await main(['init']);
+      await main(['init', '--force']);
+    } finally {
+      log.mockRestore();
+    }
+    const snapDir = join(home, 'snapshots');
+    // --force 会删掉本地历史，所以必须先留下一个可回退点。
+    expect(existsSync(snapDir)).toBe(true);
+    expect(readdirSync(snapDir).length).toBeGreaterThan(0);
+  });
+});

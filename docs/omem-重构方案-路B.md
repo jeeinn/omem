@@ -309,6 +309,6 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | C-1 | CLI 13 条收敛：删 eval/api/audit/snapshot/gc/context，rebuild→verify，gc 并入 review --gc | ✅ |
 | C-2 | 删 eview.toml + eview-policy.ts + utoAssent 分支 | 待做 |
 | C-3 | README / AGENTS / package.json 文案对齐（已随 C-1 完成主体） | ✅ |
-| D | `init --force` 前置快照 + `scripts/` 一次性搬迁脚本 | 待做 |
+| D | `init --force` 前置快照 + 版本号 0.2.0-beta.1 | ✅（搬迁脚本按 D9 不写：不兼容，直接 re-init） |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。

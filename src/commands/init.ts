@@ -9,6 +9,7 @@ import { loadConfig, saveConfig, findRemovedConfigKeys, appendMissingConfigKeys 
 import { OmemIndex } from '../core/index.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
 import { getBackend } from '../sync/backend.js';
+import { runSnapshot } from '../core/snapshot.js';
 import { GitBackend } from '../sync/git.js';
 import { omemHome } from '../core/paths.js';
 import { flagBool, flagStr } from '../cli-args.js';
@@ -110,6 +111,14 @@ export async function cmdInit(args: ParsedArgs): Promise<number> {
     } else {
       try {
         if (flagBool(args.flags, 'force') && existsSync(join(home, '.git'))) {
+          // --force 会删掉本地历史：删之前先打一份快照，让「手滑」有退路（D9：不写迁移脚本，
+          // 但不等于没有回退点）。快照失败不阻止重置——用户已经明确要求重置了。
+          try {
+            const snap = runSnapshot(home);
+            console.log(`Snapshot before reset: ${snap.path}`);
+          } catch (e: any) {
+            console.log(`Snapshot before reset skipped: ${e?.message ?? e}`);
+          }
           rmSync(join(home, '.git'), { recursive: true, force: true });
           console.log('Removed existing .git (re-initializing with --force).');
         }
