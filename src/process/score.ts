@@ -1,7 +1,7 @@
 // save_memory 的自动置信度。只改 confidence——D2 之后没有别的信任标记。
 // 依据必须是会话文件里某个 ## user 段的连续子串；模型引用自己的话不算。
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
-import { evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
+import { evidenceUserKey, evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
 import { searchSessions } from '../core/search.js';
 import { normalizeForHash } from '../core/util.js';
 import type { OmemIndex } from '../core/index.js';
@@ -62,36 +62,64 @@ export function evidenceIn(haystack: string, evidence: string): boolean {
 }
 
 export interface CorroborationInfo {
-  /** 独立印证会话数（去重 sessionId） */
+  /** 独立印证来源数（按「用户输入」去重，不是按会话文件） */
   count: number;
   /** 印证来源的去重项目指纹数 */
   uniqueProjects: number;
 }
 
-/** 用会话全文索引缩小范围，再对 user 段做归一化子串比对；跳过 source 会话避免自印证。 */
-function corroboratingSessions(index: OmemIndex, evidence: string, skipIds?: string | string[]): CorroborationInfo {
-  const probe = [...evidence].slice(0, 24).join('');
-  const hits = searchSessions(index, probe, 8);
-  // skip 集合必须放归一化后的裸 id：调用方给的可能是 `claude-code:probe-0001`，
-  // 而命中行的 session_key 拆分后是 `probe-0001`。只比原文会让来源会话把自己算成印证。
-  const skipSet = new Set<string>();
+/**
+ * 被排除的来源会话。
+ *
+ * ids   —— 会话 id（裸 id / 带 collector 前缀 / 路径末段都收），排除它自己。
+ * keys  —— 来源会话的「证据域用户文本」指纹。用来挡住副本：同一段用户输入被同步两次、
+ *          或两个采集器收了同一次对话，在磁盘上是两个会话文件，但只有一个来源，
+ *          不能算两份印证（否则复制粘贴就能刷分）。
+ */
+interface SourceSkip {
+  ids: Set<string>;
+  userKeys: Set<string>;
+}
+
+function buildSourceSkip(home: string, skipIds?: string | string[]): SourceSkip {
+  const ids = new Set<string>();
+  const userKeys = new Set<string>();
+  const bare: string[] = [];
   for (const raw of Array.isArray(skipIds) ? skipIds : (skipIds ? [skipIds] : [])) {
     const value = raw.trim();
     if (!value) continue;
-    skipSet.add(value);
-    skipSet.add(splitSessionKey(value).sessionId);
+    ids.add(value);
+    const sessionId = splitSessionKey(value).sessionId;
+    ids.add(sessionId);
     const last = value.split('/').filter(Boolean).pop();
-    if (last) skipSet.add(last);
+    if (last) ids.add(last);
+    bare.push(sessionId);
   }
+  // 来源会话占位：它的用户文本指纹先入集合，副本就撞在这里。
+  for (const id of bare) {
+    for (const s of readSessionsById(home, id)) userKeys.add(evidenceUserKey(s.body));
+  }
+  return { ids, userKeys };
+}
+
+/** 用会话全文索引缩小范围，再对 user 段做归一化子串比对；跳过 source 会话避免自印证。 */
+function corroboratingSessions(index: OmemIndex, evidence: string, skip: SourceSkip): CorroborationInfo {
+  const probe = [...evidence].slice(0, 24).join('');
+  const hits = searchSessions(index, probe, 8);
   const seenSessions = new Set<string>();
+  const seenUserKeys = new Set<string>();
   const seenProjects = new Set<string>();
   for (const hit of hits) {
     const id = splitSessionKey(hit.session_key).sessionId;
-    if (!id || skipSet.has(id) || seenSessions.has(id)) continue;
+    if (!id || skip.ids.has(id) || seenSessions.has(id)) continue;
     const stored = readStoredSession(hit.path);
     if (!stored) continue;
     if (!evidenceIn(evidenceUserText(stored.body), evidence)) continue;
+    // 同一段用户输入 = 一个来源。副本不算独立印证（AGENTS.md「印证必须独立」）。
+    const userKey = evidenceUserKey(stored.body);
+    if (skip.userKeys.has(userKey) || seenUserKeys.has(userKey)) continue;
     seenSessions.add(id);
+    seenUserKeys.add(userKey);
     if (stored.project && stored.project !== 'unknown') {
       seenProjects.add(stored.project);
     }
@@ -164,9 +192,10 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
     tags.push('pending-session');
   } else if (citedHit) {
     // 多证据：对每条 evidence 独立查印证，取最佳（与 scoreApiDoc reduce 同口径）
+    const skip = buildSourceSkip(home, allSessionIds);
     const others = index
       ? evidences.reduce<CorroborationInfo>((acc, e) => {
-          const info = corroboratingSessions(index, e, allSessionIds);
+          const info = corroboratingSessions(index, e, skip);
           return {
             count: Math.max(acc.count, info.count),
             uniqueProjects: Math.max(acc.uniqueProjects, info.uniqueProjects),
@@ -176,8 +205,9 @@ export function scoreEvidence(home: string, input: ScoreInput, index?: OmemIndex
     base = SCORE_GROUNDED + corroborationBonus(others);
     grounded = true;
   } else if (evidences.length > 0 && allSessionIds.length === 0 && index) {
+    const skip = buildSourceSkip(home, undefined);
     const info = evidences.reduce<CorroborationInfo>((acc, e) => {
-      const cur = corroboratingSessions(index, e);
+      const cur = corroboratingSessions(index, e, skip);
       return {
         count: Math.max(acc.count, cur.count),
         uniqueProjects: Math.max(acc.uniqueProjects, cur.uniqueProjects),
@@ -219,9 +249,10 @@ export function scoreApiDoc(
     const cited = input.sessionId ? readSessionsById(home, input.sessionId) : [];
     const citedHit = valid.some((e) => cited.some((s) => evidenceIn(evidenceUserText(s.body), e)));
     if (citedHit) {
+      const skip = buildSourceSkip(home, input.sessionId);
       const others = index
         ? valid.reduce<CorroborationInfo>((acc, e) => {
-            const info = corroboratingSessions(index, e, input.sessionId);
+            const info = corroboratingSessions(index, e, skip);
             return {
               count: Math.max(acc.count, info.count),
               uniqueProjects: Math.max(acc.uniqueProjects, info.uniqueProjects),
@@ -232,8 +263,9 @@ export function scoreApiDoc(
       tags = [];
     } else if (!input.sessionId && index) {
       // 无引用会话时退化为全库印证（与 scoreEvidence 的无 sessionId 分支同一口径，含首位不计）
+      const skip = buildSourceSkip(home, undefined);
       const info = valid.reduce<CorroborationInfo>((acc, e) => {
-        const cur = corroboratingSessions(index, e);
+        const cur = corroboratingSessions(index, e, skip);
         return {
           count: Math.max(acc.count, cur.count),
           uniqueProjects: Math.max(acc.uniqueProjects, cur.uniqueProjects),

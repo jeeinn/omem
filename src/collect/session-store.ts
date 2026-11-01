@@ -190,6 +190,20 @@ export function sessionUserHash(body: string): string {
 }
 
 /**
+ * 证据域用户文本的去重键（印证口径用）。
+ *
+ * 与 `sessionUserHash` 的区别：那个哈希走 `userSectionText`（**含** `## user` 段内的元数据围栏），
+ * 所以「同样的话、元数据不同」的两份会话指纹不同。这个走 `evidenceUserText`（剥净元数据），
+ * 回答的是「用户说的话是不是同一段」。
+ *
+ * 印证按它去重：同一段用户输入被同步两次、或两个采集器收了同一次对话，
+ * 在磁盘上是两个会话文件，但**只有一个来源**——不能因为多了一份文件就多一份印证。
+ */
+export function evidenceUserKey(body: string): string {
+  return sha256hex(normalizeForHash(evidenceUserText(body))).slice(0, 16);
+}
+
+/**
  * 元数据围栏标记（真实 workbuddy / claude 会话的形状）：
  *
  * ```

@@ -17,8 +17,11 @@ const ASSISTANT_LINE = '好的，我来改。';
 let home: string;
 let index: OmemIndex;
 
-function addSession(sessionId: string, quote: string, agent = 'claude-code'): void {
-  const body = `## user\n${quote}\n\n## assistant\n${ASSISTANT_LINE}`;
+function addSession(sessionId: string, quote: string, agent = 'claude-code', extra = ''): void {
+  // extra 用来制造「不同的用户输入」：印证按用户输入去重（同一段输入的副本不算独立来源），
+  // 所以要测印证加成，第二份会话的用户段必须不完全一样。
+  const userText = `${extra}${quote}`;
+  const body = `## user\n${userText}\n\n## assistant\n${ASSISTANT_LINE}`;
   writeSessionFile(
     home,
     {
@@ -31,7 +34,7 @@ function addSession(sessionId: string, quote: string, agent = 'claude-code'): vo
       messages: [
         {
           session_id: sessionId, agent, ts: '2026-10-27T00:00:00.000Z',
-          project_fp: 'local:abcd1234', role: 'user', content: quote,
+          project_fp: 'local:abcd1234', role: 'user', content: userText,
         },
         {
           session_id: sessionId, agent, ts: '2026-10-27T00:01:00.000Z',
@@ -88,10 +91,21 @@ describe('score ladder: 证据与引用的组合', () => {
   });
 
   it('第二份会话独立印证同一句话 → 才有加分（0.65）', () => {
-    addSession('probe-0002', QUOTE, 'qwenwork');
+    // 用户输入不同 → 是两次独立的表达 → 算一份印证
+    addSession('probe-0002', QUOTE, 'qwenwork', '顺便，');
     index.catchUp();
     const r = score({ content: 'x', evidence: [QUOTE] });
     expect(r.confidence).toBe(0.65);
+    expect(r.tags).toEqual([]);
+  });
+
+  it('同一段用户输入的副本不算独立印证（还是 0.55）', () => {
+    // 同一句话被复制到第二个会话文件（同步两次 / 两个采集器收了同一次对话）：
+    // 用户只说过一次，就只有一个来源，不该加分。
+    addSession('probe-0002', QUOTE, 'qwenwork');
+    index.catchUp();
+    const r = score({ content: 'x', evidence: [QUOTE] });
+    expect(r.confidence).toBe(0.55);
     expect(r.tags).toEqual([]);
   });
 
@@ -183,7 +197,7 @@ describe('score ladder: M1 五档固化', () => {
   });
 
   it('第 3 档 印证加成：多一份独立会话就往上加', () => {
-    addSession('probe-0002', QUOTE, 'qwenwork');
+    addSession('probe-0002', QUOTE, 'qwenwork', '顺便，');
     index.catchUp();
     const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [QUOTE] });
     expect(r.confidence).toBeGreaterThan(SCORE_GROUNDED);
@@ -192,7 +206,7 @@ describe('score ladder: M1 五档固化', () => {
 
   it('第 4 档 自动上限 = 0.80（再多印证也不越过）', () => {
     for (const [i, agent] of ['qwenwork', 'cursor', 'deepseek', 'doubao'].entries()) {
-      addSession(`probe-1${i}0`, QUOTE, agent);
+      addSession(`probe-1${i}0`, QUOTE, agent, `第${i}次，`);
     }
     index.catchUp();
     const r = score({ content: 'x', sessionId: 'probe-0001', evidence: [QUOTE] });

@@ -148,7 +148,7 @@ describe('evidence score', () => {
     expect(pending.tags).toContain('pending-session');
   });
 
-  it('磁盘上存在的会话副本会被计入印证（B 阶段：会话从磁盘派生）', () => {
+  it('同一段用户输入的副本不算独立印证（B 阶段：印证按用户输入去重）', () => {
     const userLine = '以后都用手写 SQL，不要用 ORM 框架';
     const cited = digest('s1', userLine, '助手甲');
     const extra = digest('s-extra', userLine, '助手乙');
@@ -164,9 +164,29 @@ describe('evidence score', () => {
       last_ts: cited.ended_ts,
       processed_at: cited.ended_ts,
     }, renderDialogue(cited));
-    // 旧实现（SQLite）只认「索引里登记过的会话」，同盘但未登记的副本不计印证（0.55）。
-    // 内存索引把 sessions/ 当作派生物整目录解析，于是这份副本成为一份独立印证（+0.10）。
-    // 这是**有意的语义变化**：会话文件在库里就是来源，索引不该成为第二个事实源。
+    // 同一段用户输入被复制到第二个会话文件（同步两次 / 两个采集器收了同一次对话）：
+    // 用户只说过一次，就只有一个来源，不能算两份印证（否则复制粘贴就能刷分）。
+    const scored = scoreEvidence(home, { content: '用手写 SQL', sessionId: 's1', evidence: userLine }, index);
+    expect(scored.confidence).toBe(0.55);
+  });
+
+  it('不同的用户输入里都出现同一句引文 → 算独立印证（0.65）', () => {
+    const userLine = '以后都用手写 SQL，不要用 ORM 框架';
+    const cited = digest('s1', userLine, '助手甲');
+    const other = digest('s2', '顺便问一句，' + userLine, '助手乙');
+    const written = writeSessionFile(home, cited, renderDialogue(cited), 'h1');
+    writeSessionFile(home, other, renderDialogue(other), 'h2');
+    index.putSession({
+      session_id: sessionKey('cursor', 's1'),
+      agent: 'cursor',
+      path: written.path,
+      content_hash: 'h1',
+      project_fp: 'unknown',
+      msg_count: 2,
+      last_ts: cited.ended_ts,
+      processed_at: cited.ended_ts,
+    }, renderDialogue(cited));
+    // 两次**不同的**表达里都出现了这句引文 → 两个独立来源 → 加成。
     const scored = scoreEvidence(home, { content: '用手写 SQL', sessionId: 's1', evidence: userLine }, index);
     expect(scored.confidence).toBe(0.65);
   });
@@ -194,9 +214,12 @@ describe('evidence score', () => {
 
   it('graded corroboration: bonus scales with corroboration count and cross-project spread', () => {
     const userLine = 'always deploy on fridays';
+    // 印证按「用户输入」去重：三次表达要各不相同，才算三个来源。
+    const userLine2 = '顺便说一句，' + userLine;
+    const userLine3 = '另外提醒我，' + userLine;
     const d1 = digest('gl-1', userLine, 'assistant-a');
-    const d2 = digest('gl-2', userLine, 'assistant-b');
-    const d3 = digest('gl-3', userLine, 'assistant-c');
+    const d2 = digest('gl-2', userLine2, 'assistant-b');
+    const d3 = digest('gl-3', userLine3, 'assistant-c');
     // write d1 and d2 to disk with different projects; only d1 and d2 go into the index
     writeSessionFile(home, d1, renderDialogue(d1), 'h1');
     writeSessionFile(home, { ...d2, project_fp: 'proj-y' }, renderDialogue(d2), 'h2');
@@ -213,7 +236,7 @@ content_hash: h2
 ---
 
 ## user
-${userLine}
+${userLine2}
 
 ## assistant
 assistant-b`);
@@ -236,7 +259,7 @@ assistant-b`);
       msg_count: 2,
       last_ts: d2.ended_ts,
       processed_at: d2.ended_ts,
-    }, `## user\n${userLine}\n\n## assistant\nassistant-b`);
+    }, `## user\n${userLine2}\n\n## assistant\nassistant-b`);
 
     // cited gl-1, one corroboration from same project (via digest default 'unknown' maps to 'unknown')
     // note: d1 digest has project_fp 'unknown' but we set project_fp:'proj-x' in putSession
@@ -258,7 +281,7 @@ content_hash: h3
 ---
 
 ## user
-${userLine}
+${userLine3}
 
 ## assistant
 assistant-c`);
@@ -271,7 +294,7 @@ assistant-c`);
       msg_count: 2,
       last_ts: d3.ended_ts,
       processed_at: d3.ended_ts,
-    }, `## user\n${userLine}\n\n## assistant\nassistant-c`);
+    }, `## user\n${userLine3}\n\n## assistant\nassistant-c`);
 
     // cited gl-1, two corroborating sessions across two projects
     // bonus = 0.10 (1st) + 0.06 (2nd) + 0.03 (cross-project) = 0.19, base = 0.55 + 0.19 = 0.74

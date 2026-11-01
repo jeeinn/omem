@@ -168,16 +168,17 @@ describe('score: 证据锚定与归一化（V15/V16/V17/V32）', () => {
 
   it('V16b: graded corroboration ladder (1 / 2 / 3 corroborations)', () => {
     const quote = 'always deploy on fridays';
+    // 印证按「用户输入」去重：每次表达要不同，才算独立来源。
     seedSession('g1', `## user\n${quote}\n\n## assistant\nok`, '2026-10-18T10:00:00.000Z', 'proj-x');
     index.catchUp();
     // g1 is cited; no corroboration yet → 0.55
     expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.55);
     // add 1 corroborating session from same project → 0.65
-    seedSession('g2', `## user\n${quote}\n\n## assistant\nok`, '2026-10-19T10:00:00.000Z', 'proj-x');
+    seedSession('g2', `## user\n顺便说一句，${quote}\n\n## assistant\nok`, '2026-10-19T10:00:00.000Z', 'proj-x');
     index.catchUp();
     expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.65);
     // add 2nd corroborating session from a different project → 0.71 + 0.03 cross-project = 0.74
-    seedSession('g3', `## user\n${quote}\n\n## assistant\nok`, '2026-10-20T10:00:00.000Z', 'proj-y');
+    seedSession('g3', `## user\n另外提醒我，${quote}\n\n## assistant\nok`, '2026-10-20T10:00:00.000Z', 'proj-y');
     index.catchUp();
     expect(scoreApiDoc(home, { sessionId: 'g1', evidence: [quote], content: 'x' }, index).confidence).toBe(0.74);
   });
@@ -186,7 +187,7 @@ describe('score: 证据锚定与归一化（V15/V16/V17/V32）', () => {
     const quote = 'use rust for everything';
     seedSession('c1', `## user\n${quote}`, '2026-10-10T10:00:00.000Z', 'proj-a');
     for (let i = 2; i <= 6; i++) {
-      seedSession(`c${i}`, `## user\n${quote}`, `2026-10-${10 + i}T10:00:00.000Z`, `proj-${i}`);
+      seedSession(`c${i}`, `## user\n第${i}次提这件事，${quote}`, `2026-10-${10 + i}T10:00:00.000Z`, `proj-${i}`);
     }
     index.catchUp();
     // 5 corroborations from 5 different projects: 0.55 + 0.10 + 0.06 + 0.03×3 = 0.80, but capped at 0.25 bonus → 0.80

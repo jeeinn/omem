@@ -367,7 +367,14 @@ describe('mcp: handleTool', () => {
     const sessC = 'sess-multi-c';
     const dir = join(home, 'sessions', 'cursor');
     mkdirSync(dir, { recursive: true });
-    for (const [sid, proj] of [[sessD, 'proj-old'], [sessA, 'proj-X'], [sessB, 'proj-X'], [sessC, 'proj-Y']] as const) {
+    // 印证按「用户输入」去重：sessD 必须与被引用的 sessA 说的是不同的话，才算独立来源。
+    const sessions = [
+      [sessD, 'proj-old', '上次也说过一次：部署流程必须通过 CI/CD 验证'],
+      [sessA, 'proj-X', '部署流程必须通过 CI/CD 验证'],
+      [sessB, 'proj-X', '补充一下，部署流程必须通过 CI/CD 验证'],
+      [sessC, 'proj-Y', '再确认一遍，部署流程必须通过 CI/CD 验证'],
+    ] as const;
+    for (const [sid, proj, userText] of sessions) {
       writeFileSync(
         join(dir, `${sid}.md`),
         [
@@ -382,7 +389,7 @@ describe('mcp: handleTool', () => {
           '---',
           '',
           '## user',
-          '部署流程必须通过 CI/CD 验证',
+          userText,
           '',
         ].join('\n'),
       );
