@@ -21,7 +21,7 @@ V0.1，公开测试版 `0.1.0-beta.7`（`npm install -g @jeeinn/omem@beta`）。
 
 - 新增 `omem review --ui`：浏览器里勾选、右栏看正文与来源会话，一次提交（见「图形化审阅」）
 - `omem review --confirm` 支持逗号列表，一条命令确认一批
-- 新增 `omem topic list` / `omem topic policy`：主题可见性与主题级审阅策略
+- 新增 `omem topics list`：主题可见性（主题名 / 项目 / 最近更新 / 置信度 / 标题）
 - 活文档更新现在**继承证据链**：`evidence` 不再清零，与 `source_sessions` 一样累积（各有限额）
 - `domain` 会被归一化：以前写成 `Coding`、`My Project` 的条目，下次写入会落到 `coding`、`my-project` 目录
 - `omem review` 末尾会报告被 `review.toml` 策略静默的条数
@@ -147,9 +147,9 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 ## 结论从哪来
 
-默认不调用模型。`omem sync` 只把原文放进 `sessions/`，并在 `PROCESS.md` 里列出还没写进活文档的会话。Agent 读这份文件，用 `save_memory` 或 `omem add --topic` 写回。同一主题已有 active 文档时必须带 `supersedes`。
+默认不调用模型。`omem sync` 只把原文放进 `sessions/`，并在 `PROCESS.md` 里列出还没写进活文档的会话。Agent 读这份文件，用 `save_memory` 或 `omem add --topic` 写回。写同一个 topic 就是覆盖同一份文件，不需要额外的 id。
 
-置信度按证据打：对得上 user 原文从 0.55 起，两个会话印证到 0.75，对不上封顶 0.35。`confirm_ids` 最多到 0.8，不标已确认。`omem add` 或 `omem review --confirm` 才到 0.9 并标 `verified`。
+置信度按证据打：对得上 user 原文从 0.55 起，两个会话印证到 0.75，对不上封顶 0.35。`confirm_ids` 最多到 0.8。`omem review --confirm` 把人工过目的文档提到 0.9——这套分数不写 `verified` 字段（v0.2.0 起取消）。
 
 证据门槛是 12 个连续字符，且必须来自会话文件里的 `## user` 段（引模型自己的话不算）。`session_id` 用裸 id——`claude-code:probe-0001` 这种带前缀的写法会自动剥掉前缀再找，不会因此掉到 0.35。没给 `session_id` 只给 `evidence` 时，第一个命中的会话可能是证据的来源本身，因此不计入「独立印证」：指名与不指名同分，指名不会更亏。
 
@@ -167,28 +167,28 @@ omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
 
 ```bash
 omem add "连接池上限 20，超过就排队" --topic pool-tuning
-omem topic list          # 有哪些主题
-omem topic list --all    # 连已经合并掉的旧主题一起看
+omem topics               # 有哪些主题
+omem topics rename old new  # 改名 = 移动文件，历史由 git 保留
 ```
 
 同一主题同时只有一份 active 文档。要更新它，必须指向当前那份：
 
 ```bash
-omem add "连接池上限 20，超过排队（补充：不要盲调大）" --topic pool-tuning --supersedes <id>
+omem add "连接池上限 20，超过排队（补充：不要盲调大）" --topic pool-tuning
 ```
 
-不传 `supersedes` 会被拒绝，`--force` 也不绕过。更新是整篇覆盖：旧版置 `superseded`、文件留在原目录、默认检索不再返回。
+更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。
 
-继承规则：`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），`verified` 和 `confirmations` 重置——新内容需要重新核实。
+继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。
 
 ### 主题级审阅策略
 
 同一个主题反复更新会让它反复回到队列。`review.toml` 可以按主题关掉这种打扰：
 
 ```bash
-omem topic policy pool-tuning once     # 审过一次后，后续版本自动 assent（0.8，不 verified），不再进队列
-omem topic policy noisy-topic never    # 永不进队列
-omem topic policy pool-tuning default  # 回到默认 always
+omem review --confirm pool-tuning      # 人工过目：置信度提到 0.9
+omem review --dismiss noisy-topic      # 归档：移出队列，可逆
+omem review --stale pool-tuning        # 冷却：排在 active 之后
 ```
 
 策略文件在 `~/.omem/review.toml`，随 git 备份。「审过」指该主题任一版本有过确认动作——`confirm` 与 `assent` 都算，两者都会累加 `confirmations`。`once` 与 `never` 都有安全阀：置信度 ≤0.35 或带 `ungrounded` 的条目**始终**会回到队列，策略压不住它。被策略静默的条数会在 `omem review` 末尾报告，不会是无声消失。
@@ -201,7 +201,6 @@ omem topic policy pool-tuning default  # 回到默认 always
 | 新主题和老主题只差一两个字 | 写入时告警「is close to existing "xxx"」，并说明「确属不同主题就保留新主题」，照常写入 |
 | 用新主题取代了别的主题的文档 | 写入时告警「Merged N topic(s) into "xxx"」，并列出消失的主题名 |
 
-最后一种不阻止、只提示：合并本身是合法操作，但那些主题名之后就搜不到了（`omem search --all`，或 MCP 的 `status: ["superseded"]` 才看得到）。`omem topic list --all` 会给出「旧主题 → 现在归到哪个文档」的映射。
 
 ## 图形化审阅（`review --ui`）
 
@@ -217,17 +216,17 @@ omem review --ui --topic fm-cmp --timeout 300
 
 | 你的操作 | 结果 |
 | --- | --- |
-| 勾选，但没展开这条的正文 | `assent`：confidence 保底 0.8，`verified` 仍为 false |
-| 勾选，且展开过正文 | `confirm`：confidence 0.9，`verified: true` |
+| 勾选，但没展开这条的正文 | `assent`：confidence 保底 0.8 |
+| 勾选，且展开过正文 | `confirm`：confidence 0.9（人工过目） |
 
-「展开过」由服务端记录（`GET /api/detail/<id>`），前端改不了。这条门槛的目的很直接：`verified` 决定 `MEMORY-INDEX.md` 的排序，应该为它付出阅读成本。批量全选只能拿到 0.8。
+「展开过」由服务端记录（`GET /api/detail/<topic>`），前端改不了。这条门槛的目的很直接：置信度决定 `MEMORY-INDEX.md` 的排序，应该为它付出阅读成本。批量全选只能拿到 0.8。
 
 其它细节：
 
 - 终端里的 `Enter` 只是「授权打开浏览器」，提交的唯一入口是页面按钮
 - `Ctrl+C` 任何时刻都是关闭服务、零写入、退出码 0；超时（默认 10 分钟）同样零写入
 - 提交前自动打一次 `snapshot`，保留 7 份
-- 页面打开期间条目可能被 Agent 更新：提交时逐条重校验 status，已 superseded 的跳过而不是整批失败
+- 页面打开期间文档可能被 Agent 更新：提交时逐条重校验 status，已归档的跳过而不是整批失败
 
 ## 定时采集
 
