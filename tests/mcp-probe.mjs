@@ -2,7 +2,7 @@
 // 不依赖 MCP SDK——直接走 stdio JSON-RPC，顺带验证 stdout 无日志污染（协议纪律）。
 // 用法: node tests/mcp-probe.mjs <bin/omem.js 路径>
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const bin = process.argv[2];
@@ -114,6 +114,42 @@ try {
       results.push(['sees external edits without reconnecting', editedText.includes('catchup-probe-marker-77')]);
     } else {
       results.push(['sees external edits without reconnecting (empty store)', false]);
+    }
+  }
+
+  // ── 补分：同一条正文，证据这次锚上了 ──────────────────────────────
+  // 真实场景：`save_memory` 在 `omem sync` 收进这次对话之前执行，引文无锚可依，只能落
+  // 0.35 ungrounded；补采之后重发同样的正文必须能把分补回来，而不是被 body_hash
+  // 永远挡在 0.35。这里先故意给一句不存在的引文（0.35），再从会话原文里取真引文重发。
+  if (home) {
+    const sessionFile = walkMd(join(home, 'sessions'))[0];
+    if (sessionFile) {
+      const raw = readFileSync(sessionFile, 'utf8');
+      const sid = (raw.match(/^session_id:\s*(\S+)\s*$/m) ?? [])[1] ?? '';
+      const userSection = raw.split(/^## user$/m)[1] ?? '';
+      const quote = userSection.split('\n').map((l) => l.trim()).find((l) => l.length >= 16) ?? '';
+      const content = '探针补分：连接池上限调到 20，超过排队 probe-rescore-marker';
+      results.push(['probe found a quotable ## user line', Boolean(sid) && Boolean(quote)]);
+
+      send({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'save_memory', arguments: { content, topic: 'probe-rescore', session_id: sid, evidence: ['这段引文在会话原文里并不存在 probe-miss-123'] } } });
+      const miss = await waitFor(7);
+      const missSc = miss.result?.structuredContent ?? {};
+      results.push(['an unmatched quote lands at 0.35 (baseline for the re-score)', missSc.confidence === 0.35 && missSc.status === 'written']);
+
+      send({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'save_memory', arguments: { content, topic: 'probe-rescore', session_id: sid, evidence: [quote] } } });
+      const fixed = await waitFor(8);
+      const fixedSc = fixed.result?.structuredContent ?? {};
+      const fixedText = fixed.result?.content?.[0]?.text ?? '';
+      results.push([
+        'an identical body is re-scored once the quote anchors (0.35 → 0.55)',
+        fixedSc.status === 'deduped' && fixedSc.rescored?.from === 0.35 && fixedSc.rescored?.to === 0.55 && fixedSc.rescored?.applied === true,
+      ]);
+      results.push(['the re-score is stated instead of "nothing was written"', /Confidence raised from 0\.35 to 0\.55/.test(fixedText)]);
+
+      const rescoredFile = walkMd(join(home, 'knowledge')).find((p) => p.endsWith('probe-rescore.md'));
+      const onDisk = rescoredFile ? readFileSync(rescoredFile, 'utf8') : '';
+      results.push(['the stored confidence is the re-scored one', /^confidence: 0\.55$/m.test(onDisk)]);
+      results.push(['the ladder tag is gone once the score is anchored', !/^tags:.*ungrounded/m.test(onDisk)]);
     }
   }
 

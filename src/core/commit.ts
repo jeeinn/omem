@@ -2,7 +2,7 @@
 // 顺序：脱敏 → work 代码密度 → content-hash 去重 → 落盘 → upsert → 可选刷新热层 → 日志。
 // force 只跳过代码密度；脱敏与去重不跳过。refreshIndex 默认 true，批量加工传 false。
 import type { OmemConfig } from './config.js';
-import type { OmemIndex } from './index.js';
+import type { EntryRow, OmemIndex } from './index.js';
 import type { Entry, EntrySource, Frontmatter, MemoryType, Profile } from './entry.js';
 import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain, normalizeTopic } from './entry.js';
 import { rmSync } from 'node:fs';
@@ -119,8 +119,18 @@ export interface CommitResult {
    * 命中 content-hash 去重时，既有条目的元数据。
    * 调用方据此判断「请求的 topic/type 与既有文档是否不一致」——不一致时要能说出来，
    * 否则元数据被静默丢弃，响应还读起来像成功。
+   *
+   * `confidence` 带的是**落盘值**：去重意味着这次没有写入，所以这次算出来的分只是
+   * 一个假设。回执报假设分会让调用方以为磁盘上是这个数（补分被守卫生效时尤其明显）。
    */
-  existing?: { topic?: string; type: string; tags: string[] };
+  existing?: { topic?: string; type: string; tags: string[]; confidence: number };
+  /**
+   * 去重命中但补了分（2026-11-02）：正文一字未改，只是这次带的证据锚上了，
+   * 于是把 `confidence` 与证据链刷新回账本值。`applied:false` 只出现在 dry-run——
+   * 数算出来了，文件没动。调用方必须把这件事说出来，否则回执「什么都没写」
+   * 与磁盘被改过的事实对不上。
+   */
+  rescored?: { from: number; to: number; applied: boolean };
 }
 
 /**
@@ -148,6 +158,17 @@ export function metadataDrift(
     if (missing.length > 0) diffs.push(`tags [${missing.join(', ')}] not on the stored entry`);
   }
   return diffs;
+}
+
+/**
+ * 补分回执的唯一渲染处（CLI 与 MCP 共用）。理由与 `metadataDrift` 相同：
+ * 同一句「分数被补上了」各写一遍，必然一边先报旧分一边先报新分。
+ */
+export function rescoreNotice(r: NonNullable<CommitResult['rescored']>): string {
+  const range = `from ${r.from.toFixed(2)} to ${r.to.toFixed(2)}`;
+  return r.applied
+    ? `Confidence raised ${range}: the quotes now anchor. The body was not rewritten — only the frontmatter (confidence, evidence, source sessions) was refreshed.`
+    : `Confidence would be raised ${range}: the quotes now anchor. Dry-run wrote nothing.`;
 }
 
 /**
@@ -256,6 +277,94 @@ function refreshGuide(home: string, index: OmemIndex, config?: OmemConfig): void
   }
 }
 
+/** 补分的容差：与 `verifyConfidence` 同一口径——浮点大小不比字面相等。 */
+const RESCORE_TOL = 0.005;
+
+/** 阶梯标记。分数变了它们必须跟着变，否则 review 队列与分数各说一套。 */
+const LADDER_TAGS = new Set(['ungrounded', 'pending-session']);
+
+/**
+ * 去重命中时的「补分」（2026-11-02 裁定）。
+ *
+ * 要解决的问题：会话通常在写入**之后**才被 `omem sync` 收进来，当时那条只能落
+ * 0.35 `ungrounded`。正文没变，分数却过时了；而重发同样的正文会被 body_hash 去重
+ * 挡回来——补采之后没有任何一条路能自愈（`omem verify` 只报告不改写）。
+ *
+ * 因此：同一条正文、同一个 topic、这次带的证据确实锚上了 → 只刷新 frontmatter
+ * 的 `confidence` 与证据链，正文一字不动。
+ *
+ * 四个边界，每一条都是防「自己给自己涨分」：
+ *   - topic 必须相同：写 A 不许动 B 的分。
+ *   - 必须带 evidence：不带证据的单子算 `pending-session` 0.55，若允许它补分，
+ *     一句「什么都不举」就能把 0.35 抬上去，举证纪律当场失效。
+ *   - 只升不降：降分是 `omem verify` 报给人判断的事，不该是写入的副作用。
+ *   - 人工过目过的（`confirmations > 0`）不碰：0.9 是人给的，机器不覆盖。
+ *
+ * 返回 null = 不满足条件，调用方按普通去重回执。
+ */
+function rescoreOnDedup(
+  home: string,
+  index: OmemIndex,
+  dup: EntryRow,
+  topic: string,
+  input: CommitInput,
+  opts: CommitOpts,
+  redacted: number | undefined,
+): CommitResult | null {
+  if (dup.topic !== topic || dup.status !== 'active') return null;
+  if (dup.confirmations > 0) return null;
+  const evidence = (input.evidence ?? []).map((e) => e.trim()).filter(Boolean);
+  if (evidence.length === 0) return null;
+  if (!(input.confidence > dup.confidence + RESCORE_TOL)) return null;
+
+  const loc = findByTopic(home, dup.topic, { includeArchived: true });
+  if (!loc) return null;
+  const fm = loc.entry.fm;
+  const from = fm.confidence;
+  if (!(input.confidence > from + RESCORE_TOL)) return null;
+  const rescored = { from, to: input.confidence, applied: !opts.dryRun };
+
+  if (opts.dryRun) {
+    return finish(home, {
+      status: 'deduped',
+      topic: dup.topic,
+      redacted,
+      reason: 'Content already exists; the score would be refreshed',
+      rescored,
+      existing: { topic: dup.topic, type: fm.type, tags: fm.tags, confidence: fm.confidence },
+    }, input, opts);
+  }
+
+  fm.confidence = input.confidence;
+  // 证据链与会话 id 跟分数同源：只提分不留证据的话，下一次 `omem verify`
+  // 会用同一本账把它判成 overstated（账本重算读的正是这两个字段）。
+  fm.evidence = mergeEvidence(evidence, [fm.evidence]);
+  fm.source_sessions = collectSourceSessions(input, fm);
+  if (!fm.session_id && input.session_id) fm.session_id = input.session_id;
+  fm.tags = fm.tags.filter((t) => !LADDER_TAGS.has(t));
+  const written = writeEntry(home, loc.entry);
+  if (loc.path !== written.path) rmSync(loc.path, { force: true });
+  index.upsert(loc.entry, written.path, written.content);
+  if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
+  // PROCESS.md 不依赖 confidence 与 tags，重算它只是多花一次渲染——跳过。
+  logOutcome(home, 'deduped', {
+    topic: dup.topic,
+    source: input.source,
+    redacted: redacted ?? 0,
+    reason: 'rescore',
+    rescored: { from, to: input.confidence },
+    ...opts.audit,
+  });
+  return {
+    status: 'deduped',
+    topic: dup.topic,
+    path: written.path,
+    redacted,
+    rescored,
+    existing: { topic: dup.topic, type: fm.type, tags: fm.tags, confidence: fm.confidence },
+  };
+}
+
 export function commitEntry(
   home: string,
   config: OmemConfig,
@@ -328,13 +437,22 @@ export function commitEntry(
 
   const dup = index.getByBodyHash(contentHash(text));
   if (dup) {
+    // 正文已经存在 ≠ 分数已经正确：会话常常在写入之后才被 `omem sync` 收进来。
+    // 满足条件时补分（只改 frontmatter），否则退回平常的去重回执。
+    const rescored = rescoreOnDedup(home, index, dup, topic, input, opts, redacted);
+    if (rescored) return rescored;
     return finish(home, {
       status: 'deduped',
       topic: dup.topic,
       redacted,
       reason: 'Content already exists',
       // 去重命中时把既有元数据带回去：调用方要判断请求的 topic/type 是否与既有一致。
-      existing: { topic: dup.topic, type: dup.type, tags: (dup.tags ?? '').split(/\s+/).filter(Boolean) },
+      existing: {
+        topic: dup.topic,
+        type: dup.type,
+        tags: (dup.tags ?? '').split(/\s+/).filter(Boolean),
+        confidence: dup.confidence,
+      },
     }, input, opts);
   }
 

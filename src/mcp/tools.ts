@@ -17,7 +17,7 @@ import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
-import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, vcsNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, rescoreNotice, vcsNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
@@ -202,7 +202,9 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'Limits: content longer than the configured maximum is NOT written — the response states how far over you are, what the ' +
         'overflow looked like, that the existing document is unchanged, and the two ways forward (tighten the body, or start a ' +
         'narrower topic). Nothing is ever truncated silently. Identical content is not written twice; if only the metadata ' +
-        'differs, the response tells you how to apply it. Each call that writes leaves exactly one local git commit when the ' +
+        'differs, the response tells you how to apply it. A duplicate body is still re-scored when your quotes anchor now ' +
+        '(typically because the session was collected after the write): the stored confidence goes up, the body stays as it is, ' +
+        'and the response says so (`rescored`). Each call that writes leaves exactly one local git commit when the ' +
         'store is a git repository, and the response reports it (`vcs`) — pushing to a remote is `omem backup`, not this tool.',
       inputSchema: {
         type: 'object',
@@ -283,6 +285,15 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
             type: 'array',
             items: { type: 'string' },
             description: 'Requested topic/type/tags the deduped-by-content entry does not carry. Empty when the metadata matches.',
+          },
+          rescored: {
+            type: 'object',
+            description: 'Set when an identical body was re-scored instead of dropped: the quotes anchor now, so the stored confidence was refreshed (body unchanged).',
+            properties: {
+              from: { type: 'number' },
+              to: { type: 'number' },
+              applied: { type: 'boolean', description: 'false under dry_run: computed but nothing was written.' },
+            },
           },
         },
       },
@@ -735,27 +746,38 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       ? metadataDrift(result.existing, { topic, type: type === requestedType ? type : undefined, tags: requestedTags })
       : [];
 
-    wroteSomething = result.status === 'written';
+    // 补分也动了磁盘（只改 frontmatter），因此同样要算作「写过东西」——
+    // 否则这次改动没有 git 版本、回执也不提，下一次 review 看到的是一个没有出处的分数。
+    wroteSomething = result.status === 'written' || (result.rescored?.applied ?? false);
     Object.assign(structured, {
       status: result.status,
       topic: result.topic,
       updated: result.updated ?? false,
-      confidence: scored.confidence,
+      // 去重命中时磁盘上的分是既有条目的分；这次算出来的只是「如果写下去会是几分」。
+      confidence: result.status === 'deduped' ? (result.existing?.confidence ?? scored.confidence) : scored.confidence,
       tags,
       warnings: result.warnings ?? [],
       over_cap: result.overCap,
       session_found: scored.sessionFound,
       anchors: { total: scored.anchors?.total ?? 0, matched: scored.anchors?.matched.length ?? 0 },
       metadata_drift: drift,
+      rescored: result.rescored,
     });
 
     if (dryRun) {
       parts.push(`[dry-run] ${result.status}${result.reason ? ': ' + result.reason : ''}`);
-      parts.push(`Confidence would be ${scored.confidence}.`);
+      parts.push(result.rescored ? rescoreNotice(result.rescored) : `Confidence would be ${scored.confidence}.`);
       if (drift.length > 0) parts.push(`Metadata that would be lost to content dedup: ${drift.join('; ')}.`);
       // dry_run 也走同一条 cap 判定：超限在预演里就是 excluded，不是「会截断」。
       if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
       for (const w of result.warnings ?? []) parts.push(w);
+    } else if (result.status === 'deduped' && result.rescored) {
+      // 正文没重写，但分数与证据链被刷新了——「nothing was written」在这里是假话。
+      const kept = drift.length > 0 ? ` Requested metadata it does not carry: ${drift.join('; ')}.` : '';
+      parts.push(
+        `Deduped by content (topic: ${result.existing?.topic ?? result.topic}); the body was not written again. ` +
+        `${rescoreNotice(result.rescored)}${kept}`,
+      );
     } else if (result.status === 'deduped') {
       const mismatch = drift.length > 0 ? ` It kept the stored metadata (${drift.join('; ')}).` : '';
       parts.push(
@@ -807,7 +829,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       const vcs = autoCommit(
         ctx.home,
         ctx.config,
-        `omem: ${structured.status === 'deduped' ? 'dedup' : 'save'} ${String(structured.topic ?? '')}`.trim(),
+        `omem: ${structured.rescored ? 'rescore' : structured.status === 'deduped' ? 'dedup' : 'save'} ${String(structured.topic ?? '')}`.trim(),
         touched,
       );
       structured.vcs = vcs;

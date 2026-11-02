@@ -317,5 +317,6 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | E | ``tests/smoke.sh`` 重写 + ``tests/mcp-probe.mjs`` 同步到 v0.2 | ✅（75/75 检查绿） |
 | F | ``omem verify`` 账本复算（§11「置信度」验收项的后半条一直没实现） | ✅（``process/score.ts`` 的 ``verifyConfidence``，只报告不改写） |
 | G | 印证按独立来源计数（同一段用户输入的副本只算一份） | ✅（``session-store.ts`` 的 ``evidenceUserKey`` + ``score.ts`` 的 ``buildSourceSkip``） |
+| H | 去重命中时的补分（补采之后同正文重发即可自愈；只升不降、须带证据、人工过目过的不碰） | ✅（``core/commit.ts`` 的 ``rescoreOnDedup`` + ``CommitResult.rescored``；矩阵见 ``tests/unit/dedup-rescore.test.ts``，端到端在 ``tests/mcp-probe.mjs``） |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。
