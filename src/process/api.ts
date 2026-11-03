@@ -388,10 +388,10 @@ export function apiSetupHint(): string {
   return 'API tier is not configured. Set OMEM_API_KEY / OMEM_API_BASE / OMEM_API_MODEL (OpenAI-compatible endpoint) and retry; conclusions can also be written via save_memory or omem add.';
 }
 
-/** 连续传输失败中止（§3.4）：exit 2，提示看 api status。 */
+/** 连续传输失败中止（§3.4）：exit 2，提示走 dry-run 看队列与端点。 */
 export function endpointUnavailableError(failures: number): BackendUnavailableError {
   return new BackendUnavailableError(
     `endpoint appears unavailable (${failures} consecutive transport failures); partial results kept`,
-    'run omem api status',
+    'run `omem sync --tier api --dry-run` to check the configured endpoint and what is still queued (no requests are made)',
   );
 }

@@ -30,8 +30,10 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
     lines.push('Next');
     if (dryRun) lines.push('  Drop --dry-run to call the endpoint.');
     else if ((report.queuePending ?? 0) > 0 || (report.failed ?? 0) > 0 || (report.parseFailed ?? 0) > 0) {
-      lines.push('  omem sync --tier api     continue what is still pending');
-      lines.push('  omem api status         see the endpoint and the queue');
+      lines.push('  omem sync --tier api            continue what is still pending');
+      // 诊断入口是 dry-run（端点 / 队列深度 / 量级），不是原来的 `omem api status`——
+      // 那条命令在 C 阶段已删，提示里再写它等于给了一条跑不了的指令。
+      lines.push('  omem sync --tier api --dry-run  see the endpoint, the queue and the rough size (no requests)');
     } else lines.push('  omem search "<query>"');
     if ((report.duplicateTopics ?? 0) > 0) {
       lines.push('  Possible duplicate topics were logged. Review them with omem review before they fragment.');
