@@ -672,6 +672,7 @@ export function commitEntry(
       // 否则 `once` 策略会在每次更新后重新变回「未审」，人工介入退化成无限循环。
       ...(existingFm ? { confirmations: existingFm.confirmations, last_confirmed: existingFm.last_confirmed } : {}),
       source_sessions: collectSourceSessions(input, existingFm),
+      // D1（推迟 v0.4）：这是历史证据链的完整继承，不是对当前正文的背书裁决；omem 不做语义判断。
       evidence: mergeEvidence(input.evidence ?? [], existingFm ? [existingFm.evidence] : []),
       tags: input.tags ?? [],
     }),

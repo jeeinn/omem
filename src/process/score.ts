@@ -295,6 +295,10 @@ export function scoreApiDoc(
  *
  * 区间 [min, max] 覆盖了写入批次带来的全部差异；落在区间内 = 没有漂移。
  * 只报告、不改写：自动改写会在每次 verify 时抖动 git 历史，而且「谁该赢」不是机器能判的。
+ *
+ * v0.3 决策 D1（**未实现，推迟 v0.4**）：这里读的 `fm.evidence` 是 `mergeEvidence` 累积出的
+ * **历史证据链**，不是「当前版本本次提交的证据」。因此账本的印证判断可能包含不支持当前正文的
+ * 旧引文。v0.4 分层后须改为只复算「当前版本证据」层；本函数仍只报告、不改写（AGENTS.md:24）。
  */
 export interface ConfidenceDrift {
   topic: string;

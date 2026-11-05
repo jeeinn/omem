@@ -216,6 +216,11 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
  * 为什么不能全量继承：evidence 是「从 `## user` 段摘出的原文」，每更新一代就多一条。
  * 不设上限会让 frontmatter 无限膨胀，拖慢解析与索引。8 条 / 2000 字符足够覆盖
  * 「这条结论由哪些原话支撑」，同时保证本次写入的证据一定留下。
+ *
+ * v0.3 决策 D1（**未实现，推迟 v0.4**）：本函数产出的是**历史证据链**，不等于「当前正文的背书」。
+ * `scoreEvidence` 不读正文、也不判断引文是否仍支持新正文；`verifyConfidence` 目前同样拿这份
+ * 历史链复算印证。v0.4 分层时保留本函数语义不变，另增「当前版本证据」层供计分与账本使用。
+ * 在此之前，不要把 `fm.evidence` 解读为「当前内容已被这些原话证明」。
  */
 export function mergeEvidence(
   fresh: string[],

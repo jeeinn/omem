@@ -25,8 +25,8 @@
 | S2 写入差异预览 | ✅ 2026-11-05 | `e7b7796` | 新增 `write-diff.test.ts`(8)；`npm test` 73 files / 746 tests 绿、`smoke` 80/0 绿、payload 10929/12300 |
 | S3 检索结构化证据返回 | ✅ 2026-11-05 | `4e4a388` | T08 已随 S1-cd 完成；新增 `search-evidence.test.ts`(4)、修正 golden 语料并补上 B 阶段遗留的 stale 排序断言；`npm test` 74 files / 751 tests 绿、`smoke` 80/0 绿、payload 11736/12300 |
 | S4 expected_revision (best-effort) | ✅ 2026-11-05 | `ca973d3` | 复用 `index.hash` 口径（不造第三把 hash）；新增 `revision-cas.test.ts`(10)，验收只断言「检测到变化的一方被拒绝」；CLI 补 --expected-revision 与 search --detail 的 revision 行；`npm test` 75 files / 761 tests 绿、`smoke` 80/0 绿、payload 11968/12300 |
-| S5 回归测试与评估 | ✅ 2026-11-05 | 待回填 | 独立 `tests/eval/golden-search.json`(8 cases) + `scripts/eval-search.mjs` 离线脚本（`npm run eval:search` 8/8）+ `golden-dataset.test.ts` 双通道覆盖；`concurrent-write.test.ts`(3) 双索引视图、smoke S17 真双进程 CLI；`npm test` 77 files / 766 tests 绿、`smoke` 83/0 绿 |
-| S6 证据与评分模型重构 | 🔄 门槛判定中 | — | — |
+| S5 回归测试与评估 | ✅ 2026-11-05 | `bb453b6` | 独立 `tests/eval/golden-search.json`(8 cases) + `scripts/eval-search.mjs` 离线脚本（`npm run eval:search` 8/8）+ `golden-dataset.test.ts` 双通道覆盖；`concurrent-write.test.ts`(3) 双索引视图、smoke S17 真双进程 CLI；`npm test` 77 files / 766 tests 绿、`smoke` 83/0 绿 |
+| S6 证据与评分模型重构 | ⏸ **no-go → v0.4** | 见 `git log -1`（本阶段提交） | §3.9 门槛判定记录：数值门槛可满足，但改动覆盖 frontmatter 兼容、`AGENTS.md:20/24` 措辞与四组回归口径重定义，属用户允许推迟的独立信任模型重构。v0.3 只交决策与边界澄清（3 处代码注释），不改行为、不动测试。最终回归：`npm test` 77 files / 766 tests 绿、`npm run eval:search` 8/8、`bash tests/smoke.sh` 83/0、`tsc` 通过 |
 
 > 每个阶段完成后回填提交哈希与实际测试输出，遵循 §3.0 Definition of Done。
 
@@ -315,6 +315,30 @@ omem 已不是 Markdown 文件管理工具，而是一套分层机制：**原始
 | **frontmatter 扁平 YAML 子集 + `FM_ORDER`；`config.toml` 文本级段合并** | `AGENTS.md:55` + 既有约定 | S1 / S6 |
 | **测试 hermetic：`makeHome()` / `cleanupHome()`、采集器隔离由 registry 单点推导、写命令 `try/finally index.close()`** | `AGENTS.md:94/98` + 既有约定 | S1 / S5 |
 | **不扩默认工具面、不重新引入原生模块、不新增策略通道** | `AGENTS.md:30/70/21` | 全部 |
+
+---
+
+## 3.9 S6 门槛判定记录（2026-11-05）：**no-go，推迟 v0.4**
+
+**判据（D5 原文）**：S6 合入 v0.3 的门槛是不改变 `score-ladder.test.ts` 五档与 `dedup-rescore.test.ts` 四条边界；若涉及现有评分体系、历史数据兼容和大量测试，宁可先把边界记录清楚，不要为了版本号仓促重构。
+
+| 核对项 | 结论 |
+| --- | --- |
+| D1 是否需要新增 frontmatter 字段 | **是**。「当前版本证据」需落盘，触及 `core/entry.ts` `FM_ORDER`、`normalizeFm` 旧库兼容读取、三条写入路径 |
+| 是否需要修订 `AGENTS.md` 不变量 | **是**。`:20` trail 继承、`:24` 账本口径要从「现状描述」改成「分层口径」，属于不变量措辞变更 |
+| 是否改变五档数值 | 否（0.35 / 0.55 / +印证 / 0.80 / 0.90 不变） |
+| 是否改变 `dedup-rescore` 四边界 | 否（同 topic / 至少一条 evidence / `confirmations===0` / 严格更高分不变），但「哪一份 evidence」的口径必须重定义 |
+| 需重跑或重定义的测试 | `score-ladder.test.ts`、`dedup-rescore.test.ts`、`verify-confidence.test.ts`、`evidence-merge.test.ts`；`verifyConfidence` 的 `[min,max]` 期望值需按新口径重算 |
+| 结构风险 | `AGENTS.md:20` 明令「继承只发生在 `collectSourceSessions` / `mergeEvidence`，禁止别处重读旧文件」，新增字段的读写位置必须重新裁定，否则会重新引入第二条证据通道 |
+
+**判定：no-go for v0.3。** 数值门槛虽可满足，但改动面覆盖 frontmatter 兼容、不变量措辞与四组回归口径重定义，正是用户明确允许推迟的「独立信任模型重构」。按「不为了修复一个真实问题，引入一个比原问题更复杂的新系统」，v0.3 只交付决策与边界澄清，不实现 D1。
+
+**v0.3 已交付的边界澄清（纯注释与文案，不改行为、不动测试）**：
+- `core/entry.ts` `mergeEvidence`、`core/commit.ts` 写入处、`process/score.ts` `verifyConfidence` 三处注释明确：`fm.evidence` 是历史证据链，不是当前正文背书；账本复算目前可能包含不支持当前正文的旧引文。
+- `search_memory` 返回的 `evidence` / `source_sessions` 描述已如实标注「historical quotes may not support the current body」（S3）。
+- `AGENTS.md:20/24` 已写入 D1 指引，但**未宣称分层已实现**；D2 的主题级确认语义也已在 README / ARCHITECTURE 澄清。
+
+**v0.4 启动条件（单独 go/no-go）**：先定案字段名与旧库迁移策略 → 修订 `AGENTS.md:20/24` → 再动 `scoreEvidence` / `verifyConfidence` / `dedup-rescore`；五档或四边界任一发生变化即中止。
 
 ---
 
