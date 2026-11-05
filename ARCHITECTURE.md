@@ -181,7 +181,7 @@ stateDiagram-v2
   archived --> [*]: redact 硬删
 ```
 
-硬删只有 `omem redact --topic`，同时删 Markdown 和索引行。**没有 `verified` 布尔位**（重构方案 D2）：信任只有一个数字 `confidence`，它永远描述当前这份正文；「人看过」由 `confirmations > 0` + `last_confirmed` 表达。
+硬删只有 `omem redact`（`--topic` 或 `--source`），两者都默认预览、必须显式 `--yes`，删除时同时移除 Markdown 和索引行。删除范围**仅限本地当前文件**：数据仓 git 历史里的旧版本、`snapshots/`、已推送的远端备份与其他机器上的副本都不受影响；omem 不改写 git 历史，也不按 topic 排除备份。**没有 `verified` 布尔位**（重构方案 D2）：信任只有一个数字 `confidence`，它永远描述当前这份正文；「人看过」由 `confirmations > 0` + `last_confirmed` 表达。
 
 `review --confirm` 只把 `confidence` 提到 0.9，**不改变 `status`**：`stale` 不会因过目自动变回 `active`。`confirmations` / `last_confirmed` 是主题级记录——人工确认表示这个主题曾获得过人工关注，不表示当前正文已被逐项验证；正文被后续写入覆盖时它们仍会继承（v0.3 决策 D2，见 `docs/omem-v0.3-implementation-plan.md`）。
 

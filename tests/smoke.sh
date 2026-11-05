@@ -178,6 +178,12 @@ F2=$(find "$OMEM_HOME/knowledge" -name 'redact-target.md')
 [ -n "$F2" ] && ok "the document was written" || bad "document not written"
 OUT=$(run redact --topic redact-target); CODE=$?
 [ $CODE -eq 0 ] && ok "redact exit code 0" || bad "redact exit code $CODE: $OUT"
+echo "$OUT" | grep -q "Dry run" && ok "--topic previews by default" || bad "no dry-run output: $OUT"
+echo "$OUT" | grep -q -- "--yes" && ok "re-run command shown" || bad "no re-run hint"
+echo "$OUT" | grep -q "Not removed" && ok "deletion scope stated" || bad "scope missing: $OUT"
+[ -f "$F2" ] && ok "nothing deleted without --yes" || bad "deleted without --yes"
+OUT=$(run redact --topic redact-target --yes)
+echo "$OUT" | grep -q "Hard deleted" && ok "--yes performs the delete" || bad "--yes did not delete: $OUT"
 [ ! -f "$F2" ] && ok "file deleted" || bad "file not deleted"
 OUT=$(run search "待硬删")
 if echo "$OUT" | grep -q "redact-target-marker"; then bad "index entry not removed"; else ok "index entry removed"; fi

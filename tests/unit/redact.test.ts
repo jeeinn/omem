@@ -101,3 +101,52 @@ describe('redact --source', () => {
     await expect(withHome(() => cmdRedact({ _: [], flags: { source: 'bogus' } }))).rejects.toThrow();
   });
 });
+
+describe('redact --topic', () => {
+  it('without --yes it only previews and deletes nothing', async () => {
+    const w = write('待硬删的单条结论', 'manual');
+    const code = await withHome(() => cmdRedact({ _: [], flags: { topic: w.topic! } }));
+    expect(code).toBe(0);
+    expect(listEntries(home, { includeArchived: true })).toHaveLength(1);
+  });
+
+  it('preview states the deletion scope and the re-run command', async () => {
+    const w = write('待硬删的单条结论', 'manual');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: any[]) => { lines.push(a.join(' ')); });
+    try {
+      await withHome(() => cmdRedact({ _: [], flags: { topic: w.topic! } }));
+    } finally {
+      spy.mockRestore();
+    }
+    const out = lines.join('\n');
+    expect(out).toContain('Dry run');
+    expect(out).toContain(w.topic!);
+    expect(out).toContain('--yes');
+    expect(out).toContain('Not removed');
+    expect(out).toContain('snapshots/');
+    expect(out).toContain('remote backup');
+    expect(out).toContain('never rewrites git history');
+  });
+
+  it('--yes performs the delete and restates the scope', async () => {
+    const w = write('待硬删的单条结论', 'manual');
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...a: any[]) => { lines.push(a.join(' ')); });
+    let code = -1;
+    try {
+      code = await withHome(() => cmdRedact({ _: [], flags: { topic: w.topic!, yes: true } }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(code).toBe(0);
+    expect(listEntries(home, { includeArchived: true })).toHaveLength(0);
+    expect(lines.join('\n')).toContain('Hard deleted');
+    expect(lines.join('\n')).toContain('Not removed');
+  });
+
+  it('unknown topic is an error on both preview and delete', async () => {
+    await expect(withHome(() => cmdRedact({ _: [], flags: { topic: 'missing' } }))).rejects.toThrow();
+    await expect(withHome(() => cmdRedact({ _: [], flags: { topic: 'missing', yes: true } }))).rejects.toThrow();
+  });
+});

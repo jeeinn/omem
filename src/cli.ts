@@ -83,8 +83,8 @@ const COMMANDS: Record<string, Command> = {
     run: cmdProfile,
   },
   redact: {
-    desc: 'Hard delete (the only way); --source previews by default, --yes deletes',
-    usage: 'omem redact --topic <name> | omem redact --source rules|agent|llm|manual [--yes]',
+    desc: 'Hard delete (the only way); both --topic and --source preview by default, --yes deletes',
+    usage: 'omem redact --topic <name> [--yes] | omem redact --source rules|agent|llm|manual [--yes]',
     run: cmdRedact,
   },
   serve: {

@@ -261,6 +261,7 @@ npm run smoke
 - 写入前按通用形态脱敏：API key、token、JWT、PEM、口令。身份证、手机号、薪资这类内容不会自动过滤
 - `[collect] exclude_paths` 跳过会话文件或整个会话目录：精确路径或目录前缀，`~` 会展开，分隔符与大小写按平台归一化；不做子串/glob 匹配，避免误伤同名兄弟目录。`omem sync` 的 run 汇总会报告被挡下的文件数。`exclude_keywords` 已删除，不再按内容过滤
 - work 档默认禁止 `omem backup` 与上下文导出，退出码 2。`OMEM_ALLOW_WORK_EXPORT=1` 临时放行，`OMEM_PROFILE_LOCKED=1` 锁定档案
+- 硬删只有 `omem redact`：`--topic` / `--source` 都默认只预览，要显式 `--yes` 才删。删除范围**仅限本地 Markdown 与索引行**——数据仓 git 历史里的旧版本、`snapshots/`、已推送的远端备份和其他机器上的副本都不会被删除；omem 不改写 git 历史，也不按 topic 排除备份
 
 ## 配置文件
 
