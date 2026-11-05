@@ -1,6 +1,7 @@
 // 采集器注册表。scanSessions 依次扫描已注册的采集器。
 // 每个采集器只读自己的会话目录；某个目录不存在时记下提示，不挡住其余采集器。
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { OmemIndex } from '../core/index.js';
 import type { OmemConfig } from '../core/config.js';
 import { expandHome } from '../core/paths.js';
@@ -37,6 +38,32 @@ export interface Collector {
 function rootFrom(configured: string, envKey: string, env: NodeJS.ProcessEnv = process.env): string {
   if (configured.startsWith('~')) return expandHome(env[envKey] || configured);
   return configured;
+}
+
+/**
+ * `[collect].exclude_paths` 的唯一裁决点：路径精确命中，或位于该目录之下。
+ *
+ * 只做路径判断，不做内容或关键词判断（exclude_keywords 已删除、不再生效）。
+ * `~` 开头按 home 展开；分隔符统一成 `/`；Windows 下大小写不敏感。
+ * 不解释 glob、不做子串匹配——「包含某个词就跳过」会误伤同名的兄弟目录。
+ */
+const PATH_CASE_INSENSITIVE = process.platform === 'win32';
+
+function normalizedPath(p: string): string {
+  const expanded = p.startsWith('~') ? expandHome(p) : p;
+  const out = resolve(expanded).replace(/\\/g, '/').replace(/\/+$/, '');
+  return PATH_CASE_INSENSITIVE ? out.toLowerCase() : out;
+}
+
+export function isExcludedPath(filePath: string, excludes: readonly string[] = []): boolean {
+  if (excludes.length === 0) return false;
+  const target = normalizedPath(filePath);
+  return excludes.some((raw) => {
+    const e = raw?.trim();
+    if (!e) return false;
+    const ex = normalizedPath(e);
+    return target === ex || target.startsWith(ex + '/');
+  });
 }
 
 export function getCollector(id: string, config: OmemConfig, env: NodeJS.ProcessEnv = process.env): Collector {
@@ -131,6 +158,8 @@ export interface ScanResult {
   digests: SessionDigest[];
   skipped: number;
   roots: ScanRoot[];
+  /** 被 `[collect].exclude_paths` 挡下的会话文件数（与内容未变化的 skipped 分开计）。 */
+  excludedPaths: number;
 }
 
 export function scanSessions(
@@ -141,6 +170,8 @@ export function scanSessions(
   const digests: SessionDigest[] = [];
   const roots: ScanRoot[] = [];
   let skipped = 0;
+  let excludedPaths = 0;
+  const excludes = config.collect.exclude_paths ?? [];
   const work: { collector: Collector; path: string }[] = [];
   const ids = opts.collectors && opts.collectors.length > 0 ? opts.collectors : COLLECTOR_IDS;
   for (const id of ids) {
@@ -150,7 +181,13 @@ export function scanSessions(
     roots.push({ id, root, exists: rootExists });
     if (!rootExists) continue;
     const files = collector.list().filter((f) => (opts.sessionId ? f.sessionId === opts.sessionId : true));
-    for (const f of files) work.push({ collector, path: f.path });
+    for (const f of files) {
+      if (isExcludedPath(f.path, excludes)) {
+        excludedPaths++;
+        continue;
+      }
+      work.push({ collector, path: f.path });
+    }
   }
   const total = work.length;
   opts.onProgress?.(0, total);
@@ -168,5 +205,5 @@ export function scanSessions(
     }
     digests.push(digest);
   }
-  return { digests, skipped, roots };
+  return { digests, skipped, roots, excludedPaths };
 }

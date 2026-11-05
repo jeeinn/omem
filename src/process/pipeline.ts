@@ -89,6 +89,9 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   if (!opts.dryRun) beginWriteJournal();
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
+  if (scan.excludedPaths > 0) {
+    report.notes.push(`Skipped ${scan.excludedPaths} session file(s) matching [collect].exclude_paths`);
+  }
   if (!noteMissingRoots(report, scan)) return report;
   ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
   publishGuide(home, index, config, opts.dryRun ?? false, report);
@@ -113,6 +116,9 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
 
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
+  if (scan.excludedPaths > 0) {
+    report.notes.push(`Skipped ${scan.excludedPaths} session file(s) matching [collect].exclude_paths`);
+  }
   if (!noteMissingRoots(report, scan)) return report;
   ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
 

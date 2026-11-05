@@ -259,7 +259,7 @@ npm run smoke
 ## 安全
 
 - 写入前按通用形态脱敏：API key、token、JWT、PEM、口令。身份证、手机号、薪资这类内容不会自动过滤
-- `exclude_paths` 跳过路径。`exclude_keywords` 已删除
+- `[collect] exclude_paths` 跳过会话文件或整个会话目录：精确路径或目录前缀，`~` 会展开，分隔符与大小写按平台归一化；不做子串/glob 匹配，避免误伤同名兄弟目录。`omem sync` 的 run 汇总会报告被挡下的文件数。`exclude_keywords` 已删除，不再按内容过滤
 - work 档默认禁止 `omem backup` 与上下文导出，退出码 2。`OMEM_ALLOW_WORK_EXPORT=1` 临时放行，`OMEM_PROFILE_LOCKED=1` 锁定档案
 
 ## 配置文件
