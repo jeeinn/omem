@@ -22,9 +22,9 @@
 | --- | --- | --- | --- |
 | S0 决策对齐 | ✅ 2026-11-05 | `a7f87bb` | 仅 `.md` 变更（6 files / +1334 −5）；`npm test` 70 文件 / 712 用例绿 |
 | S1 数据安全与生命周期 | ✅ 2026-11-05 | `352d1d2` / `75bc459` / `c0eaacc` | 三子任务各自单独提交；新增 `exclude-paths.test.ts`(8) / `redact --topic`(4) / `reactivation.test.ts`(10)；收口 `npm test` 72 files / 738 tests 绿、`smoke` 80/0 绿、T08 后 payload 10560/12300 |
-| S2 写入差异预览 | ✅ 2026-11-05 | 待回填 | 新增 `write-diff.test.ts`(8)；`npm test` 73 files / 746 tests 绿、`smoke` 80/0 绿、payload 10929/12300 |
-| S3 检索结构化证据返回 | 🔄 进行中 | — | — |
-| S4 expected_revision (best-effort) | ⬜ | — | — |
+| S2 写入差异预览 | ✅ 2026-11-05 | `e7b7796` | 新增 `write-diff.test.ts`(8)；`npm test` 73 files / 746 tests 绿、`smoke` 80/0 绿、payload 10929/12300 |
+| S3 检索结构化证据返回 | ✅ 2026-11-05 | 待回填 | T08 已随 S1-cd 完成；新增 `search-evidence.test.ts`(4)、修正 golden 语料并补上 B 阶段遗留的 stale 排序断言；`npm test` 74 files / 751 tests 绿、`smoke` 80/0 绿、payload 11736/12300 |
+| S4 expected_revision (best-effort) | 🔄 进行中 | — | — |
 | S5 回归测试与评估 | ⬜ | — | — |
 | S6 证据与评分模型重构 | ⬜ 门槛待判 | — | — |
 

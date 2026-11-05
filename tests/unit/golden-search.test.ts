@@ -4,10 +4,11 @@
 // 「结果是否等价」不能靠抽样目测。这里固定一份语料与一组查询，
 // 换实现后必须逐条相同；排序若有变化，第一个断言的 diff 会直接指出是哪一条。
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
-import { moveToArchive } from '../../src/core/store.js';
+import { moveToArchive, updateTopic } from '../../src/core/store.js';
 import { searchEntriesPage } from '../../src/core/search.js';
 import { makeHome, cleanupHome } from './helpers.js';
 
@@ -41,8 +42,11 @@ function seedCorpus(): void {
   write('车贷利率 3.6%，2026 年重签', 'car-loan', { confidence: 0.55 });
   write('膝盖康复：静蹲隔天，加单腿硬拉', 'knee-rehab', { confidence: 0.55 });
   write('omem 的索引是可删除的派生物', 'omem-index-shape', { confidence: 0.55 });
-  // 冷却条目：排序上必须排在 active 之后（×0.5 权重）
-  write('连接池参数调优笔记（已冷却）', 'pool-tuning-old', { confidence: 0.8, status: 'stale' } as never);
+  // 冷却条目：排序上必须排在 active 之后（×0.5 权重）。
+  // commitEntry 的 newFrontmatter 恒置 status=active，传 opts.status 无效；要造真 stale 得走 updateTopic。
+  write('连接池参数调优笔记（已冷却）', 'pool-tuning-old', { confidence: 0.8 } as never);
+  const cooled = updateTopic(home, 'pool-tuning-old', (fm) => { fm.status = 'stale'; })!;
+  index.upsert(cooled.entry, cooled.path, readFileSync(cooled.path, 'utf8'));
   // 归档条目：默认查询不可见
   write('旧车贷合同条款（已归档）', 'car-loan-old');
   const moved = moveToArchive(home, 'car-loan-old')!;
@@ -77,12 +81,20 @@ describe('golden: 查询 → 期望 topic 集合', () => {
       .toEqual(['car-loan', 'car-loan-old']);
   });
 
-  it('stale 与 active 同置信度时两者都能命中（顺序不在此钉死）', () => {
+  it('stale 与 active 同置信度时两者都能命中', () => {
     seedCorpus();
     const rows = searchEntriesPage(index, { query: '连接池', limit: 10, staleWeight: 0.5 }).rows;
-    // 现状（SQLite bm25）里 stale 反而排前面——这是 B 阶段要显式定义规则的点，
-    // 所以基线只钉「两条都在」，不钉顺序；B 落地后应新增一条明确的排序断言。
     expect(rows.map((r) => r.topic).sort()).toEqual(['pool-tuning', 'pool-tuning-old']);
+    expect(rows.map((r) => r.status).sort()).toEqual(['active', 'stale']);
+  });
+
+  it('stale 降权：同命中数同置信度时 active 必须排在 stale 之前', () => {
+    // B 阶段遗留的自述「应新增一条明确的排序断言」在这里补上（S3）。
+    seedCorpus();
+    const rows = searchEntriesPage(index, { query: '连接池', limit: 10, staleWeight: 0.5 }).rows;
+    expect(rows.map((r) => r.topic)).toEqual(['pool-tuning', 'pool-tuning-old']);
+    expect(rows[0].status).toBe('active');
+    expect(rows[1].status).toBe('stale');
   });
 
   it('无命中返回空，不抛错', () => {
