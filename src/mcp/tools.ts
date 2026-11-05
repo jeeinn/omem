@@ -17,7 +17,7 @@ import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
-import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, rescoreNotice, vcsNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, rescoreNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
@@ -301,6 +301,17 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
             type: 'object',
             description: 'Set when an explicit reactivate restored an archived/stale topic to active on this write.',
             properties: { from: { type: 'string' }, to: { type: 'string' } },
+          },
+          diff: {
+            type: 'object',
+            description: 'Set when an existing living document is overwritten: a short previous/incoming preview so the caller can see what is being replaced. Also present under dry_run.',
+            properties: {
+              topic: { type: 'string' },
+              previous: { type: 'string' },
+              incoming: { type: 'string' },
+              previousChars: { type: 'number' },
+              incomingChars: { type: 'number' },
+            },
           },
         },
       },
@@ -773,6 +784,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       rescored: result.rescored,
       reactivation: result.reactivation,
       reactivated: result.reactivated,
+      diff: result.diff,
     });
 
     if (dryRun) {
@@ -782,6 +794,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       // dry_run 也走同一条 cap 判定：超限在预演里就是 excluded，不是「会截断」。
       if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
       if (result.reactivation) parts.push(...reactivationNotice(result.reactivation, 'mcp'));
+      if (result.diff) parts.push(...writeDiffNotice(result.diff, 'mcp'));
       for (const w of result.warnings ?? []) parts.push(w);
     } else if (result.status === 'needs-reactivation' && result.reactivation) {
       // D4：这是拒绝，不是 warning。回执按 caller 渲染，MCP 侧不能出现 CLI 旗标语法。
@@ -833,6 +846,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       }
       if (scored.tags.length > 0) parts.push(`Tags: ${scored.tags.join(', ')}.`);
       if (result.reactivated) parts.push(reactivatedNotice(result.reactivated, result.topic ?? topic));
+      if (result.diff) parts.push(...writeDiffNotice(result.diff, 'mcp'));
       for (const w of result.warnings ?? []) parts.push(w);
     }
   }

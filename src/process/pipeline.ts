@@ -351,6 +351,14 @@ function commitDoc(
   // 近似主题由 commitEntry 统一判定，这里只负责呈现
   for (const w of result.warnings ?? []) warnDup(w);
   if (result.status === 'written' && result.topic) report.written.push(result.topic);
+  // S2：批处理路径没有 Agent 读回执，差异只进审计日志，不打到终端（避免一轮刷屏）。
+  if (result.diff) {
+    appendLog(home, 'write-diff', {
+      topic: result.topic,
+      previousChars: result.diff.previousChars,
+      incomingChars: result.diff.incomingChars,
+    });
+  }
   return result.status === 'written' ? topic : null;
 }
 

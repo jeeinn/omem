@@ -3,7 +3,7 @@
 // D1-B′：topic 必填，写入即覆盖同名活文档。
 // D2：不再写 `verified`——「用户亲口说的」由 source=manual + confidence 0.9 表达。
 import { openCtx } from '../core/ctx.js';
-import { autoCommit, commitEntry, metadataDrift, overCapNotice, reactivationNotice, reactivatedNotice, vcsNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, overCapNotice, reactivationNotice, reactivatedNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagList, flagStr } from '../cli-args.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
@@ -79,6 +79,7 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     console.log(`${result.updated ? 'Updated' : 'Saved'} topic: ${result.topic}`);
     console.log(`File: ${result.path}`);
     if (result.reactivated) console.log(reactivatedNotice(result.reactivated, result.topic ?? topic));
+    if (result.diff) for (const line of writeDiffNotice(result.diff, 'cli')) console.log(line);
     if (result.truncated) {
       console.log(`Truncated to ${result.truncated.limit} characters (--force); the last ${result.truncated.chars - result.truncated.limit} character(s) were discarded.`);
       // 审计落点：磁盘上不留标记（不加 frontmatter 字段、不加 tags），但 topic + 截断量进日志。

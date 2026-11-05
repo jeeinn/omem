@@ -90,6 +90,48 @@ export interface ReactivationInfo {
   location?: 'knowledge' | 'archive';
 }
 
+/** 覆盖既有活文档时的写入差异预览（S2）。只做展示，不参与任何写入裁决。 */
+export interface WriteDiff {
+  topic: string;
+  previous: string;
+  incoming: string;
+  previousChars: number;
+  incomingChars: number;
+}
+
+/** 预览长度：够看清覆盖掉的是什么，又不会把回执撑爆。 */
+const WRITE_DIFF_PREVIEW = 160;
+
+function buildWriteDiff(topic: string, previous: string, incoming: string): WriteDiff {
+  const preview = (s: string): string => {
+    const flat = s.replace(/\s+/g, ' ').trim();
+    const chars = [...flat];
+    return chars.length > WRITE_DIFF_PREVIEW ? `${chars.slice(0, WRITE_DIFF_PREVIEW).join('')}…` : flat;
+  };
+  return {
+    topic,
+    previous: preview(previous),
+    incoming: preview(incoming),
+    previousChars: [...previous].length,
+    incomingChars: [...incoming].length,
+  };
+}
+
+/**
+ * 写入差异回执的**唯一**渲染处。口径在 commit.ts 算一次（与 metadataDrift 同一教训），
+ * CLI 与 MCP 只差「重跑时怎么给参数」那半句。
+ */
+export function writeDiffNotice(diff: WriteDiff, caller: 'cli' | 'mcp' = 'cli'): string[] {
+  return [
+    `Existing content of "${diff.topic}" will be replaced (${diff.previousChars} → ${diff.incomingChars} characters).`,
+    `Previous: "${diff.previous}"`,
+    `Incoming: "${diff.incoming}"`,
+    caller === 'mcp'
+      ? 'If this replacement is not what you intended, resend with a narrower topic instead.'
+      : 'If this replacement is not what you intended, re-run with a narrower --topic instead.',
+  ];
+}
+
 /**
  * 超限策略：`reject`（默认语义，落 0 条 + 回执给出路）或 `truncate`（旧行为，只留给
  * CLI `--force` 这个显式逃生口）。
@@ -149,6 +191,8 @@ export interface CommitResult {
   reactivation?: ReactivationInfo;
   /** 本次写入确实把 archived/stale 文档恢复为 active（已授权）。 */
   reactivated?: { from: ReactivationInfo['from']; to: 'active' };
+  /** 覆盖既有活文档时的 previous/incoming 预览（S2）。新建与去重命中时为 undefined。 */
+  diff?: WriteDiff;
 }
 
 /**
@@ -520,6 +564,8 @@ export function commitEntry(
   const reactivated = existingFm && priorStatus && priorStatus !== 'active'
     ? { from: priorStatus as ReactivationInfo['from'], to: 'active' as const }
     : undefined;
+  // S2：差异只在 commit.ts 算一次，dry-run 与真实写入共用同一份数据。
+  const diff = existingFm ? buildWriteDiff(topic, existingLoc!.entry.body, text) : undefined;
 
   // D5：主题级审阅策略（review.toml）已删除——「这个主题我信得过」不再折算成自动提分。
   // 置信度只由本次证据决定（M1），人工动作只剩过目/归档/冷却。
@@ -543,6 +589,7 @@ export function commitEntry(
       reason: 'dry-run',
       warnings,
       ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+      ...(diff ? { diff } : {}),
     };
   }
 
@@ -606,6 +653,7 @@ export function commitEntry(
     warnings,
     ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
     ...(reactivated ? { reactivated } : {}),
+    ...(diff ? { diff } : {}),
   };
 }
 
