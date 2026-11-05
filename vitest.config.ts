@@ -8,6 +8,8 @@ export default defineConfig({
     poolOptions: {
 
     },
+    // tests/eval/ 是数据与离线脚本目录（golden-search.json + scripts/eval-search.mjs），
+    // 不是 vitest 的测试发现范围；golden-dataset.test.ts 在 unit 里读同一份数据做回归。
     include: ['tests/unit/**/*.test.ts'],
     // 20s 在并行满载时不够：auto-commit / review-server 会真的起 git 与本地 HTTP，
     // 两个文件同时跑时会被挤到超时，表现为「单独跑绿、全量跑红」的噪声。

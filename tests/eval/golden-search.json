@@ -1,0 +1,23 @@
+{
+  "kind": "search-golden",
+  "note": "确定性检索基线：query → expected_topics。语料与断言集中在此，供 scripts/eval-search.mjs 与 tests/unit/golden-dataset.test.ts 共用；离线、不调用任何模型或网络、不读真实 ~/.omem。",
+  "documents": [
+    { "topic": "pool-tuning", "content": "连接池上限设为 20，超过就排队", "confidence": 0.8 },
+    { "topic": "deploy-pipeline", "content": "部署流水线走 GitHub Actions，产物存 S3", "confidence": 0.55 },
+    { "topic": "car-loan", "content": "车贷利率 3.6%，2026 年重签", "confidence": 0.55 },
+    { "topic": "knee-rehab", "content": "膝盖康复：静蹲隔天，加单腿硬拉", "confidence": 0.55 },
+    { "topic": "omem-index-shape", "content": "omem 的索引是可删除的派生物", "confidence": 0.55 },
+    { "topic": "pool-tuning-old", "content": "连接池参数调优笔记（已冷却）", "confidence": 0.8, "status": "stale" },
+    { "topic": "car-loan-old", "content": "旧车贷合同条款（已归档）", "confidence": 0.55, "status": "archived" }
+  ],
+  "cases": [
+    { "query": "连接池", "expected_topics": ["pool-tuning", "pool-tuning-old"] },
+    { "query": "部署 流水线", "expected_topics": ["deploy-pipeline"] },
+    { "query": "车贷", "expected_topics": ["car-loan"] },
+    { "query": "康复", "expected_topics": ["knee-rehab"] },
+    { "query": "索引", "expected_topics": ["omem-index-shape"] },
+    { "query": "zzzz-不存在-xyz", "expected_topics": [] },
+    { "query": "连接池", "status": ["active"], "expected_topics": ["pool-tuning"] },
+    { "query": "车贷", "status": ["archived"], "expected_topics": ["car-loan-old"] }
+  ]
+}

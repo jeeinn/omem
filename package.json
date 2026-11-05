@@ -39,6 +39,7 @@
     "clean": "node scripts/clean-dist.mjs",
     "test": "vitest run",
     "test:live": "npm run build && node tests/live/verify-local.mjs",
+    "eval:search": "tsc -p tsconfig.json && node scripts/eval-search.mjs",
     "test:watch": "vitest",
     "smoke": "npm run build && bash tests/smoke.sh",
     "prepublishOnly": "npm run build && npm test && node scripts/release-check.mjs",

@@ -225,6 +225,16 @@ sed -i 's/^key = "sk-smoke-guard"/key = ""/' "$OMEM_HOME/config.toml"
 OUT=$(run backup)
 echo "$OUT" | grep -q "non-empty \[api\].key" && bad "warning fires with empty key" || ok "no warning when key empty"
 
+echo "== S17 双进程 CLI 写入 + expected-revision（best-effort）=="
+run add "S17 第一版内容 concurrent-marker" --topic concurrent-target >/dev/null
+REV=$(run search "S17 第一版内容" --detail | grep 'revision:' | head -n 1 | awk '{print $2}')
+[ -n "$REV" ] && ok "CLI exposes revision" || bad "no revision line: $REV"
+run add "S17 另一个客户端先写" --topic concurrent-target >/dev/null
+OUT=$(run add "S17 带着旧 revision 写" --topic concurrent-target --expected-revision "$REV")
+echo "$OUT" | grep -q "Not written" && ok "stale revision refused by CLI" || bad "not refused: $OUT"
+F17=$(find "$OMEM_HOME/knowledge" -name 'concurrent-target.md')
+grep -q "S17 另一个客户端先写" "$F17" && ok "newer body preserved" || bad "newer body lost"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "Result: $PASS passed / $FAIL failed"
