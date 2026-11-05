@@ -318,5 +318,6 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | F | ``omem verify`` 账本复算（§11「置信度」验收项的后半条一直没实现） | ✅（``process/score.ts`` 的 ``verifyConfidence``，只报告不改写） |
 | G | 印证按独立来源计数（同一段用户输入的副本只算一份） | ✅（``session-store.ts`` 的 ``evidenceUserKey`` + ``score.ts`` 的 ``buildSourceSkip``） |
 | H | 去重命中时的补分（补采之后同正文重发即可自愈；只升不降、须带证据、人工过目过的不碰） | ✅（``core/commit.ts`` 的 ``rescoreOnDedup`` + ``CommitResult.rescored``；矩阵见 ``tests/unit/dedup-rescore.test.ts``，端到端在 ``tests/mcp-probe.mjs``） |
+| V0.3-S0 | v0.3 工程决策记录：D1 证据分层（不做语义裁决）/ D2 `reviewed_revision` 暂缓 / D3 best-effort CAS（不做锁）/ D4 归档复活显式化 / D5 优先级与 S6 可延后 | ✅ 决策已定（`docs/omem-v0.3-implementation-plan.md`），S0–S6 实施进度见该文「实施进度」节 |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。

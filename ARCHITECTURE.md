@@ -166,7 +166,7 @@ flowchart LR
 - `## Projects` —— 要干的活：待吸收会话按**项目指纹**分组（组标题是 `### <项目指纹>`）。项目指纹不是 topic 名。
 - `## Topics` —— 词表：所有活文档的主题名，外加它来自哪个项目。Agent 复用这里的名字就是覆盖同一份文档，而不是为同一主题再开一份。
 
-写入不自动 commit。记忆先留在工作区，`omem backup` 才把它提交进 git 历史。
+写入结论的路径（`save_memory` / `omem add`）默认各留**一笔本地提交**（`[process] auto_commit = "session"`，可设 `off` 关闭）；`omem sync` 一轮 run 一笔。`omem backup` 才负责推送远端，并在拉取前把未提交改动收成一次提交。仅有本地提交不等于已同步到远端。
 
 ## 一条记忆的状态
 
@@ -177,12 +177,13 @@ stateDiagram-v2
   [*] --> active: add / save_memory / API 档
   active --> active: review --confirm 提到 0.9
   active --> stale: review --gc 或 review --stale
-  stale --> active: review --confirm
   active --> archived: review --dismiss
   archived --> [*]: redact 硬删
 ```
 
 硬删只有 `omem redact --topic`，同时删 Markdown 和索引行。**没有 `verified` 布尔位**（重构方案 D2）：信任只有一个数字 `confidence`，它永远描述当前这份正文；「人看过」由 `confirmations > 0` + `last_confirmed` 表达。
+
+`review --confirm` 只把 `confidence` 提到 0.9，**不改变 `status`**：`stale` 不会因过目自动变回 `active`。`confirmations` / `last_confirmed` 是主题级记录——人工确认表示这个主题曾获得过人工关注，不表示当前正文已被逐项验证；正文被后续写入覆盖时它们仍会继承（v0.3 决策 D2，见 `docs/omem-v0.3-implementation-plan.md`）。
 
 置信度五档（重构方案 M1）：
 
@@ -193,6 +194,8 @@ stateDiagram-v2
 | 印证加成 | +0.10 / +0.06 / +0.03…，封顶 +0.25 | **独立来源**数 + 跨项目加成 |
 | 自动上限 | 0.80 | 任何自动产出不得超过 |
 | 人工过目 | 0.90 | 人在 `omem review` 里看过正文之后 |
+
+五档描述的是**证据支持程度与排序用的分数**，不是「事实正确的概率」；0.90 表示人看过，不表示 90% 的正确率。
 
 印证的计数单位是**独立来源**，不是会话文件：两份会话文件如果用户说的话一样（归一化后同指纹），只算一个来源；被引用会话自己的指纹先占位，所以来源的副本也不算印证。否则「同一段话复制 5 份」就能把 0.55 刷到 0.80。
 
