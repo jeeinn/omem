@@ -3,7 +3,7 @@
 // force 只跳过代码密度；脱敏与去重不跳过。refreshIndex 默认 true，批量加工传 false。
 import type { OmemConfig } from './config.js';
 import type { EntryRow, OmemIndex } from './index.js';
-import type { Entry, EntrySource, Frontmatter, MemoryType, Profile } from './entry.js';
+import type { Entry, EntrySource, EntryStatus, Frontmatter, MemoryType, Profile } from './entry.js';
 import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain, normalizeTopic } from './entry.js';
 import { rmSync } from 'node:fs';
 
@@ -48,6 +48,12 @@ export interface CommitInput {
    */
   overCap: OverCap;
   /**
+   * 显式授权把 archived / stale 主题恢复为 active（v0.3 决策 D4）。
+   * 归档是用户的处置行为：Agent 因检索到旧会话而回写同一 topic，不得静默撤销它。
+   * 未授权时 commitEntry 返回 `needs-reactivation`，不落盘、不提交、不进 warnings。
+   */
+  reactivate?: boolean;
+  /**
    * 调用方类别。默认 'cli' 保持向后兼容。
    * 为什么需要：同一句冲突提示要按调用方生成——MCP 侧没有 `--force` 参数，
    * 也没有命令行，把 CLI 语法塞进去等于给 Agent 一条执行不了的指令。
@@ -74,7 +80,15 @@ export interface CommitOpts {
   audit?: Record<string, unknown>;
 }
 
-export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty';
+export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty' | 'needs-reactivation';
+
+/** 待显式授权的状态恢复：omem 只描述状态变化，不判断用户是否真的想恢复。 */
+export interface ReactivationInfo {
+  topic: string;
+  from: Exclude<EntryStatus, 'active'>;
+  to: 'active';
+  location?: 'knowledge' | 'archive';
+}
 
 /**
  * 超限策略：`reject`（默认语义，落 0 条 + 回执给出路）或 `truncate`（旧行为，只留给
@@ -131,6 +145,10 @@ export interface CommitResult {
    * 与磁盘被改过的事实对不上。
    */
   rescored?: { from: number; to: number; applied: boolean };
+  /** 目标主题是 archived/stale 且未显式授权恢复：本次写入被拒绝，不落盘、不提交。 */
+  reactivation?: ReactivationInfo;
+  /** 本次写入确实把 archived/stale 文档恢复为 active（已授权）。 */
+  reactivated?: { from: ReactivationInfo['from']; to: 'active' };
 }
 
 /**
@@ -169,6 +187,27 @@ export function rescoreNotice(r: NonNullable<CommitResult['rescored']>): string 
   return r.applied
     ? `Confidence raised ${range}: the quotes now anchor. The body was not rewritten — only the frontmatter (confidence, evidence, source sessions) was refreshed.`
     : `Confidence would be raised ${range}: the quotes now anchor. Dry-run wrote nothing.`;
+}
+
+/**
+ * 归档 / 冷却主题恢复回执的**唯一**渲染处（v0.3 D4）。
+ * 与 overCapNotice 同构：口径在 commit.ts 算一次，CLI 与 MCP 只差「你能做什么」那半句。
+ * 这是拒绝，因此走 CommitStatus，绝不进 warnings（AGENTS.md:28）。
+ */
+export function reactivationNotice(info: ReactivationInfo, caller: 'cli' | 'mcp' = 'cli'): string[] {
+  const move = info.location === 'archive' ? ' and move the file back to knowledge/' : '';
+  return [
+    `Not written: topic "${info.topic}" is ${info.from}; writing to it would restore it to active${move}.`,
+    `Nothing was written; the ${info.from} document is unchanged and no commit was made.`,
+    caller === 'mcp'
+      ? 'To proceed, resend the same call with `reactivate: true` — only when the user wants this memory back in active use.'
+      : 'To proceed, re-run with --reactivate — only when the user wants this memory back in active use.',
+  ];
+}
+
+/** 已经发生的恢复：写入成功后回执要说清状态变化，而不是静默复活。 */
+export function reactivatedNotice(info: NonNullable<CommitResult['reactivated']>, topic: string): string {
+  return `Reactivated: "${topic}" moved from ${info.from} to active. The user's earlier archived/cooled decision has been superseded by this explicit write.`;
 }
 
 /**
@@ -461,6 +500,27 @@ export function commitEntry(
   const existingLoc = findByTopic(home, topic, { includeArchived: true });
   const existingFm = existingLoc?.entry.fm;
 
+  // D4：归档 / 冷却是用户的处置行为，不能因为 Agent 回写同一 topic 就静默撤销。
+  // 位置在去重之后、快照与落盘之前：拒绝时既有文档必须零改动，且不产生 git 提交。
+  const priorStatus = existingFm?.status;
+  if (existingFm && priorStatus && priorStatus !== 'active' && !input.reactivate) {
+    return finish(home, {
+      status: 'needs-reactivation',
+      topic,
+      dryRun: opts.dryRun,
+      reason: `Topic "${topic}" is ${priorStatus}; restoring it to active requires an explicit reactivate`,
+      reactivation: {
+        topic,
+        from: priorStatus as ReactivationInfo['from'],
+        to: 'active',
+        location: existingLoc?.location,
+      },
+    }, input, opts);
+  }
+  const reactivated = existingFm && priorStatus && priorStatus !== 'active'
+    ? { from: priorStatus as ReactivationInfo['from'], to: 'active' as const }
+    : undefined;
+
   // D5：主题级审阅策略（review.toml）已删除——「这个主题我信得过」不再折算成自动提分。
   // 置信度只由本次证据决定（M1），人工动作只剩过目/归档/冷却。
 
@@ -534,6 +594,7 @@ export function commitEntry(
     source: input.source,
     redacted: hits,
     ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+    ...(reactivated ? { reactivated } : {}),
     ...opts.audit,
   });
   return {
@@ -544,6 +605,7 @@ export function commitEntry(
     updated: Boolean(existingFm),
     warnings,
     ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
+    ...(reactivated ? { reactivated } : {}),
   };
 }
 

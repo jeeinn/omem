@@ -60,7 +60,7 @@ async function reviewBody(
     for (const l of marked) {
       console.log(`- \`${l.entry.fm.topic}\` ${truncate(deriveTitle(l.entry.body), 50)} ${formatStaleness(l.entry.fm)}`);
     }
-    if (marked.length > 0) console.log('\nStale documents are down-weighted in search; restore one with omem review --confirm <topic>');
+    if (marked.length > 0) console.log('\nStale documents are down-weighted in search. Reviewing does not change status; writing to a cooled topic requires an explicit reactivate (omem add --reactivate / save_memory reactivate:true).');
     return 0;
   }
 
@@ -184,7 +184,7 @@ async function reviewBody(
     console.log('Open one:  omem review <topic>');
   }
   if (stale.length > 0) {
-    console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Restore one with omem review --confirm <topic>.`);
+    console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Reviewing does not change status; writing to a cooled topic requires an explicit reactivate.`);
   }
   return 0;
 }

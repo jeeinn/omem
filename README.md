@@ -194,6 +194,8 @@ omem review --stale pool-tuning        # 冷却：排在 active 之后
 
 过目的产出物只有两个数字：`confidence = 0.9` 与 `confirmations` 递增。没有 `verified` 布尔位——它会随原地更新退化成「这个主题曾被人看过」，而信任只该描述当前这份正文。
 
+**归档不会被静默撤销**：向 `archived` / `stale` 的 topic 写入时，omem 返回 `needs-reactivation`，说明这次写入会把文档恢复为 `active`（归档文件还会从 `archive/` 移回 `knowledge/`），并且不落盘、不提交。只有显式意图才能恢复——CLI 用 `omem add --reactivate`，MCP 用 `save_memory(reactivate: true)`。`omem review --confirm` 只提置信度，**不改变 status**，过目不能把冷却的文档变回 active（v0.3 决策 D4）。
+
 **两种「看不见」的补救**：
 
 | 情况 | 现在会怎样 |

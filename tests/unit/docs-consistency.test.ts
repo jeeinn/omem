@@ -94,3 +94,38 @@ describe('docs: the collector list matches the registry', () => {
     expect(README).not.toMatch(/^\s*omem run\b/m);
   });
 });
+
+describe('docs: v0.3 lifecycle, commit and delete semantics match the code', () => {
+  it('ARCHITECTURE no longer claims writes are not committed', () => {
+    // 2026-11-05 审计：只有 ARCHITECTURE 一侧过时，源码与 README 一直都是 auto_commit="session"。
+    expect(ARCH).not.toContain('写入不自动 commit');
+    expect(ARCH).toContain('auto_commit');
+    expect(README).toContain('auto_commit');
+  });
+
+  it('ARCHITECTURE no longer claims review --confirm restores a stale entry', () => {
+    // lifecycle.ts 对非 active 的 confirm/assent 直接 skip；状态图曾画了不存在的迁移。
+    expect(ARCH).not.toContain('stale --> active: review --confirm');
+    expect(ARCH).toContain('不改变 `status`');
+    expect(README).toContain('不改变 status');
+  });
+
+  it('both docs state that redact previews by default', () => {
+    expect(README).toContain('--yes');
+    expect(ARCH).toContain('--yes');
+    expect(read('src/commands/redact.ts')).toContain('DELETION_SCOPE');
+  });
+
+  it('both docs explain explicit reactivation (D4)', () => {
+    expect(README).toContain('reactivate');
+    expect(ARCH).toContain('reactivate');
+    expect(README).toContain('needs-reactivation');
+    expect(ARCH).toContain('needs-reactivation');
+  });
+
+  it('the implementation plan is the normative decision record', () => {
+    expect(read('docs/omem-v0.3-implementation-plan.md')).toContain('D4');
+    expect(ARCH).toContain('omem-v0.3-implementation-plan.md');
+    expect(read('docs/omem-0.3.md')).toContain('非现行实施方案');
+  });
+});

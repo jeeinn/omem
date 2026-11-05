@@ -150,7 +150,7 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
     expect(after.entry.fm.confirmations).toBe(0);
   });
 
-  it('归档后再写同一 topic：搬回 knowledge/，不留两份', () => {
+  it('归档后再写同一 topic：需显式 reactivate 才搬回 knowledge/，不留两份', () => {
     commitEntry(home, defaultConfig(), index, {
       content: '旧计划：每周三次长跑',
       type: 'decision',
@@ -164,13 +164,29 @@ describe('commitEntry: 同一 topic 再写一次 = 覆盖', () => {
     expect(findByTopic(home, 'training-plan')).toBeNull();
     expect(findByTopic(home, 'training-plan', { includeArchived: true })).not.toBeNull();
 
-    commitEntry(home, defaultConfig(), index, {
+    // D4：归档是用户的处置行为，Agent 回写同一 topic 不得静默撤销。
+    const refused = commitEntry(home, defaultConfig(), index, {
       content: '新计划：每周两次长跑 + 一次游泳',
       type: 'decision',
       topic: 'training-plan',
       source: 'manual',
       confidence: 0.9,
+      overCap: 'reject',
     });
+    expect(refused.status).toBe('needs-reactivation');
+    expect(findByTopic(home, 'training-plan', { includeArchived: true })!.location).toBe('archive');
+
+    const restored = commitEntry(home, defaultConfig(), index, {
+      content: '新计划：每周两次长跑 + 一次游泳',
+      type: 'decision',
+      topic: 'training-plan',
+      source: 'manual',
+      confidence: 0.9,
+      overCap: 'reject',
+      reactivate: true,
+    });
+    expect(restored.status).toBe('written');
+    expect(restored.reactivated).toEqual({ from: 'archived', to: 'active' });
 
     const after = findByTopic(home, 'training-plan', { includeArchived: true })!;
     expect(after.location).toBe('knowledge');

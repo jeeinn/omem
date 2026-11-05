@@ -185,6 +185,8 @@ stateDiagram-v2
 
 `review --confirm` 只把 `confidence` 提到 0.9，**不改变 `status`**：`stale` 不会因过目自动变回 `active`。`confirmations` / `last_confirmed` 是主题级记录——人工确认表示这个主题曾获得过人工关注，不表示当前正文已被逐项验证；正文被后续写入覆盖时它们仍会继承（v0.3 决策 D2，见 `docs/omem-v0.3-implementation-plan.md`）。
 
+同理，**归档不会被一次写入静默撤销**：向 `archived` / `stale` topic 写入时，`commitEntry` 返回 `needs-reactivation`，说明状态变化与路径迁移，且不落盘、不提交、不进 `warnings`。只有显式意图才恢复——CLI `omem add --reactivate`，MCP `save_memory(reactivate: true)`；恢复后文档为 `active`，归档文件从 `archive/` 移回 `knowledge/`（v0.3 决策 D4）。
+
 置信度五档（重构方案 M1）：
 
 | 档 | 值 | 条件 |

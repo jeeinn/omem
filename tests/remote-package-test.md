@@ -114,7 +114,7 @@
 
 | ID | 命令 | 预期 |
 | --- | --- | --- |
-| K1 | `omem redact`（缺 --id/--source） | 退出码 1 |
+| K1 | `omem redact`（缺 --topic/--source） | 退出码 1 |
 | K2 | `omem search`（缺 query） | 退出码 1 |
 | K3 | `omem backup use webdav` 后 `omem backup` | 退出码 2 |
 | K4 | `omem add ""`（空内容） | 明确报错，退出码 1，不写文件 |
@@ -125,8 +125,9 @@
 | ID | 命令 | 预期 |
 | --- | --- | --- |
 | L1 | `omem redact --source manual`（不带 --yes） | 只预览条数与样例；不删 |
-| L2 | `omem redact --id <C6 的 id> --yes` | 硬删：md 与索引行都消失；grep 无该 id |
-| L3 | 删后 `omem search "测试密钥"` | 无命中 |
+| L2 | `omem redact --topic <C6 的 topic>`（不带 --yes） | 只预览单条、状态与删除范围；不删 |
+| L3 | `omem redact --topic <C6 的 topic> --yes` | 硬删：md 与索引行都消失；grep 无该 topic |
+| L4 | 删后 `omem search "测试密钥"` | 无命中 |
 
 ## 执行记录与结论
 

@@ -3,7 +3,7 @@
 // D1-B′：topic 必填，写入即覆盖同名活文档。
 // D2：不再写 `verified`——「用户亲口说的」由 source=manual + confidence 0.9 表达。
 import { openCtx } from '../core/ctx.js';
-import { autoCommit, commitEntry, metadataDrift, overCapNotice, vcsNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, overCapNotice, reactivationNotice, reactivatedNotice, vcsNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagList, flagStr } from '../cli-args.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
@@ -12,7 +12,8 @@ import type { MemoryType } from '../core/entry.js';
 
 const USAGE = 'Usage: omem add <content> --topic <name> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--force]'
   + '\n--topic is required: every memory is a living document, and its name is the topic.'
-  + '\nContent longer than [process] max_content_chars is rejected; --force truncates it instead (the tail is lost).';
+  + '\nContent longer than [process] max_content_chars is rejected; --force truncates it instead (the tail is lost).'
+  + '\n--reactivate is required to write into an archived or stale topic: it restores the document to active.';
 
 export async function cmdAdd(args: ParsedArgs): Promise<number> {
   const content = args._.join(' ').trim();
@@ -39,6 +40,8 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       confidence: 0.9,
       // 三条写路径各自显式表态（beta.9 / T02）：CLI 默认拒绝超长内容，
       // --force 是唯一保留旧截断行为的出口——它是逃生口，不是默认。
+      // v0.3 D4：归档/冷却主题必须由显式意图恢复，CLI 侧用旗标表达。
+      reactivate: flagBool(args.flags, 'reactivate'),
       overCap: force ? 'truncate' : 'reject',
     }, { force });
 
@@ -69,8 +72,13 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       }
       return 0;
     }
+    if (result.status === 'needs-reactivation' && result.reactivation) {
+      for (const line of reactivationNotice(result.reactivation, 'cli')) console.log(line);
+      return 0;
+    }
     console.log(`${result.updated ? 'Updated' : 'Saved'} topic: ${result.topic}`);
     console.log(`File: ${result.path}`);
+    if (result.reactivated) console.log(reactivatedNotice(result.reactivated, result.topic ?? topic));
     if (result.truncated) {
       console.log(`Truncated to ${result.truncated.limit} characters (--force); the last ${result.truncated.chars - result.truncated.limit} character(s) were discarded.`);
       // 审计落点：磁盘上不留标记（不加 frontmatter 字段、不加 tags），但 topic + 截断量进日志。
