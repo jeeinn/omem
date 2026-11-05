@@ -3,6 +3,7 @@ import { openCtx } from '../core/ctx.js';
 import { searchEntriesPage, searchSessions } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { readEntryFile } from '../core/store.js';
+import { readCurrentRevision } from '../core/commit.js';
 import { formatStaleness } from '../core/lifecycle.js';
 import { truncate } from '../core/util.js';
 import { UsageError } from '../core/util.js';
@@ -76,6 +77,8 @@ async function searchBody(
     if (detail) {
       const entry = readEntryFile(row.path);
       console.log(`   File: ${row.path}`);
+      // D3：CLI 侧也要能拿到写入用的版本基线，否则 --expected-revision 无从取值。
+      console.log(`   revision: ${readCurrentRevision(row.path)}`);
       if (entry) {
         console.log('   ---');
         for (const l of entry.body.split('\n')) console.log(`   ${l}`);

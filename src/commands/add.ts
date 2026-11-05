@@ -3,7 +3,7 @@
 // D1-B′：topic 必填，写入即覆盖同名活文档。
 // D2：不再写 `verified`——「用户亲口说的」由 source=manual + confidence 0.9 表达。
 import { openCtx } from '../core/ctx.js';
-import { autoCommit, commitEntry, metadataDrift, overCapNotice, reactivationNotice, reactivatedNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, overCapNotice, reactivationNotice, reactivatedNotice, staleRevisionNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
 import { UsageError } from '../core/util.js';
 import { flagBool, flagList, flagStr } from '../cli-args.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
@@ -13,7 +13,8 @@ import type { MemoryType } from '../core/entry.js';
 const USAGE = 'Usage: omem add <content> --topic <name> [--type preference|fact|decision|experience] [--domain X] [--tags a,b] [--project fp] [--force]'
   + '\n--topic is required: every memory is a living document, and its name is the topic.'
   + '\nContent longer than [process] max_content_chars is rejected; --force truncates it instead (the tail is lost).'
-  + '\n--reactivate is required to write into an archived or stale topic: it restores the document to active.';
+  + '\n--reactivate is required to write into an archived or stale topic: it restores the document to active.'
+  + '\n--expected-revision <hash> refuses the write when the topic changed since it was read (best-effort, not a strict CAS).';
 
 export async function cmdAdd(args: ParsedArgs): Promise<number> {
   const content = args._.join(' ').trim();
@@ -42,6 +43,8 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
       // --force 是唯一保留旧截断行为的出口——它是逃生口，不是默认。
       // v0.3 D4：归档/冷却主题必须由显式意图恢复，CLI 侧用旗标表达。
       reactivate: flagBool(args.flags, 'reactivate'),
+      // D3：可选的乐观版本基线；未给时完全不检查，保持既有写入路径不变。
+      expected_revision: flagStr(args.flags, 'expected-revision') || undefined,
       overCap: force ? 'truncate' : 'reject',
     }, { force });
 
@@ -74,6 +77,10 @@ export async function cmdAdd(args: ParsedArgs): Promise<number> {
     }
     if (result.status === 'needs-reactivation' && result.reactivation) {
       for (const line of reactivationNotice(result.reactivation, 'cli')) console.log(line);
+      return 0;
+    }
+    if (result.status === 'stale-revision' && result.staleRevision) {
+      for (const line of staleRevisionNotice(result.staleRevision, 'cli')) console.log(line);
       return 0;
     }
     console.log(`${result.updated ? 'Updated' : 'Saved'} topic: ${result.topic}`);

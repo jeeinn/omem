@@ -142,6 +142,8 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 默认不调用模型。`omem sync` 只把原文放进 `sessions/`，并在 `PROCESS.md` 里列出还没写进活文档的会话。Agent 读这份文件，用 `save_memory` 或 `omem add --topic` 写回。写同一个 topic 就是覆盖同一份文件，不需要额外的 id。
 
+**覆盖可用版本基线做 best-effort 保护**：`search_memory` 的命中带 `revision`（整份 Markdown 全文 sha256 前 32 位，与 `index.hash` 同口径），把它作为 `save_memory(expected_revision=...)` 传回，写入前会重新读盘比对；不一致返回 `stale-revision`，不写盘、不提交、不进 warnings。CLI 侧用 `omem search --detail` 读 revision、`omem add --expected-revision` 传回。**读-比-写之间仍有 TOCTOU 窗口**：这不是跨进程锁，不保证并发写入绝不丢失更新；v0.3 不做文件锁（决策 D3）。
+
 置信度按证据打：对得上 user 原文从 0.55 起，独立来源印证到 0.8，对不上封顶 0.35。`omem review --confirm` 把人工过目的文档提到 0.9——这套分数不写 `verified` 字段（v0.2.0 起取消），MCP 侧也没有盖章通道：过目只由人自己在 `omem review` 里做。
 
 这五档是**证据支持程度与排序分数**，不是事实正确的概率。人工确认表示「这个主题曾获得过人工关注」，**不表示当前正文已被逐项验证**：`confirmations` / `last_confirmed` 是主题级记录，正文被后续写入覆盖时仍会继承，不会自动失效（v0.3 决策 D2）。

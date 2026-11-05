@@ -5,10 +5,10 @@ import type { OmemConfig } from './config.js';
 import type { EntryRow, OmemIndex } from './index.js';
 import type { Entry, EntrySource, EntryStatus, Frontmatter, MemoryType, Profile } from './entry.js';
 import { isNearDupTopic, mergeEvidence, newFrontmatter, normalizeDomain, normalizeTopic } from './entry.js';
-import { rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 
 import { findByTopic, writeEntry } from './store.js';
-import { contentHash } from './util.js';
+import { contentHash, sha256hex } from './util.js';
 import { redactSecrets } from './redact.js';
 import { currentProfile, isCodeHeavy } from './profile.js';
 import { generateMemoryIndex } from './lifecycle.js';
@@ -54,6 +54,12 @@ export interface CommitInput {
    */
   reactivate?: boolean;
   /**
+   * D3：可选的乐观版本基线（`search_memory` 返回的 revision，即全文 sha256/32）。
+   * 给出时写入前重新读盘比对；不一致返回 `stale-revision`，不落盘、不提交。
+   * 这是 best-effort，读-比-写之间仍有 TOCTOU 窗口，不提供严格 CAS 保证。
+   */
+  expected_revision?: string;
+  /**
    * 调用方类别。默认 'cli' 保持向后兼容。
    * 为什么需要：同一句冲突提示要按调用方生成——MCP 侧没有 `--force` 参数，
    * 也没有命令行，把 CLI 语法塞进去等于给 Agent 一条执行不了的指令。
@@ -80,7 +86,7 @@ export interface CommitOpts {
   audit?: Record<string, unknown>;
 }
 
-export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty' | 'needs-reactivation';
+export type CommitStatus = 'written' | 'deduped' | 'excluded' | 'redacted-empty' | 'needs-reactivation' | 'stale-revision';
 
 /** 待显式授权的状态恢复：omem 只描述状态变化，不判断用户是否真的想恢复。 */
 export interface ReactivationInfo {
@@ -97,6 +103,42 @@ export interface WriteDiff {
   incoming: string;
   previousChars: number;
   incomingChars: number;
+}
+
+/**
+ * D3：revision 就是 `index.hash` 的口径——整份 Markdown 全文的 sha256 前 32 位。
+ * 复用既有口径，不造第三把 hash；`body_hash` 是归一化正文且只对大小写/标点不敏感，不能当版本。
+ */
+export const NO_REVISION = 'none';
+
+export function fileRevision(content: string): string {
+  return sha256hex(content).slice(0, 32);
+}
+
+/** 写入前重新读盘取当前 revision；文件不存在时返回 'none'。 */
+export function readCurrentRevision(path?: string): string {
+  if (!path || !existsSync(path)) return NO_REVISION;
+  return fileRevision(readFileSync(path, 'utf8'));
+}
+
+export interface StaleRevisionInfo {
+  topic: string;
+  expected: string;
+  current: string;
+}
+
+/**
+ * 版本冲突回执的唯一渲染处（D3）。这是拒绝，走 CommitStatus，不进 warnings。
+ * best-effort：读-比-写之间仍有 TOCTOU 窗口，本机制不提供严格 CAS 保证。
+ */
+export function staleRevisionNotice(info: StaleRevisionInfo, caller: 'cli' | 'mcp' = 'cli'): string[] {
+  return [
+    `Not written: topic "${info.topic}" changed since it was read (expected revision ${info.expected}, current ${info.current}).`,
+    'Nothing was written and no commit was made; the current document is unchanged.',
+    caller === 'mcp'
+      ? 'Call search_memory again for the current revision, then resend with the updated expected_revision.'
+      : 'Run omem search <query> --detail to read the current revision line, then retry with the updated --expected-revision.',
+  ];
 }
 
 /** 预览长度：够看清覆盖掉的是什么，又不会把回执撑爆。 */
@@ -193,6 +235,8 @@ export interface CommitResult {
   reactivated?: { from: ReactivationInfo['from']; to: 'active' };
   /** 覆盖既有活文档时的 previous/incoming 预览（S2）。新建与去重命中时为 undefined。 */
   diff?: WriteDiff;
+  /** expected_revision 与当前磁盘不一致：本次写入被拒绝，不落盘、不提交。 */
+  staleRevision?: StaleRevisionInfo;
 }
 
 /**
@@ -566,6 +610,22 @@ export function commitEntry(
     : undefined;
   // S2：差异只在 commit.ts 算一次，dry-run 与真实写入共用同一份数据。
   const diff = existingFm ? buildWriteDiff(topic, existingLoc!.entry.body, text) : undefined;
+
+  // D3：写前二次读盘比对。位置在全部落盘动作之前；dry_run 也检查，让预演能暴露版本漂移。
+  // 保证边界：这只是把读-写窗口压到最小，**不是**跨进程锁，不承诺绝无 lost update。
+  // 未给 expected_revision 时完全不检查（opt-in，保持既有写入路径不变）。
+  if (input.expected_revision) {
+    const current = readCurrentRevision(existingLoc?.path);
+    if (current !== input.expected_revision) {
+      return finish(home, {
+        status: 'stale-revision',
+        topic,
+        dryRun: opts.dryRun,
+        reason: `Revision mismatch on "${topic}": expected ${input.expected_revision}, found ${current}`,
+        staleRevision: { topic, expected: input.expected_revision, current },
+      }, input, opts);
+    }
+  }
 
   // D5：主题级审阅策略（review.toml）已删除——「这个主题我信得过」不再折算成自动提分。
   // 置信度只由本次证据决定（M1），人工动作只剩过目/归档/冷却。

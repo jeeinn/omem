@@ -17,7 +17,7 @@ import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
-import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, rescoreNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, readCurrentRevision, rescoreNotice, staleRevisionNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
@@ -164,6 +164,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
                 last_confirmed: { type: 'string', description: 'ISO timestamp of the last human review; empty if never.' },
                 source_sessions: { type: 'array', items: { type: 'string' }, description: 'Session ids historically cited (trail).' },
                 evidence: { type: 'array', items: { type: 'string' }, description: 'Quotes on the current document; historical quotes may not support the current body.' },
+                revision: { type: 'string', description: 'Full-file sha256/32 baseline for expected_revision.' },
                 session_key: { type: 'string', description: 'scope=sessions only: "<collector>:<id>"; pass the part after the colon as session_id.' },
                 path: { type: 'string', description: 'Markdown file (conclusions) or transcript file (sessions) on disk.' },
                 project: { type: 'string', description: 'scope=sessions only: project fingerprint of the transcript.' },
@@ -198,7 +199,8 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         'see inputSchema and initialize instructions.\n\n' +
         'Content over the configured maximum is NOT written: the response reports the overflow and the ways forward; nothing ' +
         'is truncated silently. Identical content is deduped, or `rescored` when new quotes anchor. Each writing call leaves ' +
-        'one local git commit (`vcs`); pushing is `omem backup`.',
+        'one local git commit (`vcs`); pushing is `omem backup`. Pass expected_revision from a search hit to guard an ' +
+        'overwrite: a changed file returns stale-revision (best-effort).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -235,7 +237,11 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           dry_run: { type: 'boolean', description: 'Validate and preview without writing to disk (no entry, no index row, no PROCESS.md update).' },
           reactivate: {
             type: 'boolean',
-            description: 'Set true to write into an archived or stale topic. This restores it to active (and moves it back from archive/ to knowledge/). Without it, such a write is refused with needs_reactivation and nothing is written.',
+            description: 'Set true to restore an archived/stale topic to active. Otherwise the write is refused with needs_reactivation.',
+          },
+          expected_revision: {
+            type: 'string',
+            description: 'Revision from a search hit. Refuses with stale-revision if the file changed (best-effort, not strict CAS).',
           },
         },
         required: [],
@@ -243,7 +249,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       outputSchema: {
         type: 'object',
         properties: {
-          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / needs-reactivation. Under dry_run nothing is written regardless of status.' },
+          status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / needs-reactivation / stale-revision. Under dry_run nothing is written regardless of status.' },
           topic: { type: 'string', description: 'The document name written (or deduped against).' },
           updated: { type: 'boolean', description: 'true when an existing living document was overwritten.' },
           confidence: { type: 'number', description: 'Evidence-support score used for ranking, not a probability of being true. Derived from quoted evidence, never caller-controlled.' },
@@ -294,7 +300,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           },
           reactivation: {
             type: 'object',
-            description: 'Set only on needs-reactivation: the target topic is archived/stale and the caller did not pass reactivate. Nothing was written and no commit was made.',
+            description: 'Set on needs-reactivation: nothing was written.',
             properties: {
               topic: { type: 'string' },
               from: { type: 'string' },
@@ -309,13 +315,21 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
           },
           diff: {
             type: 'object',
-            description: 'Set when an existing living document is overwritten: a short previous/incoming preview so the caller can see what is being replaced. Also present under dry_run.',
+            description: 'Previous/incoming preview on an overwrite; also present under dry_run.',
             properties: {
               topic: { type: 'string' },
               previous: { type: 'string' },
               incoming: { type: 'string' },
               previousChars: { type: 'number' },
               incomingChars: { type: 'number' },
+            },
+          },
+          stale_revision: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string' },
+              expected: { type: 'string' },
+              current: { type: 'string' },
             },
           },
         },
@@ -609,6 +623,8 @@ async function toolSearch(
         source_sessions: sourceSessions,
         evidence: entry?.fm.evidence ?? [],
         path: row.path,
+        // D3：实时读盘，与 commitEntry 写前比对用的是同一个 readCurrentRevision 口径。
+        revision: readCurrentRevision(row.path),
       };
     }),
   };
@@ -652,7 +668,7 @@ async function toolSearch(
 
 const SAVE_KEYS = new Set([
   'content', 'type', 'domain', 'tags', 'project', 'topic', 'session_id',
-  'source_sessions', 'evidence', 'dry_run', 'reactivate',
+  'source_sessions', 'evidence', 'dry_run', 'reactivate', 'expected_revision',
 ]);
 
 /** 常见臆造参数的别名提示。固定表足够——参数面只有十余个键。 */
@@ -766,6 +782,10 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       caller: 'mcp',
       // D4：归档/冷却主题只有显式授权才能恢复，MCP 侧用布尔参数表达（不能给 CLI 旗标）。
       reactivate: Boolean(args.reactivate),
+      // D3：可选的乐观版本基线；不传则完全不检查。
+      expected_revision: typeof args.expected_revision === 'string' && args.expected_revision
+        ? args.expected_revision
+        : undefined,
       // MCP 侧不接受超长正文：拒绝而不是截断（半截事实会被下一个 Agent 当真事实用）。
       // 这个字段必填，正是为了让每条写路径在编译期被迫表态。
       overCap: 'reject',
@@ -808,6 +828,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       reactivation: result.reactivation,
       reactivated: result.reactivated,
       diff: result.diff,
+      stale_revision: result.staleRevision,
     });
 
     if (dryRun) {
@@ -817,11 +838,15 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       // dry_run 也走同一条 cap 判定：超限在预演里就是 excluded，不是「会截断」。
       if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
       if (result.reactivation) parts.push(...reactivationNotice(result.reactivation, 'mcp'));
+      if (result.staleRevision) parts.push(...staleRevisionNotice(result.staleRevision, 'mcp'));
       if (result.diff) parts.push(...writeDiffNotice(result.diff, 'mcp'));
       for (const w of result.warnings ?? []) parts.push(w);
     } else if (result.status === 'needs-reactivation' && result.reactivation) {
       // D4：这是拒绝，不是 warning。回执按 caller 渲染，MCP 侧不能出现 CLI 旗标语法。
       parts.push(...reactivationNotice(result.reactivation, 'mcp'));
+    } else if (result.status === 'stale-revision' && result.staleRevision) {
+      // D3：同样是拒绝，走 CommitStatus，不进 warnings；不写盘、不提交。
+      parts.push(...staleRevisionNotice(result.staleRevision, 'mcp'));
     } else if (result.status === 'deduped' && result.rescored) {
       // 正文没重写，但分数与证据链被刷新了——「nothing was written」在这里是假话。
       const kept = drift.length > 0 ? ` Requested metadata it does not carry: ${drift.join('; ')}.` : '';

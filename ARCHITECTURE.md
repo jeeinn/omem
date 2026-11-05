@@ -187,6 +187,8 @@ stateDiagram-v2
 
 同理，**归档不会被一次写入静默撤销**：向 `archived` / `stale` topic 写入时，`commitEntry` 返回 `needs-reactivation`，说明状态变化与路径迁移，且不落盘、不提交、不进 `warnings`。只有显式意图才恢复——CLI `omem add --reactivate`，MCP `save_memory(reactivate: true)`；恢复后文档为 `active`，归档文件从 `archive/` 移回 `knowledge/`（v0.3 决策 D4）。
 
+覆盖既有文档还可以带 `expected_revision`：`search_memory` 的命中给出 `revision`（全文 sha256/32，与 `index.hash` 同口径），写入前重新读盘比对，不一致返回 `stale-revision` 且不写盘、不提交。这是**best-effort**：`atomicWrite` 只保证单次写原子，读-比-写之间仍有 TOCTOU 窗口，v0.3 不提供跨进程锁，也不承诺绝不丢失更新（决策 D3）。
+
 置信度五档（重构方案 M1）：
 
 | 档 | 值 | 条件 |

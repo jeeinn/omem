@@ -10,7 +10,7 @@ export interface ParsedArgs {
 /** 全部带值旗标（--key value 或 --key=value）。与 src/commands/* 的 flagStr/flagNum 调用点一一对应。 */
 export const VALUE_FLAGS = new Set([
   // add
-  'type', 'tags', 'supersedes', 'domain', 'project', 'topic',
+  'type', 'tags', 'supersedes', 'domain', 'project', 'topic', 'expected-revision',
   // search
   // （domain/project 已在上）
   // run
