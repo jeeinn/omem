@@ -1,6 +1,6 @@
 {
   "name": "@jeeinn/omem",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A git-native personal AI memory layer: Markdown source of truth + MCP + topic-as-identity",
   "keywords": [
     "memory",

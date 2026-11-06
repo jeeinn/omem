@@ -5,10 +5,22 @@
 
 | tag | commit | tarball md5 | 备注 |
 | --- | --- | --- | --- |
+| `v0.3.1` | 见 tag | — | `omem sync` 只采集；API 加工改走 `omem process` |
 | `v0.3.0` | 见 tag | — | 正式版。S0–S5；S6 推迟 v0.4。npm `latest` 从 `0.1.0-beta.8` 跳到本版 |
 | `v0.1.0-beta.8` | `1da9d52` | — | 清单渲染回归（16.3×）、cap 截断、grounding 元数据可伪证 |
 | `v0.1.0-beta.9` | `a260812` | `4b824b0a1e1ef392106fa99b10f11bcb`（两次干净构建 dist 内容 hash 一致） | 见下 |
 | `v0.2.0-beta.1` | 见 tag | — | 重构路B：topic 即身份、去 SQLite、命令面 13 条（**不兼容**） |
+
+## v0.3.1
+
+`omem sync` 与 API 加工拆开。采集不再顺带调模型。
+
+1. **`omem sync` 只采集会话并刷新 `PROCESS.md`。** 不调用模型。`[process] default_tier = "api"` 也不会让裸 `sync` 去 drain 队列，终端会提示改用 `omem process`。
+2. **新命令 `omem process`。** 只加工已经落盘的会话队列，不扫采集器。`--dry-run` 零网络。提交说明是 `omem: process …`。
+3. **`omem sync --tier api` 仍可用一期。** 打印弃用警告，并且只跑 process、不再采集。请改成 `omem process`。
+4. **命令面从 13 条变为 14 条。** 其余行为与 `0.3.0` 相同。
+
+**验证口径**：`npm test` 77 files / 770 tests 绿。`npm publish` 在本机终端执行（需要一次性验证）；`prepublishOnly` 要求 HEAD 精确 tag 为 `v0.3.1`。
 
 ## v0.3.0（正式版）
 

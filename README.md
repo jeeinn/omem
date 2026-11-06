@@ -15,7 +15,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 ## 状态
 
-V0.3 正式版 `0.3.0`（`npm install -g @jeeinn/omem`）。
+V0.3 正式版 `0.3.1`（`npm install -g @jeeinn/omem`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
@@ -26,7 +26,7 @@ V0.3 正式版 `0.3.0`（`npm install -g @jeeinn/omem`）。
 - **topic 就是身份**：路径是 `knowledge/<domain>/<topic>.md`，frontmatter 不再写 topic，也不再有 id、年份分桶、`superseded` 状态机
 - **没有索引数据库**：SQLite 删掉了，索引是每次启动从 Markdown 重建的内存视图；会话只索引 `## user` 证据域，检索是线性扫描 + 确定性排序
 - **信任只有一个数字**：`confidence`。`verified` 字段删了——原地更新下它会退化成「这个主题曾被人看过」；MCP 侧也没有盖章通道，过目只由人自己在 `omem review` 里做
-- **命令面收敛到 13 条**：`gc` 并入 `review --gc`，`rebuild` 改名 `verify`，`snapshot` 并入 `backup`，删掉 `eval` / `api` / `audit` / `context` / 主题级审阅策略
+- **命令面 14 条**：`gc` 并入 `review --gc`，`rebuild` 改名 `verify`，`snapshot` 并入 `backup`，删掉 `eval` / `api` / `audit` / `context` / 主题级审阅策略。`0.3.1` 把 API 加工拆成 `omem process`，`sync` 不再调模型
 - **印证按独立来源算**：同一段用户输入被同步两次、或两个采集器收了同一次对话，只算一份——复制粘贴刷不了分
 - **写前快照**：覆盖一份已有活文档之前先打快照（`snapshots/`，滚动保留 7 份），git 历史是最终退路
 
