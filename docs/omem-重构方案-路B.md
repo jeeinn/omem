@@ -1,8 +1,8 @@
 # omem 重构方案 B：保留差异化，简化到核心
 
-> 状态：**决策基本完成**（2026-11-01）
+> 状态：**v0.2 决策记录（已落地）**（定稿 2026-11-01；§14 A–H 均已完成）
 > 已定：CLI 命令面、D1（B′：topic 即身份）、D2（取消 `verified`）、D3（去 SQLite，内存派生索引）、D4（原文进 git）、D5（本版不做纠错）、D7（轻量账本）、D8（gc 并入 review）、D9（不兼容，re-init）、M1（置信度简化）、M2（AI 直接更新）
-> 待定：**无** —— 决策完成，进入实施（见 §8）
+> **v0.3**：工程决策与 S0–S5/S6 进度一律以 [`omem-v0.3-implementation-plan.md`](./omem-v0.3-implementation-plan.md) 为准（S6 推迟 v0.4）。文档索引见 [`docs/README.md`](./README.md)。
 > 指导原则：**实用主义优先**。任何新增机制先回答「不做会怎样」；能复用现有字段的不新增字段。
 
 ---
@@ -318,6 +318,6 @@ D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 
 | F | ``omem verify`` 账本复算（§11「置信度」验收项的后半条一直没实现） | ✅（``process/score.ts`` 的 ``verifyConfidence``，只报告不改写） |
 | G | 印证按独立来源计数（同一段用户输入的副本只算一份） | ✅（``session-store.ts`` 的 ``evidenceUserKey`` + ``score.ts`` 的 ``buildSourceSkip``） |
 | H | 去重命中时的补分（补采之后同正文重发即可自愈；只升不降、须带证据、人工过目过的不碰） | ✅（``core/commit.ts`` 的 ``rescoreOnDedup`` + ``CommitResult.rescored``；矩阵见 ``tests/unit/dedup-rescore.test.ts``，端到端在 ``tests/mcp-probe.mjs``） |
-| V0.3-S0 | v0.3 工程决策记录：D1 证据分层（不做语义裁决）/ D2 `reviewed_revision` 暂缓 / D3 best-effort CAS（不做锁）/ D4 归档复活显式化 / D5 优先级与 S6 可延后 | ✅ 决策已定（`docs/omem-v0.3-implementation-plan.md`），S0–S6 实施进度见该文「实施进度」节 |
+| V0.3-S0 | v0.3 工程决策记录：D1 证据分层（不做语义裁决）/ D2 `reviewed_revision` 暂缓 / D3 best-effort CAS（不做锁）/ D4 归档复活显式化 / D5 优先级与 S6 可延后 | ✅ 决策已定；**S0–S5 已完成，S6 ⏸ → v0.4**（进度表见 `docs/omem-v0.3-implementation-plan.md` §0.1） |
 
 **每个 A-x 的收尾动作**：`npx vitest run` 全绿 → `npm run build` 通过 → 更新本节状态 → 单独提交。

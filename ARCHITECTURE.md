@@ -1,6 +1,6 @@
 # 技术架构
 
-omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。
+omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；v0.3 决策与进度见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)（S0–S5 已完成，S6 证据分层推迟 v0.4，**未实现**）。
 
 命令对应关系：`omem sync` 采集会话，`omem backup` 备份数据仓（git；WebDAV / 本地目录后端尚未交付）。
 

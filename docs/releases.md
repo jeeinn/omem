@@ -34,7 +34,7 @@ beta.1 打上 tag 之后用真实 `omem` 命令做了一轮端到端基准测试
 **用户可见变更**
 
 1. **列表型旗标在 Windows 的 PowerShell shim 下不再坏掉。** `--target` / `--collectors` / `--confirm` / `--tags` 原本只按逗号切分。npm 生成的 `omem.ps1` 由 PowerShell 解析，`a,b` 会被当成数组再用**空格**连接传给脚本（`$args` = `"a b"`），于是 `omem install --target claude-code,cursor` 报的是 `Unknown client: claude-code cursor`——错误信息还看不出真实原因。新增 `flagList()`，按 `[,\s]+` 切分，逗号与空格两种壳子都认。
-2. **`omem --help` 的文档链接指向实际存在的文件**（`docs/omem-重构方案-路B.md`；原链接指向已归档的 V0.1 规格草案，点了是死链）。
+2. **`omem --help` 的文档链接指向实际存在的文件**（现为 `docs/README.md` 索引；此前曾指向 `docs/omem-重构方案-路B.md`，更早曾指向已归档的 V0.1 规格草案）。
 3. **同步后端的文案不再承诺「V0.2 会交付 WebDAV」。** 那是对未交付功能的承诺。当前口径：git 是本版本唯一可用的后端，`webdav` / `dir` 被调用时给出可操作提示（`omem backup use git`）。
 4. **启动成本降了一半。** MCP SDK（单独 import 实测 **252 ms**）与 web 面板（**49 ms**）改为按需加载，只有 `omem serve` / `omem review --ui` 才付这份钱。实测 `omem --version` / `omem topics` / `omem review` 从约 490 ms 降到 **230 ms**（node 裸启动 116 ms）。
 5. **会话检索的命中计数零分配。** 热路径上的 `split(t).length - 1` 换成 `indexOf` 循环（每次出现不再分配一个子串数组）；排序语义不变，有专门用例钉住「出现次数多的会话仍排前面」。

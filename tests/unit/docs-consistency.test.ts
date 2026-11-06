@@ -126,6 +126,25 @@ describe('docs: v0.3 lifecycle, commit and delete semantics match the code', () 
   it('the implementation plan is the normative decision record', () => {
     expect(read('docs/omem-v0.3-implementation-plan.md')).toContain('D4');
     expect(ARCH).toContain('omem-v0.3-implementation-plan.md');
-    expect(read('docs/omem-0.3.md')).toContain('非现行实施方案');
+    expect(read('docs/archive/omem-0.3.md')).toContain('非现行实施方案');
+  });
+
+  it('docs/README.md separates Current from Archive and points at living truth', () => {
+    const index = read('docs/README.md');
+    expect(index).toContain('## Current（现行）');
+    expect(index).toContain('## Archive（背景 only）');
+    expect(index).toContain('omem-v0.3-implementation-plan.md');
+    expect(index).toContain('S0–S5');
+    expect(index).toContain('S6');
+    expect(README).toContain('docs/README.md');
+    expect(AGENTS).toContain('docs/README.md');
+  });
+
+  it('historical review docs live under docs/archive/', () => {
+    expect(read('docs/archive/README.md')).toContain('omem-0.3.md');
+    expect(read('docs/archive/omem-0.3.md')).toContain('已归档');
+    // Root docs/ must not still host the superseded one-shot reviews.
+    const rootListing = read('docs/README.md');
+    expect(rootListing).toContain('archive/');
   });
 });

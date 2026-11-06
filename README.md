@@ -11,11 +11,13 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 - 不自动删除。硬删只有 `omem redact`
 - MCP 默认只暴露 `search_memory` / `save_memory`
 
-分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。
+分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)。
 
 ## 状态
 
 V0.2 公开测试版 `0.2.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。
+
+**v0.3 工程决策已落地（S0–S5）**：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、回归金标与并发护栏。**S6（证据分层 / 评分模型重构）推迟到 v0.4**，当前行为未改。详情见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)。
 
 **v0.2 与 v0.1 不兼容**：这一版重写了身份模型，老库直接 `omem init --force` 重来，不要试图迁移——`--force` 会先自动打一份快照再重建 git 仓。
 
@@ -258,7 +260,7 @@ npm test
 npm run smoke
 ```
 
-行为以源码和 `docs/omem-重构方案-路B.md`（决策记录 + 实施进度表）为准。已落地的旧规划在 `docs/archive/`。
+行为以源码为准；决策与进度见 [`docs/README.md`](./docs/README.md)（现行：`omem-v0.3-implementation-plan.md`、`omem-重构方案-路B.md`；历史评审与一次性格笔记在 `docs/archive/`，仅作背景）。
 
 ## 安全
 
