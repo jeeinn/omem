@@ -172,7 +172,7 @@ D9 定为不兼容，但现有的真实库（约 26 个活文档 / 1101 份会�
 
 | 执行者 | 链路 | 更新方式 |
 | --- | --- | --- |
-| `omem sync --tier api` | `runPipelineAsync` → `extractWithApi` → `commitDoc` → `commitEntry` | 模型产出整篇，直接覆盖该 topic |
+| `omem process`（旧：`sync --tier api`） | `runApiProcess` → `extractWithApi` → `commitDoc` → `commitEntry` | 模型产出整篇，直接覆盖该 topic；与 sync 采集拆开，见 `docs/omem-process-command-plan.md` |
 | 本地 AI Agent | 读 `PROCESS.md` → `save_memory(topic=…, content=…)` → `commitEntry` | 同上 |
 
 D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 拒写 + 要求 supersedes」这道闸门。护栏只有一条：写前 `runSnapshot`（`src/core/snapshot.ts` 已存在）。丢事实的风险由 git 历史 + 人工过目兜底。

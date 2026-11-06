@@ -52,6 +52,12 @@ export interface RunOpts {
   onProgress?: (phase: string, done: number, total: number) => void;
 }
 
+/** API 加工专用选项：不扫采集器，只 drain 待加工队列。 */
+export type ApiProcessOpts = Pick<
+  RunOpts,
+  'since' | 'sessionId' | 'dryRun' | 'apiBase' | 'apiModel' | 'apiLimit' | 'onProgress'
+>;
+
 export interface RunReport {
   tier: Tier;
   sessions: number;
@@ -100,11 +106,16 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   return report;
 }
 
-/** 档 3 的异步版本（API 加工需要网络调用）。原文仍先落盘；加工走 §3.5 工作队列。 */
-export async function runPipelineAsync(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): Promise<RunReport> {
-  const { tier } = resolveTier(config, opts.tier ?? 'api');
-  if (tier !== 'api') return runPipeline(home, config, index, opts);
-
+/**
+ * 只 drain API 待加工队列（不扫采集器）。
+ * `omem process` 与已弃用的 `sync --tier api` 薄包装共用此入口。
+ */
+export async function runApiProcess(
+  home: string,
+  config: OmemConfig,
+  index: OmemIndex,
+  opts: ApiProcessOpts = {},
+): Promise<RunReport> {
   const report = emptyReport('api');
   if (!opts.dryRun) beginWriteJournal();
   // §6.2：策略/配置错误抛 UsageError（exit 1），不再用裸 Error
@@ -114,14 +125,6 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
     limit: opts.apiLimit,
   });
 
-  const scan = scanHome(config, index, opts);
-  report.skipped = scan.skipped;
-  if (scan.excludedPaths > 0) {
-    report.notes.push(`Skipped ${scan.excludedPaths} session file(s) matching [collect].exclude_paths`);
-  }
-  if (!noteMissingRoots(report, scan)) return report;
-  ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
-
   const queue = materializeQueue(index, {
     since: opts.since,
     sessionId: opts.sessionId,
@@ -130,6 +133,8 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   });
   report.queuePending = queue.pending;
   report.quarantined = queue.quarantined;
+  // process 不采集：sessions 记本批队列条数（summary 仍要有量级）
+  report.sessions = queue.items.length;
 
   for (const w of cfg.warnings) console.warn(`[api] warning: ${w}`);
   for (const n of cfg.notes) console.log(`[api] note: ${n}`);
@@ -261,21 +266,41 @@ export async function runPipelineAsync(home: string, config: OmemConfig, index: 
   // 规则 9：同一次运行就把已吸收会话从 PROCESS.md 待办里去掉。中止前也刷新，已产出留在索引里。
   publishGuide(home, index, config, false, report, true);
   finish(home, index, report, false);
-  commitRun(home, config, report);
+  commitRun(home, config, report, 'process');
   if (stop) throw stop;
   if (fatal) throw fatal;
   return report;
 }
 
-/** 一轮 run 一次提交（不是每个会话一次）：run 是用户视角的一个动作。 */
-function commitRun(home: string, config: OmemConfig, report: RunReport): void {
-  // 一轮 run 写过的全部文件（sessions/*.md、knowledge/*.md、PROCESS.md、MEMORY-INDEX.md…）
-  // 在 run 开始时开始记账，这里一次性取走并提交：一轮一个 commit。
+/**
+ * @deprecated 采集与 API 加工已拆开。新代码请用 `runPipeline`（采集）或 `runApiProcess`（加工）。
+ * 保留为测试与旧调用方的别名：等同于 `runApiProcess`（不再先扫采集器）。
+ */
+export async function runPipelineAsync(
+  home: string,
+  config: OmemConfig,
+  index: OmemIndex,
+  opts: RunOpts = {},
+): Promise<RunReport> {
+  const { tier } = resolveTier(config, opts.tier ?? 'api');
+  if (tier !== 'api') return runPipeline(home, config, index, opts);
+  return runApiProcess(home, config, index, opts);
+}
+
+/** 一轮动作一次提交（不是每个会话一次）。 */
+function commitRun(
+  home: string,
+  config: OmemConfig,
+  report: RunReport,
+  kind: 'sync' | 'process' = 'sync',
+): void {
+  // 一轮写过的全部文件在 beginWriteJournal 时开始记账，这里一次性取走并提交。
   const touched = endWriteJournal();
+  const verb = kind === 'process' ? 'process' : 'sync';
   const vcs = autoCommit(
     home,
     config,
-    `omem: sync ${report.sessions} session(s), ${report.written.length} document(s)`,
+    `omem: ${verb} ${report.sessions} session(s), ${report.written.length} document(s)`,
     touched,
   );
   if (vcs.status === 'skipped') report.notes.push(`git: ${vcs.reason} (auto_commit=session, nothing committed)`);

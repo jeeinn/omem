@@ -3,21 +3,21 @@
 // 为什么值得单独钉住：命令表、README、AGENTS.md、`docs-consistency` 四处各写一遍，
 // 删命令时最容易漏掉其中一处，而「文档里还写着已删命令」正是上一版产品的问题。
 // 这里以**运行时 help 输出**为准绳，把三条断言写死：
-//   1. 13 条命令一条不少；
+//   1. 14 条命令一条不少（含独立的 process）；
 //   2. 已删的命令（eval / api / audit / snapshot / gc / context / rebuild）一条不许出现
 //      ——help、README，以及 src 里运行期会打出来的文案；
-//   3. 指向命令的提示必须落在现行命令上（诊断入口是 `sync --tier api --dry-run`）。
+//   3. 指向命令的提示必须落在现行命令上（诊断入口是 `omem process --dry-run`）。
 import { describe, it, expect, vi } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { main } from '../../src/cli.js';
 import { endpointUnavailableError } from '../../src/process/api.js';
-import { runSummaryLines } from '../../src/commands/run.js';
+import { processSummaryLines } from '../../src/commands/process.js';
 import type { RunReport } from '../../src/process/pipeline.js';
 
-/** 现行 13 条（D8：gc 并入 review；rebuild 改名 verify）。 */
+/** 现行 14 条（process 从 sync --tier api 拆出）。 */
 const KEPT = [
-  'init', 'install', 'sync', 'skip', 'add', 'search', 'review',
+  'init', 'install', 'sync', 'process', 'skip', 'add', 'search', 'review',
   'topics', 'verify', 'backup', 'profile', 'redact', 'serve',
 ];
 
@@ -38,7 +38,7 @@ async function helpText(): Promise<string> {
 }
 
 describe('cli surface', () => {
-  it('帮助里恰好是这 13 条命令', async () => {
+  it('帮助里恰好是这 14 条命令', async () => {
     const text = await helpText();
     for (const name of KEPT) {
       expect(text, `missing command in help: ${name}`).toMatch(new RegExp(`^\\s*${name}\\b`, 'm'));
@@ -86,9 +86,9 @@ describe('cli surface', () => {
     expect(hits).toEqual([]);
   });
 
-  it('API 档的诊断入口是 sync --dry-run（不是已删的 omem api status）', () => {
+  it('API 档的诊断入口是 omem process --dry-run（不是已删的 omem api status）', () => {
     // 中止时的 hint：必须给一条现在真的能跑的命令。
-    expect(endpointUnavailableError(3).hint).toContain('omem sync --tier api --dry-run');
+    expect(endpointUnavailableError(3).hint).toContain('omem process --dry-run');
 
     // 队列还有存量时打印的 Next 段，同理。
     const report: RunReport = {
@@ -108,9 +108,10 @@ describe('cli surface', () => {
       queuePending: 2,
       elapsedMs: 1200,
     };
-    const next = runSummaryLines(report, false).join('\n');
-    expect(next).toContain('omem sync --tier api --dry-run');
-    expect(next).toContain('omem sync --tier api');
+    const next = processSummaryLines(report, false).join('\n');
+    expect(next).toContain('omem process --dry-run');
+    expect(next).toContain('omem process');
+    expect(next).not.toContain('omem sync --tier api');
   });
 });
 

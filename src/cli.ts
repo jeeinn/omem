@@ -7,6 +7,7 @@ import { UsageError, BackendUnavailableError, ProfileBlockedError } from './core
 import { cmdInit } from './commands/init.js';
 import { cmdInstall } from './commands/install.js';
 import { cmdRun } from './commands/run.js';
+import { cmdProcess } from './commands/process.js';
 import { cmdAdd } from './commands/add.js';
 import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
@@ -38,9 +39,14 @@ const COMMANDS: Record<string, Command> = {
     run: cmdInstall,
   },
   sync: {
-    desc: 'Ingest session transcripts (conclusions are not extracted)',
-    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--tier agent|api] [--dry-run] [--base URL] [--model X] [--limit N]',
+    desc: 'Ingest session transcripts and refresh PROCESS.md (never calls a model)',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run]',
     run: cmdRun,
+  },
+  process: {
+    desc: 'Drain the optional API queue into living documents (no collectors)',
+    usage: 'omem process [--since 7d|YYYY-MM-DD] [--session <id>] [--dry-run] [--base URL] [--model X] [--limit N]',
+    run: cmdProcess,
   },
   skip: {
     desc: 'Mark sessions as no-distill-value so they leave the PROCESS.md backlog',
@@ -102,6 +108,7 @@ function printHelp(): void {
     console.log(`  ${name.padEnd(12)} ${c.desc}`);
   }
   console.log('\nQuick start: omem init → omem sync → omem install → omem search "<keyword>"');
+  console.log('Optional API drain: omem process [--dry-run] (after sync; does not scan collectors)');
   console.log('Docs: docs/README.md (Chinese index) · Per-command help: omem <command> --help');
 }
 

@@ -124,7 +124,8 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | --- | --- |
 | `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`；重置前自动打一份快照）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
-| `omem sync [--since 7d] [--collectors id,id] [--tier agent\|api] [--limit N]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。不带 `--collectors` 时扫全部已有目录 |
+| `omem sync [--since 7d] [--collectors id,id]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。**不调用模型**。不带 `--collectors` 时扫全部已有目录 |
+| `omem process [--limit N] [--dry-run]` | 可选：用 API 模型 drain 待加工队列，写入活文档。**不扫采集器**。详见下方 API 配置 |
 | `omem skip <session-id>` | 把会话标记为「不必沉淀」，从 `PROCESS.md` 的待办里移出（`list` / `remove` 可回看） |
 | `omem add <content> --topic <name>` | 手工写入一份活文档，自动脱敏。同 topic 再写一次就是覆盖（git 保留历史） |
 | `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
@@ -152,13 +153,39 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 证据门槛是 12 个连续字符，且必须来自会话文件里的 `## user` 段（引模型自己的话不算）。`session_id` 用裸 id——`claude-code:probe-0001` 这种带前缀的写法会自动剥掉前缀再找，不会因此掉到 0.35。没给 `session_id` 只给 `evidence` 时，第一个命中的会话可能是证据的来源本身，因此不计入「独立印证」：指名与不指名同分，指名不会更亏。印证按**独立来源**算，不按会话文件算：同一段用户输入被同步两次、或两个采集器收了同一次对话，只算一份——复制粘贴刷不了分。
 
-可选的 API 档：`omem sync --tier api`。本机回环端点免 key；云端必须 key，且必须 https。建议 key 放在 `OMEM_API_KEY`，不要写进 `config.toml`，否则 `omem backup` 会把它推进 git 仓库（写入时会警告）。`--limit` 默认 20，非本机的配置值最高 50，只有命令行 `--limit` 能再高。`--dry-run` 不发请求。
+可选的 API 加工入口是 **`omem process`**（与 `omem sync` 拆开：sync 只采集，process 只 drain 队列，互不依赖）。旧写法 `omem sync --tier api` 仍可用一期，但会打印弃用警告并**只跑 process、不再采集**——请改用 `omem process`。
+
+### API 模型配置建议
+
+| 项 | 建议 |
+| --- | --- |
+| 入口 | `omem process`；先 `omem sync` 落盘会话，再按需加工 |
+| `base` | OpenAI 兼容的 `…/v1`；**云端必须 https**；本机回环（`127.0.0.1` / `localhost`）免 key |
+| key | 只放 **`OMEM_API_KEY`**（或安装方注入的环境变量）。**不要**写进 `config.toml`：`omem backup` 会把配置推进数据仓 git |
+| `model` | 显式指定；未指定时会探测 `/v1/models` |
+| `limit` | 默认 20；非本机配置值最高 50，只有命令行 `--limit` 能再高 |
+| `timeout_ms` | 未设置时本机默认 300000、非本机 60000。非本机（SenseNova 等）建议显式设为 `120000`–`300000`——小会话也可能卡满 60s，日志里是 `transport_failed` / `timeout`，不是解析失败 |
+| `max_input_chars` | 未设置时本机 6000 / 非本机 12000；超长正文会被截断后再送 |
+| `--dry-run` | 打印端点、队列深度、粗估 token；**零网络、不改 `api_state`** |
+| 出站 | 非本机时终端会警告：会话正文会离开本机；通用密钥形态会 redact，**业务内容不会** |
 
 ```bash
-omem sync --tier api --model minicpm5-2b --limit 5
+# 先看队列与端点（不发请求）
+omem process --dry-run
+
+# 本机 Ollama / llama-server（回环免 key）
+omem process --base http://127.0.0.1:11434/v1 --model minicpm5-2b --limit 5
+
+# 云端 OpenAI 兼容（key 走环境变量；PowerShell 示例）
 $env:OMEM_API_KEY = 'sk-xxx'
-omem sync --tier api --base https://api.deepseek.com/v1 --model deepseek-chat
+omem process --base https://api.deepseek.com/v1 --model deepseek-chat --limit 3
+
+# SenseNova 等：务必拉高 timeout_ms（config.toml 的 [api] 段，或 OMEM_API_TIMEOUT_MS）
+# timeout_ms = 180000
+omem process --base https://api.sensenova.cn/compatible-mode/v1 --model <your-model> --limit 3
 ```
+
+`config.toml` 的 `[api]` 段可写 `base` / `model` / `limit` / `timeout_ms` / `max_input_chars`；**key 仍优先环境变量**。方案与迁移说明见 [`docs/omem-process-command-plan.md`](./docs/omem-process-command-plan.md)。
 
 ## 主题（topic）
 

@@ -43,7 +43,7 @@ Exit codes: `0` success (including handled conflicts), `1` usage error (`UsageEr
 | `src/core/` | Entries, paths, config, storage, index, search, lifecycle, profiles, redaction, snapshots. `version.ts` is the single source of the version string (CLI + MCP serverInfo); `search-format.ts` owns the zero-result copy shared by CLI and MCP |
 | `src/collect/` | Read-only collection (`claude-code`, `workbuddy`, `cursor`, `qwenwork`, `doubao`, `deepseek`, `qoder`, `catpaw`, `codebuddy`). Transcripts land in `sessions/`. New platforms: see "Skills" |
 | `src/collect/registry.ts` | Collector registry: the single source of truth for collector ids, their `config.collect.*` keys, and their `OMEM_*_PROJECTS` isolation env vars |
-| `src/process/` | Ingest then tier: `agent` (default, writes `PROCESS.md`) / `api` (off by default). `rules` is removed |
+| `src/process/` | `omem sync` 采集并写 `PROCESS.md`（零模型）；`omem process` / `runApiProcess` 可选 drain API 队列。`rules` 已移除 |
 | `src/mcp/` | stdio MCP server and tool implementations. `server.ts` passes `instructions` on initialize, injects the real version, and reloads `config.toml` by mtime on each call |
 | `src/install/` | Client registry, config writing, TOML subset |
 | `src/sync/` | `SyncBackend`. V0.2 implements only `GitBackend`; `webdav` / `dir` throw "not yet delivered" |

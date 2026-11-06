@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omem v0.2 端到端冒烟：13 条命令面 + topic 即身份 + 置信度五档。
+# omem v0.2 端到端冒烟：14 条命令面 + topic 即身份 + 置信度五档。
 # 全程使用隔离的 OMEM_HOME 与合成 fixture，不触碰真实 ~/.omem。
 #
 # 2026-11-01 重写：v0.2 的命令面与语义都变了（rebuild→verify、gc→review --gc、
@@ -122,6 +122,14 @@ grep -qF 'hidden by the size budget' "$GUIDE" && bad "budget tripped on the smok
 
 OUT=$(run sync --tier rules); CODE=$?
 [ $CODE -eq 1 ] && ok "tier rules rejected (exit 1)" || bad "tier rules exit $CODE (expected 1): $OUT"
+
+echo "== S6p omem process (API drain help + dry-run, no collectors) =="
+OUT=$(run process --help); CODE=$?
+[ $CODE -eq 0 ] && ok "process --help exit 0" || bad "process --help exit $CODE: $OUT"
+echo "$OUT" | grep -q "omem process" && ok "process help names the command" || bad "process help missing: $OUT"
+OUT=$(run process --dry-run); CODE=$?
+[ $CODE -eq 0 ] && ok "process --dry-run exit 0" || bad "process --dry-run exit $CODE: $OUT"
+echo "$OUT" | grep -qE '\[api\] batch:|dry-run:' && ok "process dry-run prints batch/dry-run info" || bad "process dry-run output unexpected: $OUT"
 
 echo "== S6b isolation self-check (no real session directories were read) =="
 # 采集产物只能来自 claude-code fixture——其余采集器都指向空目录。

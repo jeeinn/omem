@@ -12,6 +12,7 @@
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 现行分层、数据流、生命周期与检索口径 |
 | [`AGENTS.md`](../AGENTS.md) | Agent / 贡献者不变量与模块边界 |
 | [`omem-v0.3-implementation-plan.md`](./omem-v0.3-implementation-plan.md) | **v0.3 工程决策与实施进度**（S0–S5 已完成；S6 推迟 v0.4） |
+| [`omem-process-command-plan.md`](./omem-process-command-plan.md) | **`omem process` 与 sync 拆分**：命令契约、从 `sync --tier api` 迁移、API 配置指引与测试计划 |
 | [`omem-重构方案-路B.md`](./omem-重构方案-路B.md) | **v0.2 决策记录**（topic 即身份、去 SQLite、命令面收敛等）；§14 为 v0.2 实施进度，并指向 v0.3 计划 |
 | [`releases.md`](./releases.md) | 版本发布记录 |
 | [`手动测试指南.md`](./手动测试指南.md) | CLI 手工回归 |

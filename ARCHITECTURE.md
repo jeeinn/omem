@@ -2,7 +2,7 @@
 
 omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；v0.3 决策与进度见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)（S0–S5 已完成，S6 证据分层推迟 v0.4，**未实现**）。
 
-命令对应关系：`omem sync` 采集会话，`omem backup` 备份数据仓（git；WebDAV / 本地目录后端尚未交付）。
+命令对应关系：`omem sync` 采集会话（永不调模型），`omem process` 可选 drain API 队列，`omem backup` 备份数据仓（git；WebDAV / 本地目录后端尚未交付）。
 
 ## 分层
 
@@ -22,7 +22,8 @@ flowchart TB
   end
 
   subgraph cli [CLI]
-    SYNC["omem sync<br/>采集"]
+    SYNC["omem sync<br/>采集（零模型）"]
+    OPROCESS["omem process<br/>可选 API 队列"]
     BACKUP["omem backup<br/>git 备份"]
     INSTALL[omem install / serve]
     WUI["omem review --ui<br/>本地页面"]
@@ -50,7 +51,7 @@ flowchart TB
   subgraph write [写入]
     ADD["omem add"]
     SAVE[save_memory]
-    API["sync --tier api<br/>可选"]
+    API["omem process<br/>可选 API"]
   end
 
   CC --> COL
@@ -66,9 +67,11 @@ flowchart TB
   SYNC --> COL
   COL --> SESS
   SYNC --> PROC
+  OPROCESS --> API
   ADD --> KNOW
   SAVE --> KNOW
   API --> KNOW
+  API --> PROC
   SESS -.-> SIDX
   KNOW -.-> IDX
   INSTALL --> MCP
@@ -88,7 +91,7 @@ flowchart TB
 | 入口 | `src/cli.ts`、`src/mcp/` | 命令分发；stdio MCP，默认只有 `search_memory` / `save_memory` |
 | 采集 | `src/collect/` | 只读扫描 9 个平台的会话目录，转成统一会话 |
 | 采集注册表 | `src/collect/registry.ts` | 采集器 id、config 字段、隔离 env 的唯一真相源 |
-| 加工 | `src/process/` | 默认只落原文并写 `PROCESS.md`；`--tier api` 才调用模型 |
+| 加工 | `src/process/` | `omem sync` 只落原文并写 `PROCESS.md`；`omem process`（`runApiProcess`）才调用模型 |
 | 存储与索引 | `src/core/` | Markdown 读写、脱敏、置信度、内存派生索引 |
 | 审阅界面 | `src/web/` | `omem review --ui` 的本地页面与 HTTP 服务：只绑 127.0.0.1、一次性 token |
 | 备份 | `src/sync/` | `SyncBackend`；本版只实现 GitBackend |
@@ -145,7 +148,7 @@ flowchart LR
   E --> F["PROCESS.md 列出未吸收会话"]
   F --> G[宿主 Agent 读 PROCESS.md]
   G --> H["save_memory 或 omem add"]
-  I["可选 sync --tier api"] --> H
+  I["可选 omem process"] --> H
   H --> J["knowledge/domain/topic.md"]
   J --> K[内存活文档行]
   J --> F

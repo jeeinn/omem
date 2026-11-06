@@ -1,17 +1,19 @@
-// omem sync：加工会话（规格 §7）。采集器：claude-code、workbuddy、cursor、qwenwork，都只读。
-// 终端只打进度、总结和下一步。待办明细留在 PROCESS.md，不列到屏幕上。
-// --since 7d|YYYY-MM-DD · --session <id> · --collectors id,id · --tier agent|api · --dry-run · --base/--model/--limit（API 档）
+// omem sync：采集会话到 sessions/ 并刷新 PROCESS.md（规格 §7）。不调用模型。
+// 采集器：claude-code、workbuddy、cursor、qwenwork 等，都只读。
+// --since 7d|YYYY-MM-DD · --session <id> · --collectors id,id · --dry-run
+// 兼容：--tier api 打印 deprecation 后只跑 process（不采集）；下一版可改为拒绝。
 import { existsSync } from 'node:fs';
 import { openCtx } from '../core/ctx.js';
-import { runPipeline, runPipelineAsync, resolveTier, type RunReport } from '../process/pipeline.js';
+import { runPipeline, resolveTier, type RunReport } from '../process/pipeline.js';
 import { UsageError } from '../core/util.js';
 import { findRemovedConfigKeys, type OmemConfig } from '../core/config.js';
 import { files } from '../core/paths.js';
 import { createRunProgress } from '../cli-progress.js';
-import { flagBool, flagStr, flagNum, flagList } from '../cli-args.js';
+import { flagBool, flagStr, flagList } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { Tier } from '../core/config.js';
 import { COLLECTOR_IDS, getCollector, type CollectorId } from '../collect/collector.js';
+import { cmdProcess, processSummaryLines } from './process.js';
 
 /** 跑完后的总结和下一步。不包含会话路径或逐条结果。 */
 export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
@@ -20,25 +22,8 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
     if (n.includes('not found')) lines.push(`  ${n}`);
   }
   if (report.tier === 'api') {
-    const elapsed = report.elapsedMs !== undefined ? ` · elapsed ${formatElapsed(report.elapsedMs)}` : '';
-    lines.push(
-      `  sessions ${report.sessions} (${report.skipped} unchanged) · written ${report.written.length} · `
-        + `deduped ${report.deduped} · failed ${report.failed ?? 0} · parse_failed ${report.parseFailed ?? 0} · `
-        + `quarantined ${report.quarantined ?? 0} · pending ${report.queuePending ?? 0}${elapsed}`,
-    );
-    lines.push('');
-    lines.push('Next');
-    if (dryRun) lines.push('  Drop --dry-run to call the endpoint.');
-    else if ((report.queuePending ?? 0) > 0 || (report.failed ?? 0) > 0 || (report.parseFailed ?? 0) > 0) {
-      lines.push('  omem sync --tier api            continue what is still pending');
-      // 诊断入口是 dry-run（端点 / 队列深度 / 量级），不是原来的 `omem api status`——
-      // 那条命令在 C 阶段已删，提示里再写它等于给了一条跑不了的指令。
-      lines.push('  omem sync --tier api --dry-run  see the endpoint, the queue and the rough size (no requests)');
-    } else lines.push('  omem search "<query>"');
-    if ((report.duplicateTopics ?? 0) > 0) {
-      lines.push('  Possible duplicate topics were logged. Review them with omem review before they fragment.');
-    }
-    return lines;
+    // 兼容路径：sync --tier api 已薄包装到 process，文案与 omem process 一致。
+    return processSummaryLines(report, dryRun);
   }
   const topics = report.waitingTopics ?? 0;
   const unassigned = report.waitingUnassigned ?? 0;
@@ -52,6 +37,7 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
   if (dryRun) lines.push('  Drop --dry-run to write sessions and PROCESS.md.');
   else if (topics + unassigned > 0) {
     lines.push('  Read PROCESS.md, then save conclusions with save_memory or omem add.');
+    lines.push('  Or run omem process to drain the optional API queue.');
     lines.push('  omem search "<query>"');
   } else {
     lines.push('  Nothing is waiting. Run omem sync again after the next session.');
@@ -83,12 +69,6 @@ function presentCollectors(config: OmemConfig, ids: readonly string[]): string[]
   return ids.filter((id) => existsSync(getCollector(id, config).root()));
 }
 
-function formatElapsed(ms: number): string {
-  const s = Math.round(ms / 1000);
-  const m = Math.floor(s / 60);
-  return m > 0 ? `${m}m${s % 60}s` : `${s}s`;
-}
-
 export async function cmdRun(args: ParsedArgs): Promise<number> {
   // 子命令一律拒绝：git 操作改名后归 omem backup（sync.ts 有同等保护）。
   // 曾经 `omem sync remote <url>` 会静默吞掉参数去跑采集并返回 0，用户以为远端配好了。
@@ -103,33 +83,48 @@ export async function cmdRun(args: ParsedArgs): Promise<number> {
     throw new UsageError('Rule extraction (--tier rules) has been removed. omem sync only ingests transcripts. Write conclusions with save_memory or omem add.');
   }
   if (tierArg && !['agent', 'api'].includes(tierArg)) {
-    throw new UsageError(`Unknown --tier: ${tierArg} (supported: agent / api)`);
+    throw new UsageError(`Unknown --tier: ${tierArg} (supported: agent / api). Prefer omem process for the API queue.`);
   }
+
+  // 兼容一期：--tier api → 只跑 process，不采集（避免「只想 drain」时再扫一遍采集器）。
+  if (tierArg === 'api') {
+    console.warn(
+      'Deprecated: omem sync --tier api. Use omem process instead (API drain only; sync no longer calls a model).',
+    );
+    if (flagStr(args.flags, 'collectors') !== undefined || flagBool(args.flags, 'collectors')) {
+      console.warn('Note: --collectors is ignored on the deprecated sync --tier api path (no scan).');
+    }
+    // 剥掉 process 不认识的旗标，再交给同一条命令实现。
+    const { tier: _tier, collectors: _collectors, ...rest } = args.flags;
+    return cmdProcess({ _: args._, flags: rest });
+  }
+
   const collectors = parseCollectors(args.flags);
   const { home, config, index } = openCtx();
   try {
     const present = presentCollectors(config, collectors ?? COLLECTOR_IDS);
     if (present.length > 0) console.log(`Collectors: ${present.join(', ')}`);
 
-    // 分发看 resolveTier 之后的档位（文档 §4）：default_tier=api 且不带 flag 也必须走 API 路径
-    const { tier } = resolveTier(config, tierArg as Tier | undefined);
+    // sync 永不调模型。default_tier=api 曾经让裸 sync 走 API——现改为只采集并提示。
+    const { tier: resolved } = resolveTier(config, tierArg as Tier | undefined);
+    if (resolved === 'api' && !tierArg) {
+      console.warn(
+        'Note: process.default_tier=api no longer makes omem sync call a model. Run omem process to drain the API queue.',
+      );
+    }
+
     const opts = {
       since: flagStr(args.flags, 'since'),
       sessionId: flagStr(args.flags, 'session'),
       collectors,
-      tier,
+      tier: 'agent' as Tier,
       dryRun: flagBool(args.flags, 'dry-run'),
-      apiBase: flagStr(args.flags, 'base'),
-      apiModel: flagStr(args.flags, 'model'),
-      apiLimit: flagNum(args.flags, 'limit'),
     };
 
     const progress = createRunProgress();
     let report;
     try {
-      report = tier === 'api'
-        ? await runPipelineAsync(home, config, index, { ...opts, onProgress: progress.update })
-        : runPipeline(home, config, index, { ...opts, onProgress: progress.update });
+      report = runPipeline(home, config, index, { ...opts, onProgress: progress.update });
     } catch (e) {
       progress.clear();
       throw e;
