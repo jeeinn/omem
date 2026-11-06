@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
 import { defaultConfig, saveConfig } from '../../src/core/config.js';
 import type { OmemConfig } from '../../src/core/config.js';
-import { runPipelineAsync } from '../../src/process/pipeline.js';
+import { runApiProcess, runPipelineAsync } from '../../src/process/pipeline.js';
 import { materializeQueue, API_PROMPT_VERSION } from '../../src/process/queue.js';
 import { readStoredSession } from '../../src/collect/session-store.js';
 import { BackendUnavailableError } from '../../src/core/util.js';
@@ -290,8 +290,8 @@ describe('pipeline: api tier (doc §3.5/§3.8/§3.9)', () => {
   });
 });
 
-describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
-  it('default_tier=api without --tier flag still runs the API path', async () => {
+describe('cli: omem process + deprecated sync --tier api', () => {
+  it('bare omem sync never calls the model even when default_tier=api', async () => {
     seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
     index.catchUp();
     const stub = await startStub((i) => oneDoc(`topic-${i}`));
@@ -299,7 +299,11 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     config.process.default_tier = 'api';
     saveConfig(home, config);
     vi.stubEnv('OMEM_HOME', home);
+    const warns: string[] = [];
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+      warns.push(a.map(String).join(' '));
+    });
     try {
       const code = await main(['sync']);
       expect(code).toBe(0);
@@ -307,12 +311,12 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
       vi.unstubAllEnvs();
       vi.restoreAllMocks();
     }
-    // 走了 API 路径：会话被加工并写 ok 状态（旧 bug：静默走 agent 路径、0 请求）
-    expect(stub.requests.length).toBeGreaterThanOrEqual(1);
-    expect(readStoredSession(join(home, 'sessions', 'claude-code', 's1.md'))?.apiState).toMatch(/^ok:/);
+    expect(stub.requests).toHaveLength(0);
+    expect(readStoredSession(join(home, 'sessions', 'claude-code', 's1.md'))?.apiState).toBeUndefined();
+    expect(warns.some((w) => /default_tier=api/.test(w) && /omem process/.test(w))).toBe(true);
   });
 
-  it('--limit is threaded through to the queue', async () => {
+  it('omem process --limit is threaded through to the queue (no collectors)', async () => {
     seedSession('s1', '## user\none', '2026-10-19T10:05:00.000Z');
     seedSession('s2', '## user\ntwo', '2026-10-20T10:05:00.000Z');
     index.catchUp();
@@ -322,7 +326,8 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     vi.stubEnv('OMEM_HOME', home);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      await main(['sync', '--tier', 'api', '--limit', '1']);
+      const code = await main(['process', '--limit', '1']);
+      expect(code).toBe(0);
     } finally {
       vi.unstubAllEnvs();
       vi.restoreAllMocks();
@@ -330,7 +335,41 @@ describe('cli: API tier flags and omem api status (doc §3.7/§4)', () => {
     expect(stub.requests).toHaveLength(1);
   });
 
-  it('omem api 已收敛掉：诊断信息并入 sync --dry-run', async () => {
+  it('deprecated sync --tier api drains process-only and warns', async () => {
+    seedSession('s1', '## user\none', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
+    const config = cfgFor(stub.base);
+    saveConfig(home, config);
+    vi.stubEnv('OMEM_HOME', home);
+    const warns: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => {
+      warns.push(a.map(String).join(' '));
+    });
+    try {
+      const code = await main(['sync', '--tier', 'api', '--limit', '1']);
+      expect(code).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.restoreAllMocks();
+    }
+    expect(stub.requests).toHaveLength(1);
+    expect(warns.some((w) => /Deprecated: omem sync --tier api/.test(w))).toBe(true);
+  });
+
+  it('runApiProcess dry-run works without scanning collectors', async () => {
+    seedSession('s1', '## user\nhello', '2026-10-20T10:05:00.000Z');
+    index.catchUp();
+    const stub = await startStub((i) => oneDoc(`topic-${i}`));
+    const config = cfgFor(stub.base);
+    const report = await runApiProcess(home, config, index, { dryRun: true });
+    expect(stub.requests).toHaveLength(0);
+    expect(report.sessions).toBe(1);
+    expect(report.notes.join(' ')).toMatch(/dry-run/);
+  });
+
+  it('omem api 已收敛掉：诊断信息并入 process --dry-run', async () => {
     vi.stubEnv('OMEM_HOME', home);
     let code = -1;
     vi.spyOn(console, 'log').mockImplementation(() => {});

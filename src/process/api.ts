@@ -392,6 +392,6 @@ export function apiSetupHint(): string {
 export function endpointUnavailableError(failures: number): BackendUnavailableError {
   return new BackendUnavailableError(
     `endpoint appears unavailable (${failures} consecutive transport failures); partial results kept`,
-    'run `omem sync --tier api --dry-run` to check the configured endpoint and what is still queued (no requests are made)',
+    'run `omem process --dry-run` to check the configured endpoint and what is still queued (no requests are made)',
   );
 }

@@ -1,6 +1,7 @@
-// omem sync 结束时的总结和下一步，不包含会话清单。
+// omem sync / process 结束时的总结和下一步，不包含会话清单。
 import { describe, it, expect } from 'vitest';
 import { runSummaryLines } from '../../src/commands/run.js';
+import { processSummaryLines } from '../../src/commands/process.js';
 import type { RunReport } from '../../src/process/pipeline.js';
 
 function report(over: Partial<RunReport> = {}): RunReport {
@@ -31,6 +32,7 @@ describe('omem sync summary', () => {
     expect(text).toContain('1 unassigned');
     expect(text).toContain('Next');
     expect(text).toContain('PROCESS.md');
+    expect(text).toContain('omem process');
     expect(text).not.toContain('session_id');
   });
 
@@ -39,17 +41,26 @@ describe('omem sync summary', () => {
     expect(text).toContain('Nothing is waiting');
     expect(text).toContain('omem search');
   });
+});
 
-  it('api run with pending suggests continuing the queue', () => {
-    const text = runSummaryLines(report({ tier: 'api', queuePending: 2, failed: 1, written: ['a'] }), false).join('\n');
+describe('omem process summary', () => {
+  it('pending queue suggests continuing with omem process', () => {
+    const text = processSummaryLines(
+      report({ tier: 'api', queuePending: 2, failed: 1, written: ['a'] }),
+      false,
+    ).join('\n');
     expect(text).toContain('pending 2');
-    expect(text).toContain('omem sync --tier api');
+    expect(text).toContain('omem process');
+    expect(text).not.toContain('omem sync --tier api');
     expect(text).not.toContain('## user');
     expect(text).not.toContain('duplicate topic'); // no hint without a duplicate
   });
 
-  it('api run with a possible duplicate topic points at review', () => {
-    const text = runSummaryLines(report({ tier: 'api', written: ['a'], duplicateTopics: 2 }), false).join('\n');
+  it('possible duplicate topic points at review', () => {
+    const text = processSummaryLines(
+      report({ tier: 'api', written: ['a'], duplicateTopics: 2 }),
+      false,
+    ).join('\n');
     expect(text).toContain('Possible duplicate topics were logged');
     expect(text).toContain('omem review');
   });

@@ -107,8 +107,9 @@
 
 | ID | 命令 | 预期 |
 | --- | --- | --- |
-| J1 | `omem api status` | 打印生效配置、队列深度；不因未配置端点崩溃；退出码 0 |
-| J2 | `omem sync --tier api --dry-run` | 零网络调用；打印批次规模与 token 估算 |
+| J1 | `omem process --help` | 独立命令存在；说明不扫采集器 |
+| J2 | `omem process --dry-run` | 零网络调用；打印批次规模与 token 估算 |
+| J3 | `omem sync --tier api --dry-run`（兼容） | 弃用警告；行为同 process（不采集） |
 
 ## K. 退出码契约与红队输入
 
