@@ -1,8 +1,8 @@
-> **状态：历史架构评审，非现行实施方案（2026-11-05）。**
+> **状态：已归档 · 历史架构评审，非现行实施方案（2026-11-05）。**
 >
 > 本文对架构方向的判断仍然成立，但其 P0 的字段级建议（证据语义筛选、`reviewed_revision`、正文 SHA-256 当 revision、create/replace/append 三种写入意图）已由代码层逐行审计否决或重设计；P1/P2 中亦有近半属于已实现能力。
 >
-> **v0.3 的工程决策与实施计划一律以 [`docs/omem-v0.3-implementation-plan.md`](./omem-v0.3-implementation-plan.md) 为准**，本文仅作为方向性背景保留。
+> **v0.3 的工程决策与实施计划一律以 [`docs/omem-v0.3-implementation-plan.md`](../omem-v0.3-implementation-plan.md) 为准**。文档索引见 [`docs/README.md`](../README.md)。本文仅作方向性背景，不要按本文字段建议开工。
 
 omem v0.3 产品设计评审
 这次我会采用一次正式的架构评审方式，而不是简单地给你列功能建议。
