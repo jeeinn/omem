@@ -15,13 +15,13 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 ## 状态
 
-V0.2 公开测试版 `0.2.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。beta 期间不保证兼容。
+V0.3 正式版 `0.3.0`（`npm install -g @jeeinn/omem`）。
 
-**v0.3 工程决策已落地（S0–S5）**：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、回归金标与并发护栏。**S6（证据分层 / 评分模型重构）推迟到 v0.4**，当前行为未改。详情见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)。
+从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
-**v0.2 与 v0.1 不兼容**：这一版重写了身份模型，老库直接 `omem init --force` 重来，不要试图迁移——`--force` 会先自动打一份快照再重建 git 仓。
+**v0.3 在该 tag 之上落地的行为**（S0–S5）：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。**S6（证据分层 / 评分模型重构）推迟到 v0.4**，评分阶梯保持原样。详情见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)。
 
-这一版的主要变化：
+这一版的产品形状（自 v0.2 起）：
 
 - **topic 就是身份**：路径是 `knowledge/<domain>/<topic>.md`，frontmatter 不再写 topic，也不再有 id、年份分桶、`superseded` 状态机
 - **没有索引数据库**：SQLite 删掉了，索引是每次启动从 Markdown 重建的内存视图；会话只索引 `## user` 证据域，检索是线性扫描 + 确定性排序
@@ -42,7 +42,7 @@ V0.2 公开测试版 `0.2.0-beta.1`（`npm install -g @jeeinn/omem@beta`）。be
 ## 安装
 
 ```bash
-npm install -g @jeeinn/omem@beta
+npm install -g @jeeinn/omem
 omem init
 ```
 

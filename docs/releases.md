@@ -5,9 +5,32 @@
 
 | tag | commit | tarball md5 | 备注 |
 | --- | --- | --- | --- |
+| `v0.3.0` | 见 tag | — | 正式版。S0–S5；S6 推迟 v0.4。npm `latest` 从 `0.1.0-beta.8` 跳到本版 |
 | `v0.1.0-beta.8` | `1da9d52` | — | 清单渲染回归（16.3×）、cap 截断、grounding 元数据可伪证 |
 | `v0.1.0-beta.9` | `a260812` | `4b824b0a1e1ef392106fa99b10f11bcb`（两次干净构建 dist 内容 hash 一致） | 见下 |
 | `v0.2.0-beta.1` | 见 tag | — | 重构路B：topic 即身份、去 SQLite、命令面 13 条（**不兼容**） |
+
+## v0.3.0（正式版）
+
+npm `latest` 此前停在 `0.1.0-beta.8`。`v0.2.0-beta.1` 只存在于 git tag，没有发到 registry。本版把 v0.2 身份模型与 v0.3 的 S0–S5 一次发到 `latest`。
+
+**从 v0.1 升级**：`omem init --force` 重建（先自动快照）。没有迁移脚本。
+
+**相对 git tag `v0.2.0-beta.1` 的用户可见变更**
+
+1. **归档 / stale 不会被静默复活。** 写入 `archived` 或 `stale` 的 topic 返回 `needs-reactivation`，不落盘、不提交。恢复必须显式：CLI `--reactivate`，MCP `reactivate: true`。`omem review --confirm` 只提置信度，不改 status。
+2. **`[collect].exclude_paths` 会挡住采集。**
+3. **`omem redact --topic` 默认只预览。** 加上 `--yes` 才硬删，并说明 git 历史与远端备份仍在。
+4. **覆盖已有文档时，回执带 previous / incoming 预览。**
+5. **检索命中带回结构化证据与时间。**
+6. **`expected_revision` 做 best-effort 比对。** `search_memory` 的 `revision` 是全文 sha256 前 32 位（与 `index.hash` 同口径）。写回 `save_memory` / `omem add --expected-revision`；不一致返回 `stale-revision`，不写盘、不提交。读-比-写之间仍有窗口，本版不做文件锁。
+7. **去重命中只升不降。** 正文已存在时，四条件同时成立才重算 `confidence`：同 topic、至少一条 evidence、`confirmations === 0`、分数严格更高。只改 frontmatter。补采之后把同一正文连同能锚上的引文再发一次，可以把 0.35 补上来。
+8. **回执不再指向已删除的命令。**
+9. **S6 不在本版。** 证据分层与评分模型重构推迟到 v0.4。五档阶梯与去重四边界保持 v0.2 口径。人工确认表示这个主题曾被看过，不表示当前正文已被逐项验证。
+
+`beta` dist-tag 一并指到 `0.3.0`，避免 `npm install -g @jeeinn/omem@beta` 继续装到 `0.1.0-beta.8`。
+
+**验证口径**：`npm test` 77 files / 768 tests 绿；`tests/smoke.sh`（Git Bash）83 passed / 0 failed。发布时 `prepublishOnly` 再跑 `build` + `test` + `release-check`（要求 HEAD 精确 tag 为 `v0.3.0`）。
 
 ## v0.2.0-beta.1（重构路B：身份收口 + 去数据库 + 命令面收敛）
 
