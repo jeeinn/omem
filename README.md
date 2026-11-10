@@ -145,7 +145,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 默认不调用模型。`omem sync` 只把原文放进 `sessions/`，并在 `PROCESS.md` 里列出还没写进活文档的会话。Agent 读这份文件，用 `save_memory` 或 `omem add --topic` 写回。写同一个 topic 就是覆盖同一份文件，不需要额外的 id。
 
-**覆盖可用版本基线做 best-effort 保护**：`search_memory` 的命中带 `revision`（整份 Markdown 全文 sha256 前 32 位，与 `index.hash` 同口径），把它作为 `save_memory(expected_revision=...)` 传回，写入前会重新读盘比对；不一致返回 `stale-revision`，不写盘、不提交、不进 warnings。CLI 侧用 `omem search --detail` 读 revision、`omem add --expected-revision` 传回。**读-比-写之间仍有 TOCTOU 窗口**：这不是跨进程锁，不保证并发写入绝不丢失更新；v0.3 不做文件锁（决策 D3）。
+**覆盖可用版本基线做 best-effort 保护**：`search_memory` 的命中带 `revision`（整份 Markdown 全文 sha256 前 32 位，与 `index.hash` 同口径），把它作为 `save_memory(expected_revision=...)` 传回，写入前会重新读盘比对；不一致返回 `stale-revision`，不写盘、不提交、不进 warnings。CLI 侧用 `omem search --detail` 读 revision、`omem add --expected-revision` 传回。校验发生在内容去重与补分**之前**：正文完全相同的重发、以及写入归档/冷却主题，都先过版本与状态校验，不会被「内容已存在」的回执盖过去。**读-比-写之间仍有 TOCTOU 窗口**：这不是跨进程锁，不保证并发写入绝不丢失更新；v0.3 不做文件锁（决策 D3）。
 
 置信度按证据打：对得上 user 原文从 0.55 起，独立来源印证到 0.8，对不上封顶 0.35。`omem review --confirm` 把人工过目的文档提到 0.9——这套分数不写 `verified` 字段（v0.2.0 起取消），MCP 侧也没有盖章通道：过目只由人自己在 `omem review` 里做。
 
@@ -209,7 +209,7 @@ omem add "连接池上限 20，超过排队（补充：不要盲调大）" --top
 
 继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。
 
-正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，证据链一并合并，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。
+正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，证据链一并合并，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。补分会一并重算 `PROCESS.md`：这次引用的会话并入文档后，立刻退出待吸收清单。
 
 主题名规范：建议英文小写连字符（`knee-rehab`、`pool-tuning`），专有名词保留原文。中文等 CJK 主题名合法，但同一件事换个说法就会变成第二个主题——名字是唯一身份，没有第二种归并机制。
 

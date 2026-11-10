@@ -7,6 +7,7 @@ import { OmemIndex } from '../../src/core/index.js';
 import { commitEntry, fileRevision, readCurrentRevision } from '../../src/core/commit.js';
 import { defaultConfig } from '../../src/core/config.js';
 import { findByTopic } from '../../src/core/store.js';
+import { reconfirm } from '../../src/core/lifecycle.js';
 import { buildTools, handleTool } from '../../src/mcp/tools.js';
 import type { ToolCtx } from '../../src/mcp/tools.js';
 import { makeHome, cleanupHome } from './helpers.js';
@@ -121,6 +122,35 @@ describe('commitEntry: expected_revision', () => {
   });
 });
 
+// P0 回归：正文相同的重发曾经在 content-hash 去重分支提前返回，绕过 :617 的版本校验，
+// 补分分支甚至会带着过期基线改写 frontmatter。护栏必须位于去重之前。
+describe('commitEntry: identical bodies still obey the revision guard', () => {
+  it('a stale revision is refused before content dedup: no write, no rescore', () => {
+    expect(write('用户主要使用 PHP').status).toBe('written');
+    const path = findByTopic(home, TOPIC)!.path;
+    const staleRev = revision();
+    // 只改 frontmatter（另一客户端过目过）：全文 revision 变了，body_hash 没变。
+    reconfirm(home, index, TOPIC);
+    const afterConfirm = readFileSync(path, 'utf8');
+    expect(revision()).not.toBe(staleRev);
+
+    const r = write('用户主要使用 PHP', { expected_revision: staleRev });
+
+    expect(r.status).toBe('stale-revision');
+    expect(r.staleRevision).toMatchObject({ topic: TOPIC, expected: staleRev, current: revision() });
+    expect(r.rescored).toBeUndefined();
+    expect((r.warnings ?? [])).toEqual([]);
+    expect(readFileSync(path, 'utf8')).toBe(afterConfirm);
+  });
+
+  it('a matching revision on an identical body stays deduped (idempotency intact)', () => {
+    write('用户主要使用 PHP');
+    const r = write('用户主要使用 PHP', { expected_revision: revision() });
+    expect(r.status).toBe('deduped');
+    expect(r.rescored).toBeUndefined();
+  });
+});
+
 describe('MCP: expected_revision receipt', () => {
   it('refuses with caller-aware copy, no warnings and no vcs commit', async () => {
     write('用户主要使用 PHP');
@@ -155,5 +185,28 @@ describe('MCP: expected_revision receipt', () => {
     }, ctx);
     expect((r.structuredContent as any).status).toBe('written');
     expect((r.structuredContent as any).stale_revision).toBeUndefined();
+  });
+
+  it('an identical body with a stale revision is refused with caller-aware copy', async () => {
+    write('用户主要使用 PHP');
+    const path = findByTopic(home, TOPIC)!.path;
+    const staleRev = revision();
+    reconfirm(home, index, TOPIC);
+    const original = readFileSync(path, 'utf8');
+
+    const r = await handleTool('save_memory', {
+      topic: TOPIC,
+      content: '用户主要使用 PHP',
+      expected_revision: staleRev,
+    }, ctx);
+    const sc = r.structuredContent as Record<string, any>;
+    expect(sc.status).toBe('stale-revision');
+    expect(sc.stale_revision).toMatchObject({ expected: staleRev });
+    expect(sc.vcs).toBeUndefined();
+    expect(sc.warnings).toEqual([]);
+    const text = textOf(r);
+    expect(text).toContain('expected_revision');
+    expect(text).not.toContain('--expected-revision');
+    expect(readFileSync(path, 'utf8')).toBe(original);
   });
 });

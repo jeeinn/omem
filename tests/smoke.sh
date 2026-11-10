@@ -243,6 +243,19 @@ echo "$OUT" | grep -q "Not written" && ok "stale revision refused by CLI" || bad
 F17=$(find "$OMEM_HOME/knowledge" -name 'concurrent-target.md')
 grep -q "S17 另一个客户端先写" "$F17" && ok "newer body preserved" || bad "newer body lost"
 
+echo "== S18 相同正文 + 过期 revision（去重分支不得短路 D3）=="
+run add "S18 相同正文 dedup-revision-marker" --topic dedup-revision >/dev/null
+REV18=$(run search "S18 相同正文" --detail | grep 'revision:' | head -n 1 | awk '{print $2}')
+[ -n "$REV18" ] && ok "revision exposed before metadata change" || bad "no revision line: $REV18"
+# 人工过目只改 frontmatter：全文 revision 变了，body_hash 没变，重发会命中 content dedup。
+run review --confirm dedup-revision >/dev/null
+F18=$(find "$OMEM_HOME/knowledge" -name 'dedup-revision.md')
+OUT=$(run add "S18 相同正文 dedup-revision-marker" --topic dedup-revision --expected-revision "$REV18")
+echo "$OUT" | grep -q "Not written" && ok "stale revision refused before content dedup" || bad "dedup short-circuited the guard: $OUT"
+grep -q "^confirmations: 1$" "$F18" && ok "the newer frontmatter is preserved" || bad "frontmatter was rewritten: $(grep '^confirmations' "$F18")"
+OUT=$(run add "S18 相同正文 dedup-revision-marker" --topic dedup-revision)
+echo "$OUT" | grep -q "not written again" && ok "identical body without revision still deduped" || bad "idempotency broken: $OUT"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "Result: $PASS passed / $FAIL failed"

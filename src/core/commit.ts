@@ -431,6 +431,7 @@ const LADDER_TAGS = new Set(['ungrounded', 'pending-session']);
  */
 function rescoreOnDedup(
   home: string,
+  config: OmemConfig,
   index: OmemIndex,
   dup: EntryRow,
   topic: string,
@@ -473,7 +474,10 @@ function rescoreOnDedup(
   if (loc.path !== written.path) rmSync(loc.path, { force: true });
   index.upsert(loc.entry, written.path, written.content);
   if (opts.refreshIndex !== false) generateMemoryIndex(home, index);
-  // PROCESS.md 不依赖 confidence 与 tags，重算它只是多花一次渲染——跳过。
+  // 补分同样会改写 session_id / source_sessions，而 PROCESS.md 的待办判据正是这两个
+  // 字段（guide.ts: absorbedSessionIds）。不重算的话，刚被吸收的会话会留在待办里，
+  // Agent 下次读清单会重复处理——与 written 路径共用同一个吞异常的刷新函数。
+  if (opts.refreshGuide !== false) refreshGuide(home, index, config);
   logOutcome(home, 'deduped', {
     topic: dup.topic,
     source: input.source,
@@ -562,34 +566,14 @@ export function commitEntry(
     }
   }
 
-  const dup = index.getByBodyHash(contentHash(text));
-  if (dup) {
-    // 正文已经存在 ≠ 分数已经正确：会话常常在写入之后才被 `omem sync` 收进来。
-    // 满足条件时补分（只改 frontmatter），否则退回平常的去重回执。
-    const rescored = rescoreOnDedup(home, index, dup, topic, input, opts, redacted);
-    if (rescored) return rescored;
-    return finish(home, {
-      status: 'deduped',
-      topic: dup.topic,
-      redacted,
-      reason: 'Content already exists',
-      // 去重命中时把既有元数据带回去：调用方要判断请求的 topic/type 是否与既有一致。
-      existing: {
-        topic: dup.topic,
-        type: dup.type,
-        tags: (dup.tags ?? '').split(/\s+/).filter(Boolean),
-        confidence: dup.confidence,
-      },
-    }, input, opts);
-  }
-
   // D1-B′：写入即覆盖同一份文件。既有文档存在时继承它的「痕迹」（会话、证据、创建时间），
   // 但置信度与过目时间由本次写入决定——信任不会因为「主题没变」而自动继承。
   const existingLoc = findByTopic(home, topic, { includeArchived: true });
   const existingFm = existingLoc?.entry.fm;
 
   // D4：归档 / 冷却是用户的处置行为，不能因为 Agent 回写同一 topic 就静默撤销。
-  // 位置在去重之后、快照与落盘之前：拒绝时既有文档必须零改动，且不产生 git 提交。
+  // 位置在 content-hash 去重之前：正文相同地命中一份归档文档时，去重不能替用户做出
+  // 「恢复」的裁决，否则回执会把「没写入」说成 deduped。拒绝时零改动、零提交。
   const priorStatus = existingFm?.status;
   if (existingFm && priorStatus && priorStatus !== 'active' && !input.reactivate) {
     return finish(home, {
@@ -608,10 +592,10 @@ export function commitEntry(
   const reactivated = existingFm && priorStatus && priorStatus !== 'active'
     ? { from: priorStatus as ReactivationInfo['from'], to: 'active' as const }
     : undefined;
-  // S2：差异只在 commit.ts 算一次，dry-run 与真实写入共用同一份数据。
-  const diff = existingFm ? buildWriteDiff(topic, existingLoc!.entry.body, text) : undefined;
 
-  // D3：写前二次读盘比对。位置在全部落盘动作之前；dry_run 也检查，让预演能暴露版本漂移。
+  // D3：写前二次读盘比对。位置在**全部**提前返回与落盘动作之前（含去重 / 补分）：
+  // 相同正文的重发同样要过版本校验，否则 dedup 会短路护栏、补分甚至会带着过期基线
+  // 改写 frontmatter。dry_run 也检查，让预演能暴露版本漂移。
   // 保证边界：这只是把读-写窗口压到最小，**不是**跨进程锁，不承诺绝无 lost update。
   // 未给 expected_revision 时完全不检查（opt-in，保持既有写入路径不变）。
   if (input.expected_revision) {
@@ -626,6 +610,33 @@ export function commitEntry(
       }, input, opts);
     }
   }
+
+  const dup = index.getByBodyHash(contentHash(text));
+  // 同一 topic 的 archived / stale 文档不参与去重：它要么已被上面的 D4 拒绝，要么已被
+  // 显式授权恢复。后者必须走 written 路径把 status 改回 active，而不是回一句 already exists。
+  const dupIsOwnInactive = dup !== null && dup.status !== 'active' && dup.topic === topic;
+  if (dup && !dupIsOwnInactive) {
+    // 正文已经存在 ≠ 分数已经正确：会话常常在写入之后才被 `omem sync` 收进来。
+    // 满足条件时补分（只改 frontmatter），否则退回平常的去重回执。
+    const rescored = rescoreOnDedup(home, config, index, dup, topic, input, opts, redacted);
+    if (rescored) return rescored;
+    return finish(home, {
+      status: 'deduped',
+      topic: dup.topic,
+      redacted,
+      reason: 'Content already exists',
+      // 去重命中时把既有元数据带回去：调用方要判断请求的 topic/type 是否与既有一致。
+      existing: {
+        topic: dup.topic,
+        type: dup.type,
+        tags: (dup.tags ?? '').split(/\s+/).filter(Boolean),
+        confidence: dup.confidence,
+      },
+    }, input, opts);
+  }
+
+  // S2：差异只在 commit.ts 算一次，dry-run 与真实写入共用同一份数据。
+  const diff = existingFm ? buildWriteDiff(topic, existingLoc!.entry.body, text) : undefined;
 
   // D5：主题级审阅策略（review.toml）已删除——「这个主题我信得过」不再折算成自动提分。
   // 置信度只由本次证据决定（M1），人工动作只剩过目/归档/冷却。

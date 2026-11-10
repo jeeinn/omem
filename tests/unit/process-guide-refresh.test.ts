@@ -144,4 +144,31 @@ describe('PROCESS.md refresh after a write', () => {
     expect(text).toContain(second.topic!);
     expect(text).not.toContain('Current document: none');
   });
+
+  // P0 回归：补分只改 frontmatter，却会写入 session_id / source_sessions；
+  // 待办判据正是这两个字段，跳过重算会让 Agent 重复处理已吸收的会话。
+  it('a rescore refreshes the guide because it absorbs a new session', () => {
+    put('sess-rescore', 'proj-r');
+    const base = {
+      topic: 'rescore-topic',
+      content: '补分也要重算待办清单',
+      type: 'fact' as const,
+      source: 'agent' as const,
+      overCap: 'reject' as const,
+    };
+    const first = commitEntry(home, defaultConfig(), index, { ...base, confidence: 0.35 });
+    expect(first.status).toBe('written');
+    expect(guideText()).toContain('sess-rescore');
+
+    const again = commitEntry(home, defaultConfig(), index, {
+      ...base,
+      confidence: 0.55,
+      session_id: 'sess-rescore',
+      evidence: ['这是本次重发附带的引文，用来补齐证据链'],
+    });
+
+    expect(again.status).toBe('deduped');
+    expect(again.rescored).toMatchObject({ from: 0.35, to: 0.55, applied: true });
+    expect(guideText()).not.toContain('sess-rescore');
+  });
 });

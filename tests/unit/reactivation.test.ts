@@ -13,6 +13,7 @@ import { makeHome, cleanupHome } from './helpers.js';
 
 const TOPIC = 'legacy-stack';
 const NEW_BODY = '现在主要使用 TypeScript 开发新项目';
+const SEED_BODY = '用户以前主要使用 PHP 开发后端';
 
 let home: string;
 let index: OmemIndex;
@@ -42,7 +43,7 @@ function write(extra: Record<string, unknown> = {}, opts: Record<string, unknown
 
 function seed(): void {
   commitEntry(home, defaultConfig(), index, {
-    content: '用户以前主要使用 PHP 开发后端',
+    content: SEED_BODY,
     type: 'fact' as const,
     topic: TOPIC,
     source: 'manual' as const,
@@ -132,6 +133,36 @@ describe('commitEntry: archived/stale topics need an explicit reactivate', () =>
     expect(second.status).toBe('written');
     expect(second.reactivated).toBeUndefined();
     expect(findByTopic(home, TOPIC, { includeArchived: true })!.entry.fm.status).toBe('active');
+  });
+
+  // P0 回归：归档主题的正文若与本次写入相同，去重分支过去会先返回 deduped，
+  // 绕过 D4 的显式恢复裁决，回执读起来像「已经写好了」。
+  it('an archived topic with an identical body still requires reactivate', () => {
+    seed();
+    const archivedPath = archive();
+    const r = commitEntry(home, defaultConfig(), index, {
+      content: SEED_BODY, type: 'fact', topic: TOPIC,
+      source: 'manual', confidence: 0.9, overCap: 'reject',
+    });
+    expect(r.status).toBe('needs-reactivation');
+    expect(r.reactivation).toMatchObject({ topic: TOPIC, from: 'archived', to: 'active', location: 'archive' });
+    expect(existsSync(archivedPath)).toBe(true);
+    expect(findByTopic(home, TOPIC, { includeArchived: true })!.entry.fm.status).toBe('archived');
+  });
+
+  it('reactivate:true restores an archived topic even when the body is unchanged', () => {
+    seed();
+    const archivedPath = archive();
+    const r = commitEntry(home, defaultConfig(), index, {
+      content: SEED_BODY, type: 'fact', topic: TOPIC,
+      source: 'manual', confidence: 0.9, overCap: 'reject', reactivate: true,
+    });
+    expect(r.status).toBe('written');
+    expect(r.reactivated).toEqual({ from: 'archived', to: 'active' });
+    const loc = findByTopic(home, TOPIC, { includeArchived: true })!;
+    expect(loc.entry.fm.status).toBe('active');
+    expect(loc.location).toBe('knowledge');
+    expect(existsSync(archivedPath)).toBe(false);
   });
 });
 
