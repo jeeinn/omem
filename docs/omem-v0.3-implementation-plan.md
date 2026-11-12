@@ -1,9 +1,9 @@
 # omem v0.3 工程决策与实施计划
 
 > **状态**：S0–S5 ✅ 已完成｜S6 ⏸ 推迟 v0.4｜**发布**：`0.3.1`
-> **性质**：本文是**工程决策记录与实施进度**，不是设计提案。v0.3 的实现与边界以本文 + `AGENTS.md` + `docs/omem-重构方案-路B.md` §14 为准。
+> **性质**：本文是**工程决策记录与实施进度**，不是设计提案。v0.3 的实现与边界以本文 + `AGENTS.md` 为准。v0.2 路B 已归档，见 `docs/archive/omem-重构方案-路B.md`。
 > **来源**：`docs/archive/omem-0.3.md`（2026-11-05 架构评审，属**历史评审**，其对字段与实现的建议不得直接执行）+ 同日本地代码层逐行审计。
-> **事实优先级**：源码 > `AGENTS.md` / 路B §14（决策记录）> `README.md` / `ARCHITECTURE.md`（对外文档）。三者冲突时以后者向前者对齐，不得反向修改源码去迁就过时文案。
+> **事实优先级**：源码 > `AGENTS.md` > `README.md` / `ARCHITECTURE.md`（对外文档）。三者冲突时以后者向前者对齐，不得反向修改源码去迁就过时文案。v0.2 路B 已归档，不再作为决策优先级。
 > **文档索引**：[`docs/README.md`](./README.md)（Current vs Archive）。
 
 ---
@@ -134,7 +134,7 @@
 
 **理由**：F4 的根因是职责重叠，不是继承动作本身。做语义相关性筛选会把语义判断重新塞回 omem，并同时违反 `AGENTS.md:20`、`:22/:23`、`:24`。分层是唯一不破坏现有体系的解法。
 
-**代价（必须一并处理）**：新增 frontmatter 字段 → `core/entry.ts` `FM_ORDER` 登记、扁平 YAML 子集、旧库兼容读取（`normalizeFm`）；`dedup-rescore` 的「至少一条 evidence」门槛（`AGENTS.md:17`）需明确指向当前版本证据；`verifyConfidence` 的 `[min,max]` 区间（`AGENTS.md:24`）口径需重新说明；`docs/omem-重构方案-路B.md` §14 追加一行。
+**代价（必须一并处理）**：新增 frontmatter 字段 → `core/entry.ts` `FM_ORDER` 登记、扁平 YAML 子集、旧库兼容读取（`normalizeFm`）；`dedup-rescore` 的「至少一条 evidence」门槛（`AGENTS.md:17`）需明确指向当前版本证据；`verifyConfidence` 的 `[min,max]` 区间（`AGENTS.md:24`）口径需重新说明；`docs/archive/omem-重构方案-路B.md` §14 追加一行。
 
 **前置条件**：**S0 决策记录完成前不得修改 `mergeEvidence`**。
 
@@ -238,7 +238,7 @@ omem 已不是 Markdown 文件管理工具，而是一套分层机制：**原始
 | 项 | 内容 |
 | --- | --- |
 | **目标** | 本文的 D1–D7 决策记录已完成。S0 是把决策**同步到项目规范与对外文档**：修订被决策改变的不变量措辞、标注旧评审的历史定位、统一对外文案口径 |
-| **文件范围** | `AGENTS.md`（`:16` 按 D3 修订，`:20`/`:24` 按 D1 补充说明，**不改语义**）、`docs/omem-重构方案-路B.md` §14 追加 D1 一行、`docs/archive/omem-0.3.md` 头部标注「历史评审，非现行实施方案」、`README.md` / `ARCHITECTURE.md`（`:169` auto_commit、`:180` 状态图、`:185` 人工确认语义澄清、五档表口径） |
+| **文件范围** | `AGENTS.md`（`:16` 按 D3 修订，`:20`/`:24` 按 D1 补充说明，**不改语义**）、`docs/archive/omem-重构方案-路B.md` §14 追加 D1 一行、`docs/archive/omem-0.3.md` 头部标注「历史评审，非现行实施方案」、`README.md` / `ARCHITECTURE.md`（`:169` auto_commit、`:180` 状态图、`:185` 人工确认语义澄清、五档表口径） |
 | **依赖** | 无（本文已完成）。S1–S6 全部 blockedBy S0 |
 | **验收测试** | `git diff --stat` 确认**只有 `.md` 变更**，`src/` 与 `tests/` 零改动；人工逐条核对 D1–D7 与上表文件一一对应；`npm test` 全绿（证明文案改动未破坏现有守门）。**新增守门断言一律放到 S1，不在 S0 引入测试改动** |
 | **Non-goals** | 不改任何行为代码；不实现证据分层；不加 `reviewed_revision`；不加 revision 参数 |

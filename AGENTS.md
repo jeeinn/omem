@@ -1,6 +1,6 @@
 # AGENTS.md
 
-For agents modifying code in this repository. User-visible behavior is governed by the source code, then the living decision docs indexed in `docs/README.md`: `docs/omem-v0.3-implementation-plan.md` (v0.3 engineering decisions; S0–S5 done, S6 deferred to v0.4) and `docs/omem-重构方案-路B.md` (v0.2 decision record; §14 is the v0.2 progress table). The README is the outward-facing doc and must be updated alongside behavior changes. Do not treat `docs/archive/` as a work plan.
+For agents modifying code in this repository. User-visible behavior is governed by the source code, then the living decision docs indexed in `docs/README.md`: `docs/omem-v0.3-implementation-plan.md` (v0.3 engineering decisions; S0–S5 done, S6 deferred to v0.4). The v0.2 decision record is in `docs/archive/` and is not a work plan. The README is the outward-facing doc and must be updated alongside behavior changes. Do not treat `docs/archive/` as a work plan.
 
 ## Project
 

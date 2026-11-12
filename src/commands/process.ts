@@ -1,4 +1,4 @@
-// omem process：只 drain API 待加工队列，不扫采集器（见 docs/omem-process-command-plan.md）。
+// omem process：只 drain API 待加工队列，不扫采集器。
 // --since / --session / --dry-run / --base / --model / --limit
 import { openCtx } from '../core/ctx.js';
 import { runApiProcess, type RunReport } from '../process/pipeline.js';

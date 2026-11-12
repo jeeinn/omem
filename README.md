@@ -185,7 +185,7 @@ omem process --base https://api.deepseek.com/v1 --model deepseek-chat --limit 3
 omem process --base https://api.sensenova.cn/compatible-mode/v1 --model <your-model> --limit 3
 ```
 
-`config.toml` 的 `[api]` 段可写 `base` / `model` / `limit` / `timeout_ms` / `max_input_chars`；**key 仍优先环境变量**。方案与迁移说明见 [`docs/omem-process-command-plan.md`](./docs/omem-process-command-plan.md)。
+`config.toml` 的 `[api]` 段可写 `base` / `model` / `limit` / `timeout_ms` / `max_input_chars`；**key 仍优先环境变量**。
 
 ## 主题（topic）
 
@@ -287,7 +287,7 @@ npm test
 npm run smoke
 ```
 
-行为以源码为准；决策与进度见 [`docs/README.md`](./docs/README.md)（现行：`omem-v0.3-implementation-plan.md`、`omem-重构方案-路B.md`；历史评审与一次性格笔记在 `docs/archive/`，仅作背景）。
+行为以源码为准；决策与进度见 [`docs/README.md`](./docs/README.md)（现行：`omem-v0.3-implementation-plan.md`；已落地的路B 与 process 方案在 `docs/archive/`，仅作背景）。
 
 ## 安全
 

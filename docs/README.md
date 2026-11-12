@@ -2,7 +2,7 @@
 
 先读 **Current**，再按需翻 **Archive**。Archive 只作背景，**不是开工依据**。
 
-事实优先级（与 `docs/omem-v0.3-implementation-plan.md` 一致）：**源码** > `AGENTS.md` / 路B §14 / 本索引所列现行决策文 > `README.md` / `ARCHITECTURE.md`。冲突时对外文档向源码与决策文对齐，不得反向改代码迁就过时文案。
+事实优先级（与 `docs/omem-v0.3-implementation-plan.md` 一致）：**源码** > `AGENTS.md` / 本索引所列现行决策文 > `README.md` / `ARCHITECTURE.md`。冲突时对外文档向源码与决策文对齐，不得反向改代码迁就过时文案。
 
 ## Current（现行）
 
@@ -12,8 +12,6 @@
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 现行分层、数据流、生命周期与检索口径 |
 | [`AGENTS.md`](../AGENTS.md) | Agent / 贡献者不变量与模块边界 |
 | [`omem-v0.3-implementation-plan.md`](./omem-v0.3-implementation-plan.md) | **v0.3 工程决策与实施进度**（S0–S5 已完成；S6 推迟 v0.4） |
-| [`omem-process-command-plan.md`](./omem-process-command-plan.md) | **`omem process` 与 sync 拆分**：命令契约、从 `sync --tier api` 迁移、API 配置指引与测试计划 |
-| [`omem-重构方案-路B.md`](./omem-重构方案-路B.md) | **v0.2 决策记录**（topic 即身份、去 SQLite、命令面收敛等）；§14 为 v0.2 实施进度，并指向 v0.3 计划 |
 | [`releases.md`](./releases.md) | 版本发布记录 |
 | [`手动测试指南.md`](./手动测试指南.md) | CLI 手工回归 |
 | [`记忆可信度的人工核实与Agent协作手册.md`](./记忆可信度的人工核实与Agent协作手册.md) | 人工过目与 Agent 协作测可信度 |
@@ -26,6 +24,8 @@
 
 本轮从 `docs/` 根目录迁入的主要包括：
 
+- `omem-重构方案-路B.md` — v0.2 决策与进度；不变量已在 `AGENTS.md`
+- `omem-process-command-plan.md` — `omem process` 与 sync 拆分；命令已在源码和 README
 - `omem-0.3.md` — 2026-11-05 架构评审（方向仍可参考，字段级 P0 已被否决或重设计）
 - `omem-MCP改进建议核查与行动计划.md` — beta.7 时代 MCP 核查
 - `2026-10-28-*` / `2026-10-29-*` — 三方协同与 beta.8/9 实测、规划、验收

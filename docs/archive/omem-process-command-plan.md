@@ -1,6 +1,8 @@
 # `omem process` 命令方案
 
-> 状态：现行决策（与源码同步）。动机来自 2026-11-06 实测：`omem sync --tier api` 总是先扫采集器，再 drain API 队列，把「只想加工存量」和「采集」绑死；非本机端点默认 `timeout_ms=60s` 时，小会话也会出现 `transport_failed`（超时），被误读成抽取失败。
+> **状态：已归档。** `omem sync` 只采集，`omem process` 只 drain API 队列；契约在源码与 README。不要按本文开工。
+>
+> 动机来自 2026-11-06 实测：`omem sync --tier api` 总是先扫采集器，再 drain API 队列，把「只想加工存量」和「采集」绑死；非本机端点默认 `timeout_ms=60s` 时，小会话也会出现 `transport_failed`（超时），被误读成抽取失败。
 
 ## 1. 动机
 

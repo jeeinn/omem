@@ -1,8 +1,10 @@
 # omem 重构方案 B：保留差异化，简化到核心
 
-> 状态：**v0.2 决策记录（已落地）**（定稿 2026-11-01；§14 A–H 均已完成）
+> **状态：已归档 · v0.2 决策记录（定稿 2026-11-01；§14 A–H 均已完成）。** 不变量在 `AGENTS.md`。不要按本文开工。
+>
+> v0.3 工程决策见 [`omem-v0.3-implementation-plan.md`](../omem-v0.3-implementation-plan.md)。文档索引见 [`docs/README.md`](../README.md)。
+>
 > 已定：CLI 命令面、D1（B′：topic 即身份）、D2（取消 `verified`）、D3（去 SQLite，内存派生索引）、D4（原文进 git）、D5（本版不做纠错）、D7（轻量账本）、D8（gc 并入 review）、D9（不兼容，re-init）、M1（置信度简化）、M2（AI 直接更新）
-> **v0.3**：工程决策与 S0–S5/S6 进度一律以 [`omem-v0.3-implementation-plan.md`](./omem-v0.3-implementation-plan.md) 为准（S6 推迟 v0.4）。文档索引见 [`docs/README.md`](./README.md)。
 > 指导原则：**实用主义优先**。任何新增机制先回答「不做会怎样」；能复用现有字段的不新增字段。
 
 ---
@@ -172,7 +174,7 @@ D9 定为不兼容，但现有的真实库（约 26 个活文档 / 1101 份会�
 
 | 执行者 | 链路 | 更新方式 |
 | --- | --- | --- |
-| `omem process`（旧：`sync --tier api`） | `runApiProcess` → `extractWithApi` → `commitDoc` → `commitEntry` | 模型产出整篇，直接覆盖该 topic；与 sync 采集拆开，见 `docs/omem-process-command-plan.md` |
+| `omem process`（旧：`sync --tier api`） | `runApiProcess` → `extractWithApi` → `commitDoc` → `commitEntry` | 模型产出整篇，直接覆盖该 topic；与 sync 采集拆开，见 `docs/archive/omem-process-command-plan.md` |
 | 本地 AI Agent | 读 `PROCESS.md` → `save_memory(topic=…, content=…)` → `commitEntry` | 同上 |
 
 D1-B′ 之后，**带 topic 再写一次就是覆盖**，不再有「撞 topic 拒写 + 要求 supersedes」这道闸门。护栏只有一条：写前 `runSnapshot`（`src/core/snapshot.ts` 已存在）。丢事实的风险由 git 历史 + 人工过目兜底。

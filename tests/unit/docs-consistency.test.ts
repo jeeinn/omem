@@ -135,6 +135,9 @@ describe('docs: v0.3 lifecycle, commit and delete semantics match the code', () 
     expect(index).toContain('## Archive（背景 only）');
     expect(index).toContain('omem-v0.3-implementation-plan.md');
     expect(index).toContain('omem-process-command-plan.md');
+    expect(index).toContain('omem-重构方案-路B.md');
+    expect(read('docs/archive/README.md')).toContain('omem-process-command-plan.md');
+    expect(read('docs/archive/README.md')).toContain('omem-重构方案-路B.md');
     expect(index).toContain('S0–S5');
     expect(index).toContain('S6');
     expect(README).toContain('docs/README.md');
