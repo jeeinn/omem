@@ -11,6 +11,17 @@
 | `v0.1.0-beta.9` | `a260812` | `4b824b0a1e1ef392106fa99b10f11bcb`（两次干净构建 dist 内容 hash 一致） | 见下 |
 | `v0.2.0-beta.1` | 见 tag | — | 重构路B：topic 即身份、去 SQLite、命令面 13 条（**不兼容**） |
 
+## Unreleased（本地提交，尚未发版）
+
+以下改动已在源码与测试中；`package.json` 仍为 `0.3.1` 且 HEAD 无精确 tag，因此 `npm run release:check` 与 `prepublishOnly` 当前会失败。发版前需先 bump 版本并打精确 tag，再把本段并入对应版本条目。
+
+1. **D1 证据分层（S6-1）。** 每次写入留两层：`evidence` 是历史链，照旧合并；`evidence_current` 只放本次提交的引文，没带引文写空数组。计分与 `omem verify` 在字段在场时只认当前层，字段缺席的旧文件仍按 `evidence` 复算，直到下一次覆写；补分会换掉当前层。五档分数与去重四边界未改。检索命中带回当前层，审阅页单独显示 Current evidence 与 Historical evidence。
+2. **写入护栏收口（S1-1）。** D3 `expected_revision` 与 D4 `needs-reactivation` 校验移到 content-hash 去重之前；同 topic 的归档/冷却文档不再被普通去重吞掉；补分刷新 `PROCESS.md`。
+3. **计划归档。** 路B、omem process 方案、v0.3 实施计划移入 `docs/archive/`；现行规则以 `AGENTS.md` 为准。
+4. **D1 收尾对齐（S6-2）。** 补分回执点名 `evidence_current`；审阅页把历史链标为 Historical evidence；补三组回归：元数据重写保持字段缺席、审阅 detail 双形态、`search_memory` 双形态回传。未改计分与写入分支。
+
+**验证口径**：`npm test` 78 files / 784 tests 绿；`tests/smoke.sh` 91 passed / 0 failed。
+
 ## v0.3.1
 
 `omem sync` 与 API 加工拆开。采集不再顺带调模型。

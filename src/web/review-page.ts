@@ -275,9 +275,9 @@ kbd {
       var ev = '<ul class="evidence">';
       d.evidence.forEach(function (e) { ev += '<li>' + esc(e) + '</li>'; });
       ev += '</ul>';
-      html += section('Evidence (' + d.evidence.length + ')', ev);
+      html += section('Historical evidence (' + d.evidence.length + ')', ev);
     } else {
-      html += section('Evidence', '<p class="hint">None. This entry is not anchored to a user message.</p>');
+      html += section('Historical evidence', '<p class="hint">None in the historical trail. Quotes on this version, if any, are shown under Current evidence.</p>');
     }
 
     if (d.sessions && d.sessions.length) {

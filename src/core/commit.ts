@@ -273,7 +273,7 @@ export function metadataDrift(
 export function rescoreNotice(r: NonNullable<CommitResult['rescored']>): string {
   const range = `from ${r.from.toFixed(2)} to ${r.to.toFixed(2)}`;
   return r.applied
-    ? `Confidence raised ${range}: the quotes now anchor. The body was not rewritten — only the frontmatter (confidence, evidence, source sessions) was refreshed.`
+    ? `Confidence raised ${range}: the quotes now anchor. The body was not rewritten — only the frontmatter (confidence, evidence_current, evidence, source sessions) was refreshed.`
     : `Confidence would be raised ${range}: the quotes now anchor. Dry-run wrote nothing.`;
 }
 

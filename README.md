@@ -19,7 +19,7 @@ V0.3 正式版 `0.3.1`（`npm install -g @jeeinn/omem`）。`omem sync` 只采�
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
-**v0.3 在该 tag 之上落地的行为**（S0–S5）：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。证据分成历史链 `evidence` 与本次引文 `evidence_current`；评分阶梯仍是 0.35 / 0.55 / 印证 / 0.80 / 0.90。v0.3 计划已归档，见 `docs/archive/`。
+**v0.3 起在该 tag 之上陆续落地的行为**：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。证据分成历史链 `evidence` 与本次引文 `evidence_current`；评分阶梯仍是 0.35 / 0.55 / 印证 / 0.80 / 0.90。v0.3 计划已归档，见 `docs/archive/`。
 
 这一版的产品形状（自 v0.2 起）：
 
