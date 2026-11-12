@@ -29,8 +29,13 @@ export interface Frontmatter {
   project?: string;
   /** 已吸收进这份活文档的会话 id。 */
   source_sessions: string[];
-  /** 证据锚定原文（文档 §7.2）：从 ## user 段原样摘出，归一化只用于比对、不写进文档。 */
+  /** 证据锚定原文（文档 §7.2）：从 ## user 段原样摘出，归一化只用于比对、不写进文档。历史链，不是当前正文的背书。 */
   evidence: string[];
+  /**
+   * 本次写入提交的引文。缺席 = 旧契约，计分仍用 `evidence`；
+   * 在场（含空数组）= 只认这一层，空数组表示这次覆写没有引文。
+   */
+  evidence_current?: string[];
   created: string;
   last_confirmed: string;
   confirmations: number;
@@ -45,7 +50,7 @@ export interface Entry {
 /** 落盘顺序。`topic` 不在其中——它是文件名，不是字段。 */
 const FM_ORDER: (keyof Frontmatter)[] = [
   'type', 'domain', 'profile', 'status', 'confidence', 'source',
-  'session_id', 'project', 'source_sessions', 'evidence', 'created', 'last_confirmed', 'confirmations',
+  'session_id', 'project', 'source_sessions', 'evidence', 'evidence_current', 'created', 'last_confirmed', 'confirmations',
   'tags',
 ];
 
@@ -185,6 +190,8 @@ function normalizeFm(fm: Record<string, any>): Frontmatter {
     project: fm.project ? String(fm.project) : undefined,
     source_sessions: arr(fm.source_sessions),
     evidence: arr(fm.evidence),
+    // 缺席与 [] 不是一回事：缺席沿用旧契约，空数组是这次覆写没有引文。
+    evidence_current: Array.isArray(fm.evidence_current) ? fm.evidence_current.map(String) : undefined,
     created: str(fm.created, now),
     last_confirmed: str(fm.last_confirmed, str(fm.created, now)),
     confirmations: num(fm.confirmations, 0),
@@ -217,10 +224,8 @@ export function newFrontmatter(partial: Partial<Frontmatter> & Pick<Frontmatter,
  * 不设上限会让 frontmatter 无限膨胀，拖慢解析与索引。8 条 / 2000 字符足够覆盖
  * 「这条结论由哪些原话支撑」，同时保证本次写入的证据一定留下。
  *
- * v0.3 决策 D1（**未实现，推迟 v0.4**）：本函数产出的是**历史证据链**，不等于「当前正文的背书」。
- * `scoreEvidence` 不读正文、也不判断引文是否仍支持新正文；`verifyConfidence` 目前同样拿这份
- * 历史链复算印证。v0.4 分层时保留本函数语义不变，另增「当前版本证据」层供计分与账本使用。
- * 在此之前，不要把 `fm.evidence` 解读为「当前内容已被这些原话证明」。
+ * 本函数产出的是历史证据链，不等于当前正文的背书。计分与账本读 `evidenceForScore`：
+ * `evidence_current` 在场时只用那一层，缺席才回退到这条链。不做引文与正文的语义比对。
  */
 export function mergeEvidence(
   fresh: string[],
@@ -243,6 +248,11 @@ export function mergeEvidence(
   for (const e of fresh) push(e);
   for (const list of inherited) for (const e of list) push(e);
   return out;
+}
+
+/** 计分与 `omem verify` 用的引文。缺席走旧契约；在场则历史链不再抬分。 */
+export function evidenceForScore(fm: Pick<Frontmatter, 'evidence' | 'evidence_current'>): string[] {
+  return fm.evidence_current ?? fm.evidence;
 }
 
 /**

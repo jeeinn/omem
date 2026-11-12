@@ -260,6 +260,17 @@ kbd {
     html += '<div class="kv">' + esc(kv.join(' \\u00b7 ')) + '</div>';
     html += section('Body', '<pre class="bodytext">' + esc(d.body) + '</pre>');
 
+    if (Array.isArray(d.evidence_current)) {
+      if (d.evidence_current.length) {
+        var cur = '<ul class="evidence">';
+        d.evidence_current.forEach(function (e) { cur += '<li>' + esc(e) + '</li>'; });
+        cur += '</ul>';
+        html += section('Current evidence (' + d.evidence_current.length + ')', cur);
+      } else {
+        html += section('Current evidence', '<p class="hint">None on this version. Older quotes stay in the trail and do not raise the score.</p>');
+      }
+    }
+
     if (d.evidence && d.evidence.length) {
       var ev = '<ul class="evidence">';
       d.evidence.forEach(function (e) { ev += '<li>' + esc(e) + '</li>'; });

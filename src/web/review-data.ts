@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import type { OmemIndex } from '../core/index.js';
 import type { Located } from '../core/store.js';
-import { deriveSummary, deriveTitle } from '../core/entry.js';
+import { deriveSummary, deriveTitle, evidenceForScore } from '../core/entry.js';
 import { readStoredSession, splitSessionKey, userSectionText } from '../collect/session-store.js';
 import { truncate } from '../core/util.js';
 
@@ -45,6 +45,8 @@ export interface ReviewItem {
 export interface ReviewDetail extends ReviewItem {
   body: string;
   evidence: string[];
+  /** 本次写入的引文。缺席表示旧文件，计分仍用 evidence。 */
+  evidence_current?: string[];
   sessions: SessionTitle[];
 }
 
@@ -163,7 +165,7 @@ export function buildReviewItem(home: string, loc: Located, index?: OmemIndex): 
     created: fm.created,
     title: deriveTitle(body),
     summary: deriveSummary(body, 160),
-    evidenceCount: fm.evidence?.length ?? 0,
+    evidenceCount: evidenceForScore(fm).length,
     sessionCount: fm.source_sessions?.length ?? 0,
     flags: fm.tags.filter((t) => t === 'ungrounded' || t === 'low-weight' || t === 'assent' || t === 'pending-session'),
   };
@@ -183,6 +185,7 @@ export function buildReviewDetail(
     ...item,
     body: loc.entry.body,
     evidence: fm.evidence ?? [],
+    ...(fm.evidence_current !== undefined ? { evidence_current: fm.evidence_current } : {}),
     sessions,
   };
 }

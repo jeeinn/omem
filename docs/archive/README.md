@@ -1,11 +1,12 @@
 # 归档
 
-这里是已经落地的规划、施工记录、一次性格评审与过时指南，**不再作为开工依据**。现行文档索引见 [`docs/README.md`](../README.md)；行为以源码与 [`omem-v0.3-implementation-plan.md`](../omem-v0.3-implementation-plan.md) 为准。
+这里是已经落地的规划、施工记录、一次性格评审与过时指南，**不再作为开工依据**。现行文档索引见 [`docs/README.md`](../README.md)；行为以源码与 `AGENTS.md` 为准。
 
 ## 已落地的方案
 
 | 文件 | 原来做什么 | 为何归档 |
 | --- | --- | --- |
+| `omem-v0.3-implementation-plan.md` | v0.3 工程决策与 S0–S6 进度 | S0–S6 已完成；仍生效的不变量在 `AGENTS.md` |
 | `omem-重构方案-路B.md` | v0.2 决策记录与 §14 进度 | v0.2 已完成；仍生效的不变量在 `AGENTS.md` |
 | `omem-process-command-plan.md` | `omem process` 与 `sync --tier api` 拆分 | 命令已在源码和 README |
 
@@ -13,7 +14,7 @@
 
 | 文件 | 原来做什么 | 为何归档 |
 | --- | --- | --- |
-| `omem-0.3.md` | 2026-11-05 架构评审 | 方向仍成立，但字段级 P0 已被否决或重设计；工程决策在 `../omem-v0.3-implementation-plan.md` |
+| `omem-0.3.md` | 2026-11-05 架构评审 | 方向仍成立，但字段级 P0 已被否决或重设计；决策记录在同目录 `omem-v0.3-implementation-plan.md`，不再作为开工依据 |
 
 ## 2026-10 三方协同与 MCP 实测（beta.7–9）
 

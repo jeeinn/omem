@@ -1,6 +1,6 @@
 # 技术架构
 
-omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；v0.3 决策与进度见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)（S0–S5 已完成，S6 证据分层推迟 v0.4，**未实现**）。
+omem 把个人记忆放在一个 git 仓库里。**Markdown 是唯一事实源**；没有数据库，索引是每次启动时从 Markdown 派生的内存视图。本文描述当前代码的分层和数据怎么流，不另写一份产品规划。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)。v0.3 计划在 [`docs/archive/omem-v0.3-implementation-plan.md`](./docs/archive/omem-v0.3-implementation-plan.md)，不再作为开工依据。
 
 命令对应关系：`omem sync` 采集会话（永不调模型），`omem process` 可选 drain API 队列，`omem backup` 备份数据仓（git；WebDAV / 本地目录后端尚未交付）。
 
@@ -186,7 +186,7 @@ stateDiagram-v2
 
 硬删只有 `omem redact`（`--topic` 或 `--source`），两者都默认预览、必须显式 `--yes`，删除时同时移除 Markdown 和索引行。删除范围**仅限本地当前文件**：数据仓 git 历史里的旧版本、`snapshots/`、已推送的远端备份与其他机器上的副本都不受影响；omem 不改写 git 历史，也不按 topic 排除备份。**没有 `verified` 布尔位**（重构方案 D2）：信任只有一个数字 `confidence`，它永远描述当前这份正文；「人看过」由 `confirmations > 0` + `last_confirmed` 表达。
 
-`review --confirm` 只把 `confidence` 提到 0.9，**不改变 `status`**：`stale` 不会因过目自动变回 `active`。`confirmations` / `last_confirmed` 是主题级记录——人工确认表示这个主题曾获得过人工关注，不表示当前正文已被逐项验证；正文被后续写入覆盖时它们仍会继承（v0.3 决策 D2，见 `docs/omem-v0.3-implementation-plan.md`）。
+`review --confirm` 只把 `confidence` 提到 0.9，**不改变 `status`**：`stale` 不会因过目自动变回 `active`。`confirmations` / `last_confirmed` 是主题级记录——人工确认表示这个主题曾获得过人工关注，不表示当前正文已被逐项验证；正文被后续写入覆盖时它们仍会继承。
 
 同理，**归档不会被一次写入静默撤销**：向 `archived` / `stale` topic 写入时，`commitEntry` 返回 `needs-reactivation`，说明状态变化与路径迁移，且不落盘、不提交、不进 `warnings`。只有显式意图才恢复——CLI `omem add --reactivate`，MCP `save_memory(reactivate: true)`；恢复后文档为 `active`，归档文件从 `archive/` 移回 `knowledge/`（v0.3 决策 D4）。
 
@@ -202,7 +202,7 @@ stateDiagram-v2
 | 自动上限 | 0.80 | 任何自动产出不得超过 |
 | 人工过目 | 0.90 | 人在 `omem review` 里看过正文之后 |
 
-五档描述的是**证据支持程度与排序用的分数**，不是「事实正确的概率」；0.90 表示人看过，不表示 90% 的正确率。
+五档描述的是**证据支持程度与排序用的分数**，不是「事实正确的概率」；0.90 表示人看过，不表示 90% 的正确率。计分和 `omem verify` 用 `evidence_current`（这次写入的引文）。字段缺席的旧文件仍用 `evidence`。历史链里的旧引文不给当前正文加印证。verify 只报告，不改写。
 
 印证的计数单位是**独立来源**，不是会话文件：两份会话文件如果用户说的话一样（归一化后同指纹），只算一个来源；被引用会话自己的指纹先占位，所以来源的副本也不算印证。否则「同一段话复制 5 份」就能把 0.55 刷到 0.80。
 
@@ -224,8 +224,9 @@ MCP 侧**没有盖章通道**（重构方案 A-5）：`save_memory` 不接受 `c
 | --- | --- |
 | 同一个 topic 再写 | 覆盖同一路径，文件数不变（`git log` 多一笔） |
 | `created` | 沿用首次创建时间 |
-| `source_sessions` / `evidence` | 继承并累积（`evidence` 去重后保留 8 条 / 2000 字） |
-| `confidence` | **每次重算**（永远描述当前这份正文） |
+| `source_sessions` / `evidence` | 继承并累积（`evidence` 是历史链，去重后保留 8 条 / 2000 字） |
+| `evidence_current` | 这次写入的引文。空数组表示这次没有引文。缺席的旧文件仍用 `evidence` 计分 |
+| `confidence` | **每次重算**（永远描述当前这份正文；有 `evidence_current` 时只认那一层） |
 | `confirmations` / `last_confirmed` | 继承（「人看过这个主题」是主题级事实） |
 | 覆盖前 | 先打快照（`snapshots/<日期>/`） |
 

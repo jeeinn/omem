@@ -123,9 +123,10 @@ describe('docs: v0.3 lifecycle, commit and delete semantics match the code', () 
     expect(ARCH).toContain('needs-reactivation');
   });
 
-  it('the implementation plan is the normative decision record', () => {
-    expect(read('docs/omem-v0.3-implementation-plan.md')).toContain('D4');
-    expect(ARCH).toContain('omem-v0.3-implementation-plan.md');
+  it('shipped plans live in docs/archive and are not the work plan', () => {
+    expect(read('docs/archive/omem-v0.3-implementation-plan.md')).toContain('D4');
+    expect(read('docs/archive/omem-v0.3-implementation-plan.md')).toContain('已归档');
+    expect(ARCH).toContain('docs/archive/omem-v0.3-implementation-plan.md');
     expect(read('docs/archive/omem-0.3.md')).toContain('非现行实施方案');
   });
 
@@ -136,12 +137,13 @@ describe('docs: v0.3 lifecycle, commit and delete semantics match the code', () 
     expect(index).toContain('omem-v0.3-implementation-plan.md');
     expect(index).toContain('omem-process-command-plan.md');
     expect(index).toContain('omem-重构方案-路B.md');
+    expect(read('docs/archive/README.md')).toContain('omem-v0.3-implementation-plan.md');
     expect(read('docs/archive/README.md')).toContain('omem-process-command-plan.md');
     expect(read('docs/archive/README.md')).toContain('omem-重构方案-路B.md');
-    expect(index).toContain('S0–S5');
-    expect(index).toContain('S6');
+    expect(index).not.toContain('S6 推迟');
     expect(README).toContain('docs/README.md');
-    expect(README).toContain('omem process');
+    expect(README).toContain('evidence_current');
+    expect(AGENTS).toContain('evidence_current');
     expect(AGENTS).toContain('docs/README.md');
   });
 

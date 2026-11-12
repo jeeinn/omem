@@ -19,7 +19,7 @@ V0.3 正式版 `0.3.1`（`npm install -g @jeeinn/omem`）。`omem sync` 只采�
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
-**v0.3 在该 tag 之上落地的行为**（S0–S5）：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。**S6（证据分层 / 评分模型重构）推迟到 v0.4**，评分阶梯保持原样。详情见 [`docs/omem-v0.3-implementation-plan.md`](./docs/omem-v0.3-implementation-plan.md)。
+**v0.3 在该 tag 之上落地的行为**（S0–S5）：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。证据分成历史链 `evidence` 与本次引文 `evidence_current`；评分阶梯仍是 0.35 / 0.55 / 印证 / 0.80 / 0.90。v0.3 计划已归档，见 `docs/archive/`。
 
 这一版的产品形状（自 v0.2 起）：
 
@@ -207,9 +207,9 @@ omem add "连接池上限 20，超过排队（补充：不要盲调大）" --top
 
 更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。覆盖前自动打一次快照。
 
-继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。
+继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。`evidence` 是历史链。同一次写入另存 `evidence_current`（这次提交的引文，可以是空数组）；计分和 `omem verify` 只认这一层。旧文件没有该字段时，仍按 `evidence` 计分，直到下一次覆写。
 
-正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，证据链一并合并，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。补分会一并重算 `PROCESS.md`：这次引用的会话并入文档后，立刻退出待吸收清单。
+正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，历史链 `evidence` 合并，`evidence_current` 换成这次的引文，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。补分会一并重算 `PROCESS.md`：这次引用的会话并入文档后，立刻退出待吸收清单。
 
 主题名规范：建议英文小写连字符（`knee-rehab`、`pool-tuning`），专有名词保留原文。中文等 CJK 主题名合法，但同一件事换个说法就会变成第二个主题——名字是唯一身份，没有第二种归并机制。
 
@@ -287,7 +287,7 @@ npm test
 npm run smoke
 ```
 
-行为以源码为准；决策与进度见 [`docs/README.md`](./docs/README.md)（现行：`omem-v0.3-implementation-plan.md`；已落地的路B 与 process 方案在 `docs/archive/`，仅作背景）。
+行为以源码为准；对外说明见 [`docs/README.md`](./docs/README.md)。已落地的计划在 `docs/archive/`，仅作背景。
 
 ## 安全
 

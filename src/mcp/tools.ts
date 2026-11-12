@@ -163,7 +163,8 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
                 created: { type: 'string', description: 'ISO timestamp of the first version.' },
                 last_confirmed: { type: 'string', description: 'ISO timestamp of the last human review; empty if never.' },
                 source_sessions: { type: 'array', items: { type: 'string' }, description: 'Session ids historically cited (trail).' },
-                evidence: { type: 'array', items: { type: 'string' }, description: 'Quotes on the current document; historical quotes may not support the current body.' },
+                evidence: { type: 'array', items: { type: 'string' }, description: 'Historical quote trail. Older quotes may not support the current body.' },
+                evidence_current: { type: 'array', items: { type: 'string' }, description: 'Quotes from the latest write. Omitted on older files, which still score from evidence. [] means this version has no quotes.' },
                 revision: { type: 'string', description: 'Full-file sha256/32 baseline for expected_revision.' },
                 session_key: { type: 'string', description: 'scope=sessions only: "<collector>:<id>"; pass the part after the colon as session_id.' },
                 path: { type: 'string', description: 'Markdown file (conclusions) or transcript file (sessions) on disk.' },
@@ -622,6 +623,7 @@ async function toolSearch(
         last_confirmed: row.last_confirmed,
         source_sessions: sourceSessions,
         evidence: entry?.fm.evidence ?? [],
+        ...(entry?.fm.evidence_current !== undefined ? { evidence_current: entry.fm.evidence_current } : {}),
         path: row.path,
         // D3：实时读盘，与 commitEntry 写前比对用的是同一个 readCurrentRevision 口径。
         revision: readCurrentRevision(row.path),

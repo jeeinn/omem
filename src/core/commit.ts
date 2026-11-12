@@ -464,8 +464,8 @@ function rescoreOnDedup(
   }
 
   fm.confidence = input.confidence;
-  // 证据链与会话 id 跟分数同源：只提分不留证据的话，下一次 `omem verify`
-  // 会用同一本账把它判成 overstated（账本重算读的正是这两个字段）。
+  // 账本只复算 evidence_current。不换掉这一层的话，更高的分数会被旧引文判成偏高或偏低。
+  fm.evidence_current = evidence;
   fm.evidence = mergeEvidence(evidence, [fm.evidence]);
   fm.source_sessions = collectSourceSessions(input, fm);
   if (!fm.session_id && input.session_id) fm.session_id = input.session_id;
@@ -664,6 +664,7 @@ export function commitEntry(
     };
   }
 
+  const freshEvidence = (input.evidence ?? []).map((e) => e.trim()).filter(Boolean);
   const entry: Entry = {
     fm: newFrontmatter({
       topic,
@@ -683,8 +684,9 @@ export function commitEntry(
       // 否则 `once` 策略会在每次更新后重新变回「未审」，人工介入退化成无限循环。
       ...(existingFm ? { confirmations: existingFm.confirmations, last_confirmed: existingFm.last_confirmed } : {}),
       source_sessions: collectSourceSessions(input, existingFm),
-      // D1（推迟 v0.4）：这是历史证据链的完整继承，不是对当前正文的背书裁决；omem 不做语义判断。
-      evidence: mergeEvidence(input.evidence ?? [], existingFm ? [existingFm.evidence] : []),
+      // 历史链完整继承。evidence_current 只留本次引文，空数组也要落盘，避免回退成旧契约。
+      evidence: mergeEvidence(freshEvidence, existingFm ? [existingFm.evidence] : []),
+      evidence_current: freshEvidence,
       tags: input.tags ?? [],
     }),
     body: text,
