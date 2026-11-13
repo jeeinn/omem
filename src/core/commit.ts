@@ -229,6 +229,11 @@ export interface CommitResult {
    * 与磁盘被改过的事实对不上。
    */
   rescored?: { from: number; to: number; applied: boolean };
+  /**
+   * 覆写后分数低于原值。当前层换成了这次的引文（可以是 0 条），历史链不再抬分。
+   * 只报告，不改变写入。`quotes` 是这次留下的 `evidence_current` 条数。
+   */
+  scoreDropped?: { from: number; to: number; quotes: number };
   /** 目标主题是 archived/stale 且未显式授权恢复：本次写入被拒绝，不落盘、不提交。 */
   reactivation?: ReactivationInfo;
   /** 本次写入确实把 archived/stale 文档恢复为 active（已授权）。 */
@@ -264,6 +269,17 @@ export function metadataDrift(
     if (missing.length > 0) diffs.push(`tags [${missing.join(', ')}] not on the stored entry`);
   }
   return diffs;
+}
+
+/**
+ * 覆写降分回执的唯一渲染处。CLI 与 MCP 共用，避免一边漏说当前层。
+ */
+export function scoreDropNotice(r: NonNullable<CommitResult['scoreDropped']>): string {
+  const range = `from ${r.from.toFixed(2)} to ${r.to.toFixed(2)}`;
+  const layer = r.quotes === 0
+    ? 'evidence_current is now empty, so historical quotes no longer raise the score'
+    : `evidence_current was replaced by ${r.quotes} quote(s) from this write; historical quotes no longer raise the score`;
+  return `Confidence lowered ${range}: ${layer}.`;
 }
 
 /**
@@ -652,6 +668,11 @@ export function commitEntry(
     }
   }
 
+  const freshEvidence = (input.evidence ?? []).map((e) => e.trim()).filter(Boolean);
+  const scoreDropped = existingFm && existingFm.confidence > input.confidence + RESCORE_TOL
+    ? { from: existingFm.confidence, to: input.confidence, quotes: freshEvidence.length }
+    : undefined;
+
   if (opts.dryRun) {
     return {
       status: 'written',
@@ -661,10 +682,9 @@ export function commitEntry(
       warnings,
       ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
       ...(diff ? { diff } : {}),
+      ...(scoreDropped ? { scoreDropped } : {}),
     };
   }
-
-  const freshEvidence = (input.evidence ?? []).map((e) => e.trim()).filter(Boolean);
   const entry: Entry = {
     fm: newFrontmatter({
       topic,
@@ -728,6 +748,7 @@ export function commitEntry(
     ...(truncatedInfo ? { truncated: truncatedInfo } : {}),
     ...(reactivated ? { reactivated } : {}),
     ...(diff ? { diff } : {}),
+    ...(scoreDropped ? { scoreDropped } : {}),
   };
 }
 

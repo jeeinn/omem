@@ -7,7 +7,7 @@ import { defaultConfig } from '../../src/core/config.js';
 import { findByTopic, moveToArchive, updateTopic, writeEntry } from '../../src/core/store.js';
 import { newFrontmatter, parseEntry } from '../../src/core/entry.js';
 import { reconfirm } from '../../src/core/lifecycle.js';
-import { scoreEvidence, verifyConfidence } from '../../src/process/score.js';
+import { driftNotice, scoreEvidence, verifyConfidence } from '../../src/process/score.js';
 import { writeSessionFile } from '../../src/collect/session-store.js';
 import { buildReviewDetail } from '../../src/web/review-data.js';
 import { renderReviewPage } from '../../src/web/review-page.js';
@@ -218,5 +218,48 @@ describe('evidence layers', () => {
     expect(newHit).toBeTruthy();
     expect('evidence_current' in oldHit!).toBe(false);
     expect(newHit!.evidence_current).toEqual([]);
+  });
+
+  it('覆写降分时回执点名空的当前层', async () => {
+    addSession('s1', QUOTE_A);
+    index.catchUp();
+    commitEntry(home, defaultConfig(), index, {
+      topic: 'sql-policy', content: BODY, type: 'fact', domain: 'coding',
+      source: 'agent', session_id: 's1', evidence: [QUOTE_A], confidence: score('s1', [QUOTE_A]),
+    });
+    const ctx: ToolCtx = { home, config: defaultConfig(), index };
+    const saved = await handleTool('save_memory', {
+      topic: 'sql-policy', content: '改成另一句结论', type: 'fact', session_id: 's1',
+    }, ctx);
+    const text = saved.content.map((c) => c.text).join('\n');
+    expect(text).toContain('evidence_current is now empty');
+    expect(text).toContain('Confidence lowered');
+  });
+
+  it('verify 标明复算用的是当前层还是旧链', () => {
+    writeEntry(home, {
+      fm: newFrontmatter({
+        topic: 'legacy-high', type: 'fact', domain: 'coding', source: 'agent',
+        evidence: [QUOTE_A], confidence: 0.8,
+      }),
+      body: BODY,
+    });
+    writeEntry(home, {
+      fm: newFrontmatter({
+        topic: 'current-empty', type: 'fact', domain: 'coding', source: 'agent',
+        evidence: [QUOTE_A], evidence_current: [], confidence: 0.8,
+      }),
+      body: BODY,
+    });
+    index.catchUp();
+    const drifts = verifyConfidence(home, index).drifts;
+    const legacy = drifts.find((d) => d.topic === 'legacy-high')!;
+    const current = drifts.find((d) => d.topic === 'current-empty')!;
+    expect(legacy.layer).toBe('legacy');
+    expect(driftNotice(legacy)).toContain('no evidence_current');
+    expect(current.layer).toBe('current');
+    expect(current.quotes).toBe(0);
+    expect(current.verdict).toBe('overstated');
+    expect(driftNotice(current)).toContain('empty evidence_current');
   });
 });

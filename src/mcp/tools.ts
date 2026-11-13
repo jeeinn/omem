@@ -17,7 +17,7 @@ import { formatNoHits } from '../core/search-format.js';
 import { formatStaleness, reconfirm } from '../core/lifecycle.js';
 import { appendLog } from '../core/log.js';
 import { beginWriteJournal, endWriteJournal } from '../core/write-journal.js';
-import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, readCurrentRevision, rescoreNotice, staleRevisionNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
+import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, reactivationNotice, reactivatedNotice, readCurrentRevision, rescoreNotice, scoreDropNotice, staleRevisionNotice, vcsNotice, writeDiffNotice } from '../core/commit.js';
 import { absorbedSessionIds } from '../process/guide.js';
 import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
@@ -836,6 +836,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
     if (dryRun) {
       parts.push(`[dry-run] ${result.status}${result.reason ? ': ' + result.reason : ''}`);
       parts.push(result.rescored ? rescoreNotice(result.rescored) : `Confidence would be ${scored.confidence}.`);
+      if (result.scoreDropped) parts.push(scoreDropNotice(result.scoreDropped));
       if (drift.length > 0) parts.push(`Metadata that would be lost to content dedup: ${drift.join('; ')}.`);
       // dry_run 也走同一条 cap 判定：超限在预演里就是 excluded，不是「会截断」。
       if (result.overCap) parts.push(...overCapNotice(result.overCap, 'mcp'));
@@ -873,6 +874,7 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       const savedType = saved?.fm.type ?? type;
       const verb = result.updated ? 'Updated' : 'Saved';
       parts.push(`${verb} (topic: ${result.topic}, ${domain}/${savedType}, confidence ${scored.confidence}). Not reviewed by a human yet.`);
+      if (result.scoreDropped) parts.push(scoreDropNotice(result.scoreDropped));
       // 锚定结果必须写出来：只报 confidence 时，「举证成功」与「根本没举证」看起来一模一样。
       const anchors = scored.anchors;
       if (anchors && anchors.total > 0 && anchors.matched.length > 0) {

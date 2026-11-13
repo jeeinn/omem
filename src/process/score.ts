@@ -307,6 +307,24 @@ export interface ConfidenceDrift {
   max: number;
   /** 落盘值低于账本允许的下界（条目被低估）。 */
   verdict: 'understated' | 'overstated';
+  /** `evidence_current` 在场为 current；缺席的旧文件为 legacy。 */
+  layer: 'current' | 'legacy';
+  /** 这次复算实际用上的引文条数。当前层为空时是 0。 */
+  quotes: number;
+}
+
+/** verify 一行说明的唯一渲染处。空的当前层单独说，避免被读成「会话被删了」。 */
+export function driftNotice(d: ConfidenceDrift): string {
+  if (d.layer === 'current' && d.quotes === 0 && d.verdict === 'overstated') {
+    return 'scored from an empty evidence_current; historical quotes were not counted';
+  }
+  const layer = d.layer === 'current'
+    ? 'scored from evidence_current'
+    : 'scored from evidence (this file has no evidence_current)';
+  const verdict = d.verdict === 'overstated'
+    ? 'stored above ledger — the evidence may no longer anchor (session deleted or edited)'
+    : 'stored below ledger — more independent sources exist than were counted';
+  return `${layer}; ${verdict}`;
 }
 
 /**
@@ -332,7 +350,9 @@ export function verifyConfidence(
       continue;
     }
     checked++;
-    const base = { content: loc.entry.body, evidence: evidenceForScore(fm) };
+    const used = evidenceForScore(fm);
+    const base = { content: loc.entry.body, evidence: used };
+    const layer = fm.evidence_current !== undefined ? 'current' as const : 'legacy' as const;
     // max：只排除主来源会话。
     const max = scoreEvidence(home, { ...base, sessionId: fm.session_id, sessionIds: [] }, index).confidence;
     // min：把本条目自己的所有来源会话都算作自印证。
@@ -341,9 +361,9 @@ export function verifyConfidence(
       : max;
     const tol = 0.005;
     if (fm.confidence < min - tol) {
-      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'understated' });
+      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'understated', layer, quotes: used.length });
     } else if (fm.confidence > max + tol) {
-      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'overstated' });
+      drifts.push({ topic: fm.topic, stored: fm.confidence, min, max, verdict: 'overstated', layer, quotes: used.length });
     }
   }
   drifts.sort((a, b) => a.topic.localeCompare(b.topic));

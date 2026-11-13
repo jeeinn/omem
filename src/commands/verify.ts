@@ -5,7 +5,7 @@
 // 证据域会变（会话被删、原文被改）。只重建不比对，等于只检查了「文件还在不在」。
 import { openCtx } from '../core/ctx.js';
 import { generateMemoryIndex } from '../core/lifecycle.js';
-import { verifyConfidence } from '../process/score.js';
+import { driftNotice, verifyConfidence } from '../process/score.js';
 
 export async function cmdVerify(): Promise<number> {
   const { home, index } = openCtx();
@@ -23,10 +23,7 @@ export async function cmdVerify(): Promise<number> {
   }
   console.log(`${check.drifts.length} entr(ies) differ from their ledger:`);
   for (const d of check.drifts) {
-    const why = d.verdict === 'overstated'
-      ? 'stored above ledger — the evidence may no longer anchor (session deleted or edited)'
-      : 'stored below ledger — more independent sources exist than were counted';
-    console.log(`  ${d.topic}  stored ${d.stored.toFixed(2)}  ledger ${d.min.toFixed(2)}–${d.max.toFixed(2)}  (${why})`);
+    console.log(`  ${d.topic}  stored ${d.stored.toFixed(2)}  ledger ${d.min.toFixed(2)}–${d.max.toFixed(2)}  (${driftNotice(d)})`);
   }
   console.log('Nothing was rewritten. Review the entries above, then update them by writing the topic again.');
   return 0;

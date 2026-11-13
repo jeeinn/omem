@@ -15,7 +15,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 ## 状态
 
-V0.3 正式版 `0.3.1`（`npm install -g @jeeinn/omem`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
+V0.3 正式版 `0.3.2`（仓库版本；`npm install -g @jeeinn/omem` 在本版发布到 registry 之前仍是 `0.3.1`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
@@ -207,7 +207,7 @@ omem add "连接池上限 20，超过排队（补充：不要盲调大）" --top
 
 更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。覆盖前自动打一次快照。
 
-继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。`evidence` 是历史链。同一次写入另存 `evidence_current`（这次提交的引文，可以是空数组）；计分和 `omem verify` 只认这一层。旧文件没有该字段时，仍按 `evidence` 计分，直到下一次覆写。
+继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。`evidence` 是历史链。同一次写入另存 `evidence_current`（这次提交的引文，可以是空数组）；计分和 `omem verify` 只认这一层。旧文件没有该字段时，仍按 `evidence` 计分，直到下一次覆写。覆写后分数下降时，回执写明当前层换成了这次的引文；`verify` 的漂移行标明复算用的是当前层还是旧链，当前层为空时不再把原因说成会话被删。
 
 正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，历史链 `evidence` 合并，`evidence_current` 换成这次的引文，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。补分会一并重算 `PROCESS.md`：这次引用的会话并入文档后，立刻退出待吸收清单。
 
