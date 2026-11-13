@@ -15,7 +15,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 ## 状态
 
-V0.3 正式版 `0.3.2`（仓库版本；`npm install -g @jeeinn/omem` 在本版发布到 registry 之前仍是 `0.3.1`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
+V0.3 正式版 `0.3.2`（`npm install -g @jeeinn/omem`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 

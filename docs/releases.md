@@ -5,7 +5,7 @@
 
 | tag | commit | tarball md5 | 备注 |
 | --- | --- | --- | --- |
-| `v0.3.2` | 尚未打 tag | — | 证据分层随本版进入仓库版本；npm 尚未发布 |
+| `v0.3.2` | 见 tag | — | 证据分层：`evidence` 历史链与 `evidence_current` 本次引文 |
 | `v0.3.1` | 见 tag | — | `omem sync` 只采集；API 加工改走 `omem process` |
 | `v0.3.0` | 见 tag | — | 正式版。S0–S5；S6 推迟 v0.4。npm `latest` 从 `0.1.0-beta.8` 跳到本版 |
 | `v0.1.0-beta.8` | `1da9d52` | — | 清单渲染回归（16.3×）、cap 截断、grounding 元数据可伪证 |
@@ -14,7 +14,7 @@
 
 ## v0.3.2
 
-仓库版本升到 `0.3.2`。尚未打 `v0.3.2` tag，也尚未 `npm publish`。`prepublishOnly` 在精确 tag 出现之前仍会失败。
+仓库版本 `0.3.2`。精确 tag `v0.3.2`；`npm publish` 由 `prepublishOnly` 校验版本与 tag 一致后执行。
 
 1. **D1 证据分层（S6-1）。** 每次写入留两层：`evidence` 是历史链，照旧合并；`evidence_current` 只放本次提交的引文，没带引文写空数组。计分与 `omem verify` 在字段在场时只认当前层，字段缺席的旧文件仍按 `evidence` 复算，直到下一次覆写；补分会换掉当前层。五档分数与去重四边界未改。检索命中带回当前层，审阅页单独显示 Current evidence 与 Historical evidence。
 2. **写入护栏收口（S1-1）。** D3 `expected_revision` 与 D4 `needs-reactivation` 校验移到 content-hash 去重之前；同 topic 的归档/冷却文档不再被普通去重吞掉；补分刷新 `PROCESS.md`。
