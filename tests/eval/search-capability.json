@@ -1,0 +1,135 @@
+{
+  "kind": "search-capability",
+  "note": "四类检索能力的可复现标注集：current-value / historical / multi-hop / abstain，外加两条排序消融。由 scripts/eval-search-capability.mjs 与 tests/unit/search-capability.test.ts 共用。离线、零模型、零网络；语料建在临时 OMEM_HOME，历史值题显式建仓并调用 autoCommit 造版本链。historical 的 product_as_of_supported=false 表示产品层当前没有 as_of 参数：数据层能恢复旧值是 PASS，产品层缺口记为 KNOWN GAP，待 P1-1 落地后改为 true。",
+  "documents": [
+    { "topic": "pool-limit", "content": "Redis 连接池上限 20，超过就排队", "confidence": 0.8 },
+    { "topic": "pool-limit-old", "content": "旧版连接池参数调优笔记（已冷却）", "confidence": 0.9, "status": "stale" },
+    { "topic": "deploy-pipeline", "content": "部署流水线产物存 S3，CI 用 GitHub Actions", "confidence": 0.9 },
+    { "topic": "deploy-draft", "content": "部署流水线草稿：待定", "confidence": 0.35 },
+    { "topic": "loan-rate", "content": "车贷利率 3.6%，2026 年重签", "confidence": 0.55 },
+    { "topic": "rehab-coach", "content": "康复教练张三负责随访与进度跟踪", "confidence": 0.55 },
+    { "topic": "knee-rehab", "content": "膝盖康复方案：静蹲隔天，加单腿硬拉", "confidence": 0.55 },
+    { "topic": "s3-perms", "content": "S3 权限由运维审批，有效期 90 天", "confidence": 0.55 },
+    { "topic": "car-loan-old", "content": "旧车贷合同条款（已归档）", "confidence": 0.55, "status": "archived" }
+  ],
+  "overwrites": [
+    { "topic": "pool-limit", "content": "Redis 连接池上限 50，按 CPU 核数调整", "confidence": 0.8 },
+    { "topic": "loan-rate", "content": "车贷利率 3.9%，2027 年重签", "confidence": 0.55 }
+  ],
+  "cases": [
+    {
+      "id": "cv-01",
+      "kind": "current-value",
+      "query": "连接池上限",
+      "expected_topics": ["pool-limit"],
+      "expected_body_contains": "上限 50",
+      "forbidden_body_contains": "上限 20"
+    },
+    {
+      "id": "cv-02",
+      "kind": "current-value",
+      "query": "GitHub Actions",
+      "expected_topics": ["deploy-pipeline"],
+      "expected_body_contains": "GitHub Actions"
+    },
+    {
+      "id": "cv-03",
+      "kind": "current-value",
+      "query": "康复方案",
+      "expected_topics": ["knee-rehab"],
+      "expected_body_contains": "静蹲"
+    },
+    {
+      "id": "cv-04",
+      "kind": "current-value",
+      "query": "车贷利率",
+      "expected_topics": ["loan-rate"],
+      "expected_body_contains": "3.9%",
+      "forbidden_body_contains": "3.6%"
+    },
+    {
+      "id": "hv-01",
+      "kind": "historical",
+      "query": "连接池上限",
+      "topic": "pool-limit",
+      "prior_body_contains": "上限 20",
+      "current_body_contains": "上限 50",
+      "product_as_of_supported": false
+    },
+    {
+      "id": "hv-02",
+      "kind": "historical",
+      "query": "车贷利率",
+      "topic": "loan-rate",
+      "prior_body_contains": "3.6%",
+      "current_body_contains": "3.9%",
+      "product_as_of_supported": false
+    },
+    {
+      "id": "mh-01",
+      "kind": "multi-hop",
+      "steps": [
+        { "query": "康复教练", "expected_topics": ["rehab-coach"] },
+        { "query": "静蹲", "expected_topics": ["knee-rehab"] }
+      ],
+      "single_query": "康复教练 静蹲",
+      "single_query_expected_topics": []
+    },
+    {
+      "id": "mh-02",
+      "kind": "multi-hop",
+      "steps": [
+        { "query": "流水线产物", "expected_topics": ["deploy-pipeline"] },
+        { "query": "S3 权限", "expected_topics": ["s3-perms"] }
+      ],
+      "single_query": "流水线产物 S3 权限",
+      "single_query_expected_topics": []
+    },
+    {
+      "id": "ab-01",
+      "kind": "abstain",
+      "query": "zzzz-不存在-xyz",
+      "expected_topics": [],
+      "expect_no_hits_copy": true
+    },
+    {
+      "id": "ab-02",
+      "kind": "abstain",
+      "query": "连接池",
+      "domain": "finance",
+      "expected_topics": [],
+      "expect_no_hits_copy": true
+    },
+    {
+      "id": "ab-03",
+      "kind": "abstain",
+      "query": "康复",
+      "status": ["archived"],
+      "expected_topics": []
+    },
+    {
+      "id": "ab-04",
+      "kind": "abstain",
+      "query": "旧车贷合同",
+      "status": ["active"],
+      "expected_topics": []
+    }
+  ],
+  "ablations": [
+    {
+      "id": "stale-weight",
+      "query": "连接池",
+      "variants": [
+        { "name": "default", "staleWeight": 0.5, "expected_first_topic": "pool-limit" },
+        { "name": "no-downweight", "staleWeight": 1, "expected_first_topic": "pool-limit-old" }
+      ]
+    },
+    {
+      "id": "confidence-precedence",
+      "query": "部署流水线",
+      "variants": [
+        { "name": "default", "staleWeight": 0.5, "expected_first_topic": "deploy-pipeline" }
+      ]
+    }
+  ]
+}
