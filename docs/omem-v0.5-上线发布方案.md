@@ -140,6 +140,21 @@ B 案灰度路径：beta 自愿者 `npm i @jeeinn/omem@beta` → 48h 观察 → 
 
 > 注意：tag `v0.5.0` 已推远端且指向最终 commit，**此后不得再 commit**，否则 `prepublishOnly` 的精确 tag 校验会失败；若必须改代码，须走新版本号。
 
+### 发布完成核验（2026-11-22 18:15 本地 / 10:15Z）
+
+用户手动 publish 成功，四通道核实：
+
+| 通道 | 结果 |
+|---|---|
+| `npm whoami --registry=https://registry.npmjs.org` | `jeeinn` |
+| `npm dist-tag ls @jeeinn/omem --registry=...` | `beta: 0.3.1` / **`latest: 0.5.0`** |
+| 版本端点 `GET /@jeeinn%2fomem/0.5.0` | **200**（shasum `d8f4322a…` 与发布日志一致） |
+| packument 直连（带 cache-bust） | `versions` 含 `0.5.0`，`dist-tags.latest=0.5.0`，`time.0.5.0 = 2026-11-22T10:15:16.137Z` |
+
+**注意**：`npm view @jeeinn/omem@0.5.0 version` 首次返回 `E404 No match found for version 0.5.0`，但版本端点与 packument 均为 200——是本地 npm 缓存未刷新，不是发布失败。发布后核对优先用直连 + cache-bust 的 packument，勿被缓存 404 误导。
+
+发布后收尾提交 `6910ca7`（3 files：Roadmap / 上线方案 / `vitest.config.ts`），已 push。**tag `v0.5.0` 保持指向发布快照 `08fcad7`**，main 前进到 `6910ca7`——这是正确的 tag 语义（tag 标记发布点，不随后续文档提交移动）。`6910ca7` 只含文档与测试配置，不含产品代码变更，不影响已发布包内容。
+
 ### 发布门禁 flaky 修复（2026-11-22，用户手动 publish 前）
 
 用户手动执行 `npm publish` 时 `prepublishOnly`（`npm run build && npm test && node scripts/release-check.mjs`）报 `npm error code 1`：
