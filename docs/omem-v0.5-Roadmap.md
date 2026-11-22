@@ -13,6 +13,7 @@
 | 2 | S3 假出口修复（P0） | **完成** | `guide-budget.test.ts` 11/11（含 probe 来自 hidden 集合、非 topic 假出口）；`guide-empty-state.test.ts` 2/2（空态 + session_id 通道端到端） |
 | 3 | S2 有界采集（P1） | **完成** | `watch-once.test.ts` 7/7（静默窗/硬上限/去抖/复扫/no-roots/work profile）；`install-hooks-readonly.test.ts` 2/2；`cli-args.test.ts` 22/22 防漂移绿；隔离 home 端到端退出 0（64ms） |
 | 4 | S4 核查 + 全量门禁 | **完成** | 834 tests / smoke 91-0 / eval:search 8-8 / eval:capability PASS / eval:quotes PASS / payload 12,283 / instructions 1,976-2,038 / release-check --no-tag OK |
+| 5 | Phase 2 门禁复核（P0 修复 + A 案断言） | **完成 / GO** | 843 tests / smoke 93-0 / 三套评测 / 预算三上限 / release-check OK / work profile 真实 CLI exit 2 |
 
 **阶段验证明细**
 
@@ -90,7 +91,7 @@ v0.5.0 定位「**可信度可观测 + 上下文预算**」，收 **S1 + S3 两�
 
 | 议题 | 定义 | 验收（可测） | 级 | 依赖 |
 |---|---|---|---|---|
-| **S1 证据裁定** | 只读派生会话证据 claims + 自动化会话双信号打标 | 固定 fixture **双向**钉：自动化 prompt 样本必标、人工**实质性陈述**必不标（口径不是"人工 `## user` 不得被标"——自动化定时 prompt 常也是人写的）；单信号一律不标、≥2 信号才标；**第二信号限 ③/④**（重复指纹/用户文本单一），因信号①（user 段占比<20%）在 Claude Code 类会话是常态、①+②正则噪声大；漏标留 v0.6 调阈值；每条 evidence 可回溯 session + userKey；`classifySession` 返回 `signals: string[]`（规则编号 + 文本特征，如 `user-ratio=0.12`），PROCESS.md 行尾紧凑渲染、完整依据写 `logs/`；**未人工 `omem skip` 前 `evidence`/`evidence_current`/`confidence`/`status` 逐字段不变**，用字段级断言不只靠 git diff | **P0** | 基线冻结、`session-store.ts` |
+| **S1 证据裁定** | 只读派生会话证据 claims + 自动化会话双信号打标 | 固定 fixture **双向**钉：自动化 prompt 样本必标、人工**实质性陈述**必不标（口径不是"人工 `## user` 不得被标"——自动化定时 prompt 常也是人写的）；单信号一律不标、≥2 信号才标；**③ 是唯一能独立成立的强信号，④/①/② 均为辅助**（④ 单独成立会把长助手回复误标为自动化例程，与「人工实质性陈述必不标」冲突；此口径以 `automation.ts:100` 实现为准，见 `omem-v0.5-测试保障方案.md` 裁决 B），因信号①（user 段占比<20%）在 Claude Code 类会话是常态、①+②正则噪声大；漏标留 v0.6 调阈值；每条 evidence 可回溯 session + userKey；`classifySession` 返回 `signals: string[]`（规则编号 + 文本特征，如 `user-ratio=0.12`），PROCESS.md 行尾紧凑渲染、完整依据写 `logs/`；**未人工 `omem skip` 前 `evidence`/`evidence_current`/`confidence`/`status` 逐字段不变**，用字段级断言不只靠 git diff | **P0** | 基线冻结、`session-store.ts` |
 | **S3 假出口修复** | 修 `guide.ts:276` 隐藏组假出口 + 补可执行性断言 | `PROCESS.md` ≤45,000 B、tools payload ≤12,300 且余量 ≥17 均为**现状回归 pin**（v0.4.0 已达标）；隐藏组提示里出现的工具+参数组合必须真能取到会话原文；降级只砍展开层，**不删头部、`RULE_*` 或 instructions 原文**；空 `sessions/` 走 `No topics are waiting.` 空态不抛异常 | **P0** | `tool-budget.test.ts` 钉 12,300 |
 | S2 采集体验 | hook + `--watch-once`；工具描述触发条件式 | 显式触发可用、默认工具仍 2 个、描述 ≤2,048 字符；`--watch-once` 有界驻留、硬上限时长、提交合并、hook 默认不装、work profile 边界明确；性能在新路径复测 | P1 | S1 |
 | S4 衰减呈现 | 核查 + 文档补一句降权说明（**不新增模块**） | 现状 pin：`stale × 0.5`（`search.ts:84,99`）、`formatStaleness` 已在 MCP/CLI/review/MEMORY-INDEX 渲染 `not reviewed (cooled)`（`lifecycle.ts:17-21`）、evidence 8 条/2000 字符（`entry.ts:230-235`）、硬删仅 redact | P1（v0.6） | S1 |
@@ -111,7 +112,7 @@ v0.5.0 定位「**可信度可观测 + 上下文预算**」，收 **S1 + S3 两�
 
 1. **基线冻结**：不变量测试点名 + payload 12,283/12,300 实测 → 验收：清单签字。
 2. **S1-a 证据 claims**（去噪提示，非裁定）：`collect/session-store.ts:376-387` 的 `evidenceUserText()` 复用 `sectionRuns()`，新增只读 `evidenceClaims(body)`——只取 `## user`、剥 metadata 围栏、命令块/反问句列 low-signal 提示、同 `evidenceUserKey` 跨轮只记首次。**不自动裁定、不自动提分**，产出只写 `logs/` → 验收：人工样本一致率 100%。
-3. **S1-b 自动化打标**（只读，不自动丢弃）：`collect/session-store.ts:311-365 sectionRuns` 与 `collector.ts:202` 的 `content_hash` 跳过之间加 `classifySession(digest,body) → { likelyAutomation, signals }`，信号＝① user 段占比 <20% ② 首句命中 发邮件/抓热点/写日记/定时 正则 ③ 同 key 跨 ≥3 session 且 started 近周期 ④ messages 高但用户文本单一。**≥2 信号**才在 PROCESS.md 行尾标 `(likely-automation)`；单信号一律不标；**第二信号限 ③/④**（①是 Claude Code 常态、①+②噪声大）。**不自动写 `skip.json`**——人工看到标记后显式跑 `omem skip <id> --reason duplicate`（CLI 已存在，`guide.ts:46-52 SkipRecord` 支持 `reason`），才从第〇节移出待办；原文与会话文件不动。判定依据写 `logs/`，字段级断言 `evidence`/`evidence_current`/`confidence`/`status` 在人工 skip 前逐字段不变 → 验收：固定 fixture 双向钉（自动化 prompt 必标 / 人工实质陈述必不标）、漏标留 v0.6 调阈值。
+3. **S1-b 自动化打标**（只读，不自动丢弃）：`collect/session-store.ts:311-365 sectionRuns` 与 `collector.ts:202` 的 `content_hash` 跳过之间加 `classifySession(digest,body) → { likelyAutomation, signals }`，信号＝① user 段占比 <20% ② 首句命中 发邮件/抓热点/写日记/定时 正则 ③ 同 key 跨 ≥3 session 且 started 近周期 ④ messages 高但用户文本单一。**≥2 信号且 ③ 成立**才在 PROCESS.md 行尾标 `(likely-automation)`；单信号一律不标；**③ 是唯一强信号，④/①/② 为辅助**（①是 Claude Code 常态、①+②噪声大、④ 单独会误标长对话）。**不自动写 `skip.json`**——人工看到标记后显式跑 `omem skip <id> --reason duplicate`（CLI 已存在，`guide.ts:46-52 SkipRecord` 支持 `reason`），才从第〇节移出待办；原文与会话文件不动。判定依据写 `logs/`，字段级断言 `evidence`/`evidence_current`/`confidence`/`status` 在人工 skip 前逐字段不变 → 验收：固定 fixture 双向钉（自动化 prompt 必标 / 人工实质陈述必不标）、漏标留 v0.6 调阈值。
 4. **S1-c 溯源 = 增强 `verify --quotes`，不另起视图**：`score.ts:410-476` 已建好 `sessionId → 剥净 ## user 文本` 的池子，只补报「命中 session id（+userKey）」即可 → 验收：逐条 evidence 可复核到来源会话，零新增工具/模块。
 5. **S3 假出口修复**：只改 `guide.ts:276` 一条文案 + `guide-budget.test.ts` 两个断言 + 新增可执行性断言；分区裁剪与 45,000 B / 12,300 双上限属 v0.4.0 现状，作回归 pin 不再立新增项。
 6. **S2 轻量采集**：hook + `--watch-once` → 验收：显式触发可用、默认工具仍 2 个。
@@ -145,20 +146,21 @@ v0.5.0 定位「**可信度可观测 + 上下文预算**」，收 **S1 + S3 两�
 - 项目名称与定位：omem — git 原生个人 AI 记忆层
 - 平台选型：npm CLI 包 + stdio MCP server；无数据库、无 daemon
 - 技术栈：TypeScript / Node ≥22.5 / Vitest / git；运行时仅 MCP SDK + node-zstd
-- 当前阶段：**v0.5.0 四阶段实施完成，全量门禁全绿；待用户确认提交**
-- 已完成产出：v0.4.0（`465faf8`，tag 已推）、本 Roadmap（迁入 `docs/`）；S1 证据裁定与溯源、S3 假出口修复、S2 有界采集、S4 核查与文档
-- 下一步：用户确认后提交这批 v0.5.0 改动；Phase 2 质量测试官可据此出测试保障方案
+- 当前阶段：**v0.5.0 实施已提交（`3eac868`）；Phase 2 质量保障完成并复核转 GO**
+- 已完成产出：v0.4.0（`465faf8`，tag 已推）；v0.5.0 提交 `3eac868`（22 files / +1120）；[`omem-v0.5-测试保障方案.md`](./omem-v0.5-测试保障方案.md)（Phase 2 方案 + 团长裁决 + 复核记录）；P0 修复与 A 案 9 条断言（工作区待提交）
+- 下一步：提交修复与文档改动 → Phase 3 上线发布方案（发版需用户显式授权）
+- **验收口径更正（团长裁决 B）**：§4 与 §6.3 的「第二信号限 ③/④」以实现为准，改为「③ 唯一强信号，④/①/② 为辅助」——④ 单独成立会把长助手回复误标为自动化例程，与「人工实质性陈述必不标」冲突。此更正记于测试保障方案第〇节。
 - 架构决策摘要：常驻 daemon 破三条不变量，改按需 hook；token 先做零每轮税渲染优化；遗忘用既有 stale 降权，不新增模块
 - 里程碑时间线：v0.4.0 发布 2026-11-22；v0.5.0 计划日期待定
-- 技术债务清单：自动化会话打标未做（S1）；隐藏组假出口待修（S3）；多端 hook 未做（S2）；token B 案待腾挪；无 daemon 计划
+- 技术债务清单：~~自动化会话打标~~ 已做（S1）；~~隐藏组假出口~~ 已修（S3）；~~多端 hook 基础~~ 已做（S2，全量多端待 v0.6）；~~work profile 退出码 P0~~ 已修；~~A 案 7 处断言~~ 已补；token B 案待腾挪；真实语料识别准确率 / 漏标门槛归 v0.6
 - **评审更正记录（2026-11-22）**：原稿 4 处「v0.4.0 已做却当新增」的误记已改（分区裁剪、stale 衰减呈现、预算 pin、工具描述长度）；1 处算术冲突已否决（全量首 40 字摘要 → ASCII 54.5 KB / CJK 98 KB 破 45,000 B）；1 处真缺陷保留（假出口）。另修正「零驻留」→「有界驻留」、「9 根」→「9 采集器 / 11 根」、「人工 `## user`」→「人工实质性陈述」、S1-c 落点为增强 `verify --quotes`、S2 补四项落地缺口、`codegraph 无 daemon` 不作决策依据、性能数字须新路径复测。全部经源码 + 实测核对属实，无一条反驳。
 
-## 十、阶段复盘卡（Phase 1 → 实施完成）
+## 十、阶段复盘卡（Phase 2 → Phase 3）
 
-- 完成度：100%（五痛点归并 4 议题全部落地；评审 6 条修正已回写；全量门禁全绿）
-- 阻塞：无
-- 下阶段：提交这批改动 → Phase 2 质量测试官按 `qa-testing.md` 补全测试保障方案 → v0.5.0 发版（需用户显式授权）
+- 完成度：100%（方案齐备、2 阻塞项已裁决、A 案 7 处断言补齐、全量门禁复核通过、**GO**）
+- 阻塞：无（原 P0 已修复闭环：真实 CLI 实测 exit 2、零写盘）
+- 下阶段：提交修复与文档改动 → Phase 3 上线发布方案（发版需用户显式授权）
 
 ## 十一、下一步
 
-本轮四阶段已实施完成，工作区有未提交改动。建议：①确认并提交这批 v0.5.0 改动（发版另需显式授权）；②随后进 Phase 2 质量测试官出测试保障方案。v0.4.0 上线已过 48 小时，可一并核对远端 tag 状态与用户反馈。
+v0.5.0 门禁已转 **GO**，工作区有修复与文档改动待提交。建议确认提交后进 Phase 3；v0.4.0 上线后 48 小时回访节点尚未到期（11:58 推送），到时回来核对远端 tag 与用户反馈。

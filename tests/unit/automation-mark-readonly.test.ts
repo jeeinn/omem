@@ -4,7 +4,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { OmemIndex } from '../../src/core/index.js';
-import { evidenceClaims } from '../../src/collect/session-store.js';
+import { evidenceClaims, evidenceUserText } from '../../src/collect/session-store.js';
+import { parseEntry } from '../../src/core/entry.js';
 import { buildAutomationCorpus, classifySession } from '../../src/process/automation.js';
 import { refreshProcessGuide } from '../../src/process/guide.js';
 import { verifyQuoteCoverage } from '../../src/process/score.js';
@@ -65,6 +66,35 @@ describe('S1-a: evidenceClaims is read-only denoising, not adjudication', () => 
     expect(claims[1].lowSignal).toBe('command-block');
     expect(claims[2].lowSignal).toBe('rhetorical');
     expect(claims.every((c) => typeof c.turn === 'number')).toBe(true);
+  });
+
+  it('A1: metadata fence in the MIDDLE of a user turn is stripped, plain user JSON is kept', () => {
+    const body = [
+      '## user', 'System: [ts] 会话开始',
+      'Conversation info (untrusted metadata):',
+      '```json', '{"message_id":"m-1","timestamp":"2026-11-22T00:00:00Z"}', '```',
+      '连接池上限设为 20，超过就排队',
+      '```json', '{"pool":20,"note":"用户自己粘的配置"}', '```',
+      '## assistant', '好的。',
+    ].join('\n');
+    const claims = evidenceClaims(body);
+    const joined = claims.map((c) => c.text).join('\n');
+    // 元数据围栏 + 标记行被剥；用户自己的 JSON 不是会话元数据，必须留在证据域。
+    expect(joined).not.toContain('message_id');
+    expect(joined).not.toContain('Conversation info');
+    expect(joined).toContain('连接池上限设为 20，超过就排队');
+    expect(joined).toContain('用户自己粘的配置');
+    // 与证据域文本口径一致（同一把尺子）。
+    expect(joined).toBe(evidenceUserText(body));
+  });
+
+  it('A1b: empty body / assistant-only / short sentence / repeated turns do not throw', () => {
+    expect(evidenceClaims('')).toEqual([]);
+    expect(evidenceClaims('## assistant\n只有助手在说话')).toEqual([]);
+    const short = evidenceClaims('## user\n好的');
+    expect(short[0].lowSignal).toBe('short');
+    const repeated = evidenceClaims('## user\n同一句话\n## user\n同一句话');
+    expect(repeated).toHaveLength(1);
   });
 
   it('assistant text never becomes a claim; repeated user turns keep only the first', () => {
@@ -136,6 +166,19 @@ describe('S1-b: PROCESS.md marking is strictly read-only', () => {
     // 判定依据只写 logs（只读可观测）。
     const log = existsSync(files.usageLog(home)) ? readFileSync(files.usageLog(home), 'utf8') : '';
     expect(log).toContain('automation-mark');
+    // A2：判定依据不落用户原文全文，只含 count / session id / signals。
+    expect(log).not.toContain('每日定时任务：抓取热点新闻并发送邮件');
+
+    // A2：字段级逐项比对（比整篇字节相等更能说明「没有改 frontmatter」）。
+    const fmBefore = parseEntry(docBefore)?.fm;
+    const fmAfter = parseEntry(readFileSync(docPath, 'utf8'))?.fm;
+    expect(fmAfter).toEqual(fmBefore);
+    for (const k of ['evidence', 'evidence_current', 'confidence', 'status', 'session_id', 'source_sessions'] as const) {
+      expect((fmAfter as Record<string, unknown>)[k]).toEqual((fmBefore as Record<string, unknown>)[k]);
+    }
+    // 会话文件数与 knowledge/ 都没变，人工 skip 前不移出待办。
+    expect(existsSync(files.skipLedger(home))).toBe(false);
+    expect(text).toContain('auto-0');
   });
 });
 
@@ -150,5 +193,28 @@ describe('S1-c: verify --quotes traces every hit back to its source session', ()
     expect(r.hits[0].sessionId).toBe('src-1');
     expect(r.hits[0].userKey).toMatch(/^[0-9a-f]{16}$/);
     expect(quoteCoverageNotice(r).join('\n')).toContain('session src-1');
+  });
+
+  it('A3: zero-quote corpus has hits=[], ratio=null and n/a (never a fake 100%)', () => {
+    seedSession('src-z', '原文', '2026-11-22T09:00:00.000Z');
+    entry('empty-current', [], 'src-z');
+    index.catchUp();
+    const r = verifyQuoteCoverage(home, index);
+    expect(r.hits).toEqual([]);
+    expect(r.quotes).toBe(0);
+    expect(r.ratio).toBeNull();
+    expect(r.noQuote).toBe(1);
+    expect(r.misses).toEqual([]);
+    expect(quoteCoverageNotice(r).join('\n')).toContain('no quotes to check');
+  });
+
+  it('A3b: all-quote corpus never reports 100% when a quote is missing', () => {
+    seedSession('src-m', '真实原文', '2026-11-22T09:00:00.000Z');
+    entry('miss', ['不存在的引文'], 'src-m');
+    index.catchUp();
+    const r = verifyQuoteCoverage(home, index);
+    expect(r.hits).toEqual([]);
+    expect(r.ratio).toBe(0);
+    expect(r.misses).toHaveLength(1);
   });
 });

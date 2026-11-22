@@ -15,7 +15,7 @@ import { beginWriteJournal } from '../core/write-journal.js';
 import { COLLECTOR_IDS, getCollector } from '../collect/collector.js';
 import { currentProfile } from '../core/profile.js';
 import { appendLog } from '../core/log.js';
-import { UsageError } from '../core/util.js';
+import { ProfileBlockedError } from '../core/util.js';
 import { flagNum } from '../cli-args.js';
 import type { ParsedArgs } from '../cli-args.js';
 import type { OmemConfig } from '../core/config.js';
@@ -105,9 +105,12 @@ export async function watchOnceLoop(opts: {
 
 export async function cmdWatchOnce(args: ParsedArgs, config: OmemConfig, index: OmemIndex, home: string): Promise<number> {
   if (currentProfile(config) === 'work') {
-    throw new UsageError(
-      'omem sync --watch-once is disabled on the work profile: an automatic collection hook would write company transcripts into the local memory store. ' +
-      'Run `omem sync` manually instead (same collection, explicit user action), or switch profile with `omem profile use home`.',
+    // 政策拒绝，不是用法错误：AGENTS.md:30 规定 work profile 拦截走
+    // ProfileBlockedError → exit 2；此前抛 UsageError 被 cli.ts 映射成 exit 1，
+    // 混淆了「政策拒绝」与「脚本失败」两个桶。
+    throw new ProfileBlockedError(
+      'Currently on the work profile: omem sync --watch-once is blocked (an automatic collection hook would write company transcripts into the local memory store).\n' +
+      '  Run `omem sync` manually instead (same collection, explicit user action), or switch profile with `omem profile use home`.',
     );
   }
   const quietMs = Math.max(200, Math.min(10_000, flagNum(args.flags, 'quiet-ms') ?? QUIET_MS_DEFAULT));

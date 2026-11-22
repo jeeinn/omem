@@ -29,6 +29,7 @@ v0.5.0 方向：可信度可观测 + 上下文预算（路线图见 [`docs/omem-
 
 ### 修复
 
+- **work profile 拦截的退出码（Phase 2 P0）**：`omem sync --watch-once` 在 work profile 下原抛 `UsageError`，被 `cli.ts` 映射为 exit 1（用法错误）；按 `AGENTS.md:30` 契约，政策拒绝应走 `ProfileBlockedError` → **exit 2**。已改正，并补异常类型、字段级零写盘、CLI 端到端（smoke S19）三重断言。
 - **PROCESS.md 隐藏会话的「假出口」（S3）**：预算隐藏组此前提示 `search_memory(topic="<name>")`，但 `topic` 只走文档检索、取不到会话原文，Agent 看到标记也拿不到内容。现改为输出一条**真实被隐藏**的裸 `session_id`，指向已存在的 `search_memory(session_id="<id>")` 通道（零工具面税）；其余会话随本批收缩自动回到清单。Unassigned 隐藏行同样处理。新增断言钉住：提示里出现的工具 + 参数组合必须真能取到 `## user` 原文，probe 必须来自 hidden 集合。
 
 ## [0.4.0] - 2026-11-22

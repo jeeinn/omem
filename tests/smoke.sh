@@ -256,6 +256,13 @@ grep -q "^confirmations: 1$" "$F18" && ok "the newer frontmatter is preserved" |
 OUT=$(run add "S18 相同正文 dedup-revision-marker" --topic dedup-revision)
 echo "$OUT" | grep -q "not written again" && ok "identical body without revision still deduped" || bad "idempotency broken: $OUT"
 
+echo "== S19 work profile 政策拒绝（exit 2，不是用法错误 exit 1）=="
+# AGENTS.md:30 契约：ProfileBlockedError → exit 2。watch-once 是 policy rejection，
+# 不能与「脚本失败/用法错误」混在一个桶里。
+OUT=$(OMEM_PROFILE=work "${OMEM[@]}" sync --watch-once 2>&1); CODE=$?
+[ $CODE -eq 2 ] && ok "work profile blocked with exit 2" || bad "expected exit 2, got $CODE: $OUT"
+echo "$OUT" | grep -q "is blocked" && ok "policy rejection message" || bad "missing policy message: $OUT"
+
 echo ""
 echo "═══════════════════════════════════════"
 echo "Result: $PASS passed / $FAIL failed"

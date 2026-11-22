@@ -1,5 +1,9 @@
 // v0.5.0 S2：hook 接线纪律（默认不装、显式旗标、只读、失败不拖垮宿主）。
 import { describe, it, expect } from 'vitest';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { cmdInstall } from '../../src/commands/install.js';
 
 describe('install --print-hooks is read-only', () => {
@@ -27,5 +31,35 @@ describe('install --print-hooks is read-only', () => {
     // 语义由 CLI 分派钉住：旗标缺省时 cmdInstall 走原有 target 分支。
     const flags: Record<string, string | true> = {};
     expect(flags['print-hooks']).toBeUndefined();
+  });
+
+  it('A7: --print-hooks leaves client configs byte-identical, no backups or rule files', async () => {
+    // 在隔离的假 home 里放一份"客户端配置"，调用前后做字节快照。
+    const sandbox = mkdtempSync(join(tmpdir(), 'omem-install-hooks-'));
+    const cfgDir = join(sandbox, '.claude');
+    const { mkdirSync } = require('node:fs');
+    mkdirSync(cfgDir, { recursive: true });
+    const cfgPath = join(cfgDir, 'settings.json');
+    const original = '{"mcpServers":{"other":{"command":"other"}}}\n';
+    writeFileSync(cfgPath, original, 'utf8');
+    const before = readdirSync(sandbox);
+
+    const origHome = process.env.HOME;
+    const origLog = console.log;
+    process.env.HOME = sandbox;
+    console.log = () => {};
+    let code = -1;
+    try {
+      code = await cmdInstall({ _: [], flags: { 'print-hooks': true } });
+    } finally {
+      console.log = origLog;
+      if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    }
+    expect(code).toBe(0);
+    expect(readFileSync(cfgPath, 'utf8')).toBe(original);
+    // 目录里没有新增备份 / 规则文件。
+    expect(readdirSync(sandbox)).toEqual(before);
+    expect(existsSync(join(cfgDir, 'settings.json.omem-backup'))).toBe(false);
+    rmSync(sandbox, { recursive: true, force: true });
   });
 });
