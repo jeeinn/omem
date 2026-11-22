@@ -30,6 +30,11 @@ export function quoteCoverageNotice(c: QuoteCoverage): string[] {
   } else if (c.quotes > 0) {
     lines.push('  Every quote is a verbatim substring of a ## user section.');
   }
+  // S1-c：逐条引文可复核到来源会话（裸 session_id + 证据域指纹）。
+  for (const h of c.hits ?? []) {
+    const preview = h.quote.length > 48 ? `${h.quote.slice(0, 48)}…` : h.quote;
+    lines.push(`  ↳ ${h.topic} [${h.layer}] "${preview}" → session ${h.sessionId} (userKey ${h.userKey})`);
+  }
   return lines;
 }
 

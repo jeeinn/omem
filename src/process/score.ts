@@ -397,6 +397,18 @@ export interface QuoteCoverage {
   noQuote: number;
   /** 未纳入审计的条目（stale/archived/manual/llm/过目）。 */
   skipped: number;
+  /** v0.5.0 S1-c：每条命中引文的来源会话，供人复核「证据从哪来」。 */
+  hits: QuoteHit[];
+}
+
+export interface QuoteHit {
+  topic: string;
+  quote: string;
+  layer: 'current' | 'legacy';
+  /** 命中的裸 session id（不带 collector 前缀）。 */
+  sessionId: string;
+  /** 证据域用户文本指纹（evidenceUserKey），与印证去重同口径。 */
+  userKey: string;
 }
 
 /**
@@ -408,19 +420,27 @@ export interface QuoteCoverage {
  * 但引文确实存在于某篇会话里，应算命中（不因台账不全造假未命中）。
  */
 export function verifyQuoteCoverage(home: string, index: OmemIndex): QuoteCoverage {
-  // 一次性构建「证据域原文」池：session key → 剥净后的 ## user 文本。
-  const userTexts = new Map<string, string>();
-  const sessionTexts: string[] = [];
+  // 一次性构建「证据域原文」池：session key → { 原文, id, 指纹 }。
+  // S1-c 把命中来源一并记下，不新增读取通道、不改索引结构。
+  interface SessionEvidence { text: string; sessionId: string; userKey: string }
+  const userTexts = new Map<string, SessionEvidence>();
+  const sessionEvidence: SessionEvidence[] = [];
   for (const path of listStoredSessionFiles(home)) {
     const stored = readStoredSession(path);
     if (!stored) continue;
-    const text = evidenceUserText(stored.body);
-    userTexts.set(stored.sessionId, text);
-    userTexts.set(`${stored.agent}:${stored.sessionId}`, text);
-    sessionTexts.push(text);
+    const item: SessionEvidence = {
+      text: evidenceUserText(stored.body),
+      sessionId: stored.sessionId,
+      userKey: evidenceUserKey(stored.body),
+    };
+    userTexts.set(item.sessionId, item);
+    userTexts.set(`${stored.agent}:${item.sessionId}`, item);
+    sessionEvidence.push(item);
   }
+  const sessionTexts = sessionEvidence.map((s) => s.text);
 
   const misses: QuoteMiss[] = [];
+  const hits: QuoteHit[] = [];
   let checked = 0;
   let quotes = 0;
   let matched = 0;
@@ -440,8 +460,8 @@ export function verifyQuoteCoverage(home: string, index: OmemIndex): QuoteCovera
       noQuote++;
       continue;
     }
-    // 该条目声明的来源文本优先（不重复计入池），再加全库扫描。
-    const declared: string[] = [];
+    // 该条目声明的来源优先（不重复计入池），再加全库扫描。
+    const declared: SessionEvidence[] = [];
     for (const id of [fm.session_id, ...(fm.source_sessions ?? [])]) {
       if (!id) continue;
       const t = userTexts.get(id);
@@ -449,9 +469,11 @@ export function verifyQuoteCoverage(home: string, index: OmemIndex): QuoteCovera
     }
     for (const quote of used) {
       quotes++;
-      const hit = declared.some((t) => t.includes(quote)) || sessionTexts.some((t) => t.includes(quote));
-      if (hit) {
+      const found = declared.find((t) => t.text.includes(quote))
+        ?? sessionEvidence.find((t) => t.text.includes(quote));
+      if (found) {
         matched++;
+        hits.push({ topic: fm.topic, quote, layer, sessionId: found.sessionId, userKey: found.userKey });
       } else {
         misses.push({
           topic: fm.topic,
@@ -472,6 +494,7 @@ export function verifyQuoteCoverage(home: string, index: OmemIndex): QuoteCovera
     misses,
     noQuote,
     skipped,
+    hits,
   };
 }
 

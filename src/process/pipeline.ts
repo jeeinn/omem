@@ -50,6 +50,11 @@ export interface RunOpts {
   collectors?: string[];
   /** TTY 进度。非 TTY 调用方传了也只是空操作（由 createRunProgress 决定）。 */
   onProgress?: (phase: string, done: number, total: number) => void;
+  /**
+   * v0.5.0 S2：由 `omem sync --watch-once` 使用。多轮扫描共用一个写台账，
+   * 本轮不 begin/end、不提交；调用方在退出前合并成一次提交，避免 git 历史被切碎。
+   */
+  deferCommit?: boolean;
 }
 
 /** API 加工专用选项：不扫采集器，只 drain 待加工队列。 */
@@ -92,7 +97,7 @@ export function resolveTier(config: OmemConfig, explicit?: Tier): { tier: Tier }
 export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, opts: RunOpts = {}): RunReport {
   const { tier } = resolveTier(config, opts.tier);
   const report = emptyReport(tier);
-  if (!opts.dryRun) beginWriteJournal();
+  if (!opts.dryRun && !opts.deferCommit) beginWriteJournal();
   const scan = scanHome(config, index, opts);
   report.skipped = scan.skipped;
   if (scan.excludedPaths > 0) {
@@ -102,7 +107,7 @@ export function runPipeline(home: string, config: OmemConfig, index: OmemIndex, 
   ingest(home, index, scan.digests, opts.dryRun ?? false, report, opts.onProgress);
   publishGuide(home, index, config, opts.dryRun ?? false, report);
   finish(home, index, report, opts.dryRun ?? false);
-  if (!opts.dryRun) commitRun(home, config, report);
+  if (!opts.dryRun && !opts.deferCommit) commitRun(home, config, report);
   return report;
 }
 
@@ -304,6 +309,21 @@ function commitRun(
     touched,
   );
   if (vcs.status === 'skipped') report.notes.push(`git: ${vcs.reason} (auto_commit=session, nothing committed)`);
+}
+
+/**
+ * v0.5.0 S2：有界 watch 循环退出前，把多轮扫描共用的写台账一次性提交。
+ * 调用方必须先 beginWriteJournal()，并以 deferCommit:true 跑每一轮，否则台账为空。
+ */
+export function commitWatchedRun(
+  home: string,
+  config: OmemConfig,
+  rounds: number,
+  sessionCount: number,
+): void {
+  const touched = endWriteJournal();
+  const vcs = autoCommit(home, config, `omem: sync --watch-once (${rounds} round(s), ${sessionCount} session(s))`, touched);
+  if (vcs.status === 'skipped') appendLog(home, 'watch-once', { rounds, reason: vcs.reason });
 }
 
 function readBodyChars(path: string): number {

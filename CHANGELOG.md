@@ -15,11 +15,25 @@
 
 ## [Unreleased]
 
-暂无。
+v0.5.0 方向：可信度可观测 + 上下文预算（路线图见 [`docs/omem-v0.5-Roadmap.md`](docs/omem-v0.5-Roadmap.md)）。
+
+### 新增
+
+- **会话证据去噪与自动化识别（S1，只读）**：`evidenceClaims()` 按轮次列出 `## user` 段并标出低信号形状（命令块 / 反问句 / 过短），不做语义裁定、不改分；`classifySession()` 用「同指纹跨 ≥3 会话且近似周期」这一硬信号 + 至少一条辅助信号识别自动化例程会话，在 `PROCESS.md` 行尾标 `(likely-automation: …)`，判定依据写 `logs/`。标记不写 `skip` 台账、不删会话、不改任何 frontmatter；人工确认后显式 `omem skip`。
+- **引文溯源（S1-c）**：`omem verify --quotes` 逐条报出命中引文的来源会话裸 `session_id` 与 `userKey`，可回溯复核；零新增工具与模块。
+- **有界驻留采集（S2）**：`omem sync --watch-once [--quiet-ms N] [--hard-cap-ms N]`——先全量扫描 → 监听采集器根 → 静默窗无事件 → 复扫确认 → 退出；默认静默窗 2s、硬上限 30s（最大 120s），事件去抖抑制风暴，多轮扫描经 `deferCommit` 合并成一次 git 提交。**不是 daemon**：无常驻进程 / 跨进程锁 / 自启配置，watcher `unref()` 保证静默窗到期即退出。`work` profile 下显式拒绝自动入口（合规：避免把公司会话写进本地库），手动 `omem sync` 不变。`omem install --print-hooks` 只读打印接线片段，默认不装、不写客户端规则文件（遵守 install 六条写纪律）。
+
+### 变更
+
+- **可逆遗忘口径澄清（S4，只核查 + 文档，无新模块）**：确认 `stale × 0.5` 检索降权（`search.ts:84,99`）、`formatStaleness` 在 MCP/CLI/review/MEMORY-INDEX 五个输出面呈现 `not reviewed (cooled)`、`mergeEvidence` 8 条 / 2000 字符上限、`omem redact --yes` 为唯一硬删，均已在 v0.4.0 生效。README 补写「可检索性衰减 ≠ 删除」的说明；不引入时间衰减或遗忘算法。
+
+### 修复
+
+- **PROCESS.md 隐藏会话的「假出口」（S3）**：预算隐藏组此前提示 `search_memory(topic="<name>")`，但 `topic` 只走文档检索、取不到会话原文，Agent 看到标记也拿不到内容。现改为输出一条**真实被隐藏**的裸 `session_id`，指向已存在的 `search_memory(session_id="<id>")` 通道（零工具面税）；其余会话随本批收缩自动回到清单。Unassigned 隐藏行同样处理。新增断言钉住：提示里出现的工具 + 参数组合必须真能取到 `## user` 原文，probe 必须来自 hidden 集合。
 
 ## [0.4.0] - 2026-11-22
 
-边界修复 + 可信度可观测（议题计划见 `outputs/omem-v0.4-议题计划.md`）。
+边界修复 + 可信度可观测（议题计划见 [`docs/archive/omem-v0.4-议题计划.md`](docs/archive/omem-v0.4-议题计划.md)）。
 
 ### 新增
 

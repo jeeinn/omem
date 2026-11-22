@@ -35,12 +35,12 @@ const COMMANDS: Record<string, Command> = {
   },
   install: {
     desc: 'Select and wire up local Agents (MCP config + instruction files)',
-    usage: 'omem install [--target a,b|other] [--list] [--print-config <id|generic>] [--command <cmd>]',
+    usage: 'omem install [--target a,b|other] [--list] [--print-config <id|generic>] [--print-hooks] [--command <cmd>]',
     run: cmdInstall,
   },
   sync: {
     desc: 'Ingest session transcripts and refresh PROCESS.md (never calls a model)',
-    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run]',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run] [--watch-once [--quiet-ms N] [--hard-cap-ms N]]',
     run: cmdRun,
   },
   process: {

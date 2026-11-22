@@ -378,6 +378,46 @@ export function evidenceUserText(body: string): string {
 }
 
 /**
+ * v0.5.0 S1-a：只读去噪提示，供 Agent 判断「十几轮里哪句话是稳定事实」。
+ *
+ * 刻意不叫 `extractClaims`：omem 不做语义裁定（AGENTS.md「语义归 Agent」），
+ * 这里只把 `## user` 段按轮次列出、标出低信号形状，不删、不改分、不写盘。
+ * 复用 `sectionRuns` 保证与证据域、指纹口径一致；metadata 围栏已在其中剥除。
+ */
+export interface EvidenceClaim {
+  /** 轮次序号（从 1 起），同一会话内稳定。 */
+  turn: number;
+  text: string;
+  /** 低信号形状，只作提示，Agent 自行决定是否引用。 */
+  lowSignal?: 'command-block' | 'rhetorical' | 'short';
+}
+
+export function evidenceClaims(body: string): EvidenceClaim[] {
+  const { runs } = sectionRuns(body);
+  const seenKeys = new Set<string>();
+  const out: EvidenceClaim[] = [];
+  for (const r of runs) {
+    const text = r.text;
+    // 同一 `## user` 文本跨轮重复只记首次。
+    // 注意不能对单段 text 再调 evidenceUserKey：它会把 text 当整篇会话再切一次
+    // `## user` 段，没有标记时返回空串，导致所有段被判为同一 key、只留第一段。
+    const key = normalizeForHash(text);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    let lowSignal: EvidenceClaim['lowSignal'];
+    if (/(^|\n)\s*(```|\$\s|git\s|npm\s|curl\s|cd\s)/.test(text) || text.startsWith('/')) {
+      lowSignal = 'command-block';
+    } else if (/[?？]\s*$/.test(text.trim())) {
+      lowSignal = 'rhetorical';
+    } else if ([...text].length < 12) {
+      lowSignal = 'short';
+    }
+    out.push({ turn: out.length + 1, text, ...(lowSignal ? { lowSignal } : {}) });
+  }
+  return out;
+}
+
+/**
  * 按 `## user` 出可引用的段落 + assistant 段计数（beta.9 / T04 读取通道）。
  *
  * 与 `evidenceUserText` **同一个实现**（`sectionRuns`）：否则「检索里没有 Conversation info、

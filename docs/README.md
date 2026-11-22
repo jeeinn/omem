@@ -12,6 +12,7 @@
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 现行分层、数据流、生命周期与检索口径 |
 | [`AGENTS.md`](../AGENTS.md) | Agent / 贡献者不变量与模块边界 |
 | [`CHANGELOG.md`](../CHANGELOG.md) | 版本变更记录（Keep a Changelog 格式） |
+| [`omem-v0.5-Roadmap.md`](./omem-v0.5-Roadmap.md) | **现行开工依据**：v0.5.0 五痛点议题、依赖顺序、验收与 go/no-go 门槛 |
 | [`手动测试指南.md`](./手动测试指南.md) | CLI 手工回归 |
 | [`记忆可信度的人工核实与Agent协作手册.md`](./记忆可信度的人工核实与Agent协作手册.md) | 人工过目与 Agent 协作测可信度 |
 

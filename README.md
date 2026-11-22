@@ -9,6 +9,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 - Markdown 是事实源，Obsidian 里改完，下次访问会吸回索引
 - `omem backup` 用 git 做备份和跨机器同步；冲突只报告，不自动合并
 - 不自动删除。硬删只有 `omem redact`
+- **可逆遗忘**：`omem review --gc` 只把长期未过目的条目标 `stale`，检索时按 `×0.5` 降权（`search.ts:84,99`）；痕迹、git 历史与证据链都保留，`stale` 可被再次写入或人工过目复活。这是「可检索性衰减」而非删除，所以 omem 不引入时间衰减或遗忘算法。MCP 命中行、CLI 检索、`review`、`MEMORY-INDEX.md` 都会显示 `not reviewed (cooled)`（`formatStaleness`）。证据历史链由 `mergeEvidence` 限 8 条 / 2000 字符，并按 `evidence_current` 分层，不会随时间无限膨胀
 - MCP 默认只暴露 `search_memory` / `save_memory`
 
 分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；版本变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
@@ -125,6 +126,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | `omem init [--force]` | 只建库（数据目录、配置、git 数据仓）。已初始化时提示用 `--force` 重置（删除 `.git` 重新 `git init`；重置前自动打一份快照）。采集用 `omem sync` |
 | `omem install` | 写入客户端 MCP 配置。`--target` 跳过交互，`--print-config` 只预览 |
 | `omem sync [--since 7d] [--collectors id,id]` | 采集会话到 `sessions/`，并更新 `PROCESS.md`。**不调用模型**。不带 `--collectors` 时扫全部已有目录 |
+| `omem sync --watch-once [--quiet-ms N] [--hard-cap-ms N]` | 有界驻留的一次性采集：先全量扫描 → 监听采集器根 → 静默窗无事件 → 复扫确认 → 退出。默认静默窗 2s、硬上限 30s（最大 120s），事件去抖，多轮合并成一次 git 提交。**不是 daemon**：无常驻进程、无跨进程锁、无自启配置。`work` profile 下拒绝（自动入口会把公司会话写进本地库），改手动跑 `omem sync`。hook 接线用 `omem install --print-hooks` 只读预览，omem 不自动安装、不写客户端规则文件 |
 | `omem process [--limit N] [--dry-run]` | 可选：用 API 模型 drain 待加工队列，写入活文档。**不扫采集器**。详见下方 API 配置 |
 | `omem skip <session-id>` | 把会话标记为「不必沉淀」，从 `PROCESS.md` 的待办里移出（`list` / `remove` 可回看） |
 | `omem add <content> --topic <name>` | 手工写入一份活文档，自动脱敏。同 topic 再写一次就是覆盖（git 保留历史） |
@@ -208,6 +210,8 @@ omem add "连接池上限 20，超过排队（补充：不要盲调大）" --top
 更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。覆盖前自动打一次快照。
 
 继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。`evidence` 是历史链。同一次写入另存 `evidence_current`（这次提交的引文，可以是空数组）；计分和 `omem verify` 只认这一层。旧文件没有该字段时，仍按 `evidence` 计分，直到下一次覆写。覆写后分数下降时，回执写明当前层换成了这次的引文；`verify` 的漂移行标明复算用的是当前层还是旧链，当前层为空时不再把原因说成会话被删。
+
+**会话证据去噪与自动化识别（v0.5.0 S1，只读）**：十几轮交互里哪句算稳定事实，omem 不做语义裁定，只把 `## user` 段按轮次列出并标出低信号形状（命令块 / 反问句 / 过短），供 Agent 自行判断。自动化例程会话（发邮件、抓热点、写日记、定时任务）在 `PROCESS.md` 行尾标 `(likely-automation: …)` 并附判定依据写进 `logs/`；判据是「同用户文本指纹跨 ≥3 会话且近似周期」这一硬信号，加上至少一条辅助信号——单看「用户段占比低」或「命中例程词」都不标（前者是 Claude Code 常态，后者噪声大）。**标记纯只读**：不写 `skip` 台账、不删会话、不改 `confidence` / `status` / 任何 frontmatter；确认是噪声后由人显式跑 `omem skip <session-id> --reason duplicate`。`omem verify --quotes` 同时逐条报出引文命中的来源会话裸 id 与 `userKey`，可回溯复核。
 
 **引文逐字审计（`omem verify --quotes`，v0.4.0）**：仅对 `active` + `source=agent` + 未经人工过目的条目，检查 `evidence_current`（缺席时退回 `evidence`）是否为某篇 `## user` 正文的**严格逐字子串**——不大小写折叠、不归一化标点，助手机的回答永不作证据。这里刻意**不复用计分用的归一化比对**：计分允许标点/大小写等价，审计要证明的是「逐字抄自用户原话」，两把尺子用途不同，也没有引入第三种 hash。命中扫描全库会话（不只 `session_id`），避免台账漏记造成假未命中。合法零引文条目（0.35 ungrounded）单列 `zero-quote`、不进分母、不判失败；全库零引文时覆盖率显示 `n/a` 而非 100%。结果写入 `logs/omem.log` 的 `quote-coverage` 行；`--quotes` 是 opt-in，无此旗标时 `verify` 行为与 v0.3.2 完全一致（永远返回 0）。有未命中时该命令返回 2（政策拒绝），`release-check` 汇总后自身返回 1。发布门禁跑的是 `tests/eval/quote-coverage.json` 固定 fixture（隔离 `OMEM_HOME`，不读真实记忆）——验证审计机制按预期工作，不对用户自己的库做发布判定；`npm run eval:quotes` 可单独复跑。
 

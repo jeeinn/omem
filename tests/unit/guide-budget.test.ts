@@ -148,6 +148,32 @@ describe('预算触发时：标记按会话计，恒等式成立', () => {
     const hiddenLines = Number(/\((\d+) line\(s\)\)/.exec(line)![1]);
     expect(hiddenSessions).toBeGreaterThan(hiddenLines); // 折叠行代表的会话更多
   });
+
+  it('S3: 隐藏提示给的是真实可执行的 session_id 通道，不是取不到原文的 topic 检索', () => {
+    seq = 0;
+    const big = refs(600, 300);
+    const text = renderGuide([group('local:huge', big)], 0, [], [], { sessions: 900, shownSessions: 0 }, { maxBytes: 20_000 });
+    const line = text.split('\n').find((l) => l.startsWith('  - …'))!;
+    // 不能再用假出口：topic= 走文档检索，拿不到会话原文。
+    expect(line).not.toContain('search_memory(topic=');
+    expect(line).toContain('search_memory(session_id="');
+    const probe = /search_memory\(session_id="([^"]+)"\)/.exec(line)?.[1];
+    expect(probe).toBeTruthy();
+    // probe 必须来自 hidden 集合，而不是正文已列出的 visible 行。
+    const visibleIds = new Set(sessionLines(text).map((l) => /`([^`]+)`/.exec(l)?.[1]));
+    expect(visibleIds.has(probe!)).toBe(false);
+    expect(big.some((r) => r.sessionId === probe)).toBe(true);
+  });
+
+  it('S3: Unassigned 隐藏行同样给出真实 hidden id', () => {
+    seq = 0;
+    const unassigned = refs(235);
+    const text = renderGuide([], 0, unassigned, [], { sessions: 235, shownSessions: 0 }, { maxBytes: 6_000 });
+    const line = text.split('\n').find((l) => l.startsWith('- …'))!;
+    expect(line).toContain('search_memory(session_id="');
+    const probe = /search_memory\(session_id="([^"]+)"\)/.exec(line)?.[1];
+    expect(unassigned.some((r) => r.sessionId === probe)).toBe(true);
+  });
 });
 
 describe('消灭手写副本：规则句只从 instructions.ts 取', () => {

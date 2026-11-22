@@ -14,8 +14,9 @@ export const VALUE_FLAGS = new Set([
   // search
   // （domain/project 已在上）
   'as-of',
-  // run
+  // run / sync --watch-once（S2 有界驻留，退出时长可调）
   'tier', 'since', 'session', 'collectors', 'base', 'model', 'limit',
+  'quiet-ms', 'hard-cap-ms',
   // review
   'confirm', 'dismiss', 'stale', 'port', 'timeout',
   // redact

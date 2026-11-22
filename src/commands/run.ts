@@ -14,6 +14,7 @@ import type { ParsedArgs } from '../cli-args.js';
 import type { Tier } from '../core/config.js';
 import { COLLECTOR_IDS, getCollector, type CollectorId } from '../collect/collector.js';
 import { cmdProcess, processSummaryLines } from './process.js';
+import { cmdWatchOnce } from './watch-once.js';
 
 /** 跑完后的总结和下一步。不包含会话路径或逐条结果。 */
 export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
@@ -102,6 +103,10 @@ export async function cmdRun(args: ParsedArgs): Promise<number> {
   const collectors = parseCollectors(args.flags);
   const { home, config, index } = openCtx();
   try {
+    // S2：有界驻留的一次性采集。显式旗标触发，默认 sync 行为完全不变。
+    if (flagBool(args.flags, 'watch-once')) {
+      return await cmdWatchOnce(args, config, index, home);
+    }
     const present = presentCollectors(config, collectors ?? COLLECTOR_IDS);
     if (present.length > 0) console.log(`Collectors: ${present.join(', ')}`);
 

@@ -10,6 +10,7 @@ import { appendLog } from '../core/log.js';
 import { deriveTitle } from '../core/entry.js';
 import { listEntries } from '../core/store.js';
 import { readStoredSession, sessionUserHash, splitSessionKey } from '../collect/session-store.js';
+import { buildAutomationCorpus, classifySession } from './automation.js';
 import { RULE_CONFIDENCE, RULE_EVIDENCE } from '../context/instructions.js';
 import type { OmemConfig } from '../core/config.js';
 import type { OmemIndex } from '../core/index.js';
@@ -26,6 +27,11 @@ export interface GuideSessionRef {
    * 渲染出来的标记才是给 Agent 看的那句话。
    */
   copies?: number;
+  /**
+   * v0.5.0 S1-b：只读的自动化会话标记。`signals` 只用于渲染与写 logs，
+   * 绝不写 skip 台账、不改任何 frontmatter 或 confidence。
+   */
+  automationSignals?: string[];
 }
 
 export interface GuideTopic {
@@ -262,10 +268,14 @@ function buildGuide(
         if (statSync(s.path).size > LONG_BYTES) note = ' (long; read in parts)';
       } catch { /* 刚写入时读不到长度就略过 */ }
       const copies = s.copies && s.copies > 1 ? ` (same-user-text: ${s.copies})` : '';
+      // v0.5.0 S1-b：只读标记。Agent 看到后自行判断，程序不替它 skip。
+      const auto = s.automationSignals?.length
+        ? ` (likely-automation: ${s.automationSignals.join(', ')})`
+        : '';
       // 不再带绝对路径：它占旧体积 50.7%，而且会话正文要按 session_id 取（读取通道）。
       // 只列裸 session_id：采集器名不参与任何后续调用（readSessionsById 扫全部采集器目录），
       // 却要占 10B/行 ≈ 5.7KB/572 行——正是这点体积让预算护栏开始隐藏会话。
-      lines.push(`  - ${BT}${s.sessionId}${BT}${note}${copies}`);
+      lines.push(`  - ${BT}${s.sessionId}${BT}${note}${copies}${auto}`);
     }
     const hiddenRefs = topic.sessions.slice(visible.length);
     if (hiddenRefs.length > 0) {
@@ -273,7 +283,10 @@ function buildGuide(
       // 只说「…more」等于告诉 Agent「有东西你看不到但拿不到」，比不提示更糟。
       const hiddenCount = refsOf(hiddenRefs);
       const lineNote = hiddenCount !== hiddenRefs.length ? ` (${hiddenRefs.length} line(s))` : '';
-      lines.push(`  - …${hiddenCount} session(s)${lineNote} hidden by the size budget. Narrow the topic, or search_memory(topic="<name>") for the rest.`);
+      // 真出口：给出一条**真实被隐藏**的裸 id，走已存在的 session_id 读取通道。
+      // 旧文案写 search_memory(topic="…")，那是文档检索、取不到会话原文，等于没有出口。
+      const probe = hiddenRefs[0].sessionId;
+      lines.push(`  - …${hiddenCount} session(s)${lineNote} hidden by the size budget. Read one now with search_memory(session_id="${probe}"); the rest return as this batch shrinks.`);
     }
     lines.push('');
   }
@@ -288,7 +301,8 @@ function buildGuide(
       // 那是本轮唯一连数字都没有的丢失点——比被标记的 30 份更糟。
       const hiddenCount = refsOf(hiddenUnassigned);
       const lineNote = hiddenCount !== hiddenUnassigned.length ? ` (${hiddenUnassigned.length} line(s))` : '';
-      lines.push(`- …${hiddenCount} session(s)${lineNote} hidden by the size budget. Read them after this batch shrinks, or save with an explicit topic.`);
+      const probe = hiddenUnassigned[0].sessionId;
+      lines.push(`- …${hiddenCount} session(s)${lineNote} hidden by the size budget. Read one now with search_memory(session_id="${probe}"); the rest return as this batch shrinks.`);
     }
     lines.push('');
   }
@@ -452,20 +466,42 @@ export function pendingTopics(
   }
 
   // user 段指纹按路径缓存（mtime 失效）；一轮渲染约千次 stat，重读只发生在文件变化后。
-  const uhCache = new Map<string, { mtime: number; hash: string }>();
-  const userHashOf = (path: string): string => {
+  // v0.5.0 S1-b：同一份 body 顺带算自动化信号，避免为打标再读一遍全部会话。
+  const uhCache = new Map<string, { mtime: number; hash: string; body: string }>();
+  const sessionInfoOf = (path: string): { hash: string; body: string } => {
     try {
       const st = statSync(path);
       const cached = uhCache.get(path);
-      if (cached && cached.mtime === st.mtimeMs) return cached.hash;
+      if (cached && cached.mtime === st.mtimeMs) return { hash: cached.hash, body: cached.body };
       const stored = readStoredSession(path);
       const hash = stored ? (stored.userHash ?? sessionUserHash(stored.body)) : '';
-      uhCache.set(path, { mtime: st.mtimeMs, hash });
-      return hash;
+      const body = stored?.body ?? '';
+      uhCache.set(path, { mtime: st.mtimeMs, hash, body });
+      return { hash, body };
     } catch {
-      return '';
+      return { hash: '', body: '' };
     }
   };
+  const userHashOf = (path: string): string => sessionInfoOf(path).hash;
+
+  // 只对「本轮待办」会话建 corpus：已吸收/skip 的不参与统计，也不该被标。
+  const pendingRecords = index.listSessions().filter((rec) => {
+    const { sessionId } = splitSessionKey(rec.session_id);
+    return !absorbed.has(sessionId) && !absorbed.has(rec.session_id)
+      && !skipped.has(sessionId) && !skipped.has(rec.session_id);
+  });
+  const corpus = buildAutomationCorpus(pendingRecords.map((rec) => {
+    const info = sessionInfoOf(rec.path);
+    return { body: info.body, started: rec.last_ts };
+  }));
+  const automationOf = (rec: { path: string; msg_count: number }): string[] => {
+    const info = sessionInfoOf(rec.path);
+    if (!info.body) return [];
+    const verdict = classifySession(rec.msg_count, info.body, corpus);
+    return verdict.likelyAutomation ? verdict.signals : [];
+  };
+  // 判定依据写 logs（只读可观测），不写 skip 台账、不改任何文件。
+  const marked: { sessionId: string; signals: string[] }[] = [];
 
   const byTopic = new Map<string, GuideTopic>();
   // 片段级去重：同组内同指纹的会话合并为一行 ref（copies 递增），不再逐条列出。
@@ -502,11 +538,14 @@ export function pendingTopics(
       continue;
     }
     pendingSessionCount++;
+    const signals = automationOf(rec);
+    if (signals.length > 0) marked.push({ sessionId, signals });
     const ref: GuideSessionRef = {
       path: rec.path,
       sessionId,
       agent: rec.agent || agent,
       copies: 1,
+      ...(signals.length > 0 ? { automationSignals: signals } : {}),
     };
     if (!project || project === 'unknown') {
       const prev = uh ? unassignedSeen.get(uh) : undefined;
@@ -558,6 +597,10 @@ export function pendingTopics(
     (n, t) => n + t.sessions.reduce((m, s) => m + (s.copies ?? 1), 0),
     0,
   );
+  // 只读可观测：判定依据落 logs/，供人复核后再显式 `omem skip`。绝不写 skip 台账。
+  if (marked.length > 0) {
+    appendLog(home, 'automation-mark', { count: marked.length, items: marked.slice(0, 50) });
+  }
   return [
     shown,
     Math.max(0, all.length - batch),

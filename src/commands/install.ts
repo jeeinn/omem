@@ -34,6 +34,21 @@ export async function cmdInstall(args: ParsedArgs): Promise<number> {
     return 0;
   }
 
+  // S2：hook 接线只读预览。默认不装、显式旗标触发、绝不写客户端规则文件
+  // （AGENTS.md install 六条写纪律）。失败不拖垮 install 主流程。
+  if (flagBool(args.flags, 'print-hooks')) {
+    console.log('# Optional ingestion hook (omem never installs this automatically).');
+    console.log('# Paste into your client hook config yourself; omem only writes MCP config.');
+    console.log('# Stop/PostToolUse trigger, bounded residency:');
+    console.log(JSON.stringify({
+      hooks: {
+        Stop: [{ command: 'omem sync --watch-once --quiet-ms 2000 --hard-cap-ms 30000' }],
+      },
+    }, null, 2));
+    console.log('# work profile: this hook is refused; run `omem sync` manually instead.');
+    return 0;
+  }
+
   // --print-config：只读预览将写入的配置（纯内存渲染，不落盘、不备份）
   const printId = flagStr(args.flags, 'print-config');
   if (printId) {

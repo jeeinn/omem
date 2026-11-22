@@ -6,6 +6,7 @@
 
 | 文件 | 原来做什么 | 为何归档 |
 | --- | --- | --- |
+| `omem-v0.4-议题计划.md` | v0.4.0 立项定义（as_of / 引文覆盖率 / Agent 指引 / instructions 瘦身） | v0.4.0 已发布（tag `v0.4.0`）；后续开工依据为 [`omem-v0.5-Roadmap.md`](../omem-v0.5-Roadmap.md) |
 | `omem-v0.3-implementation-plan.md` | v0.3 工程决策与 S0–S6 进度 | S0–S6 已完成；仍生效的不变量在 `AGENTS.md` |
 | `omem-重构方案-路B.md` | v0.2 决策记录与 §14 进度 | v0.2 已完成；仍生效的不变量在 `AGENTS.md` |
 | `omem-process-command-plan.md` | `omem process` 与 `sync --tier api` 拆分 | 命令已在源码和 README |
