@@ -15,7 +15,15 @@
 
 ## [Unreleased]
 
-v0.5.0 方向：可信度可观测 + 上下文预算（路线图见 [`docs/omem-v0.5-Roadmap.md`](docs/omem-v0.5-Roadmap.md)）。
+暂无。
+
+## [0.5.0] - 2026-11-22
+
+可信度可观测 + 上下文预算（路线图见 [`docs/omem-v0.5-Roadmap.md`](docs/omem-v0.5-Roadmap.md)）。
+
+> **版本跳跃提示**：`0.4.0` 只打了 git tag、未发 npm 包，本次 `0.5.0` 直接成为 `latest`。
+> 从 `0.3.2` 升级会一次性拿到 0.4.0 与 0.5.0 两版变更；0.x 阶段 minor 可能含不兼容变更，
+> 升级前请读本文件 `[0.4.0]` 与 `[0.5.0]` 两节。
 
 ### 新增
 
@@ -163,7 +171,8 @@ npm `latest` 此前停在 `0.1.0-beta.8`；`v0.2.0-beta.1` 只存在于 git tag�
 
 > 更早的 `0.1.0-beta.3` – `0.1.0-beta.7` 为快速迭代期，未留档逐版发布说明；变更明细见对应 git tag。
 
-[Unreleased]: https://github.com/jeeinn/omem/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jeeinn/omem/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jeeinn/omem/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jeeinn/omem/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/jeeinn/omem/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jeeinn/omem/compare/v0.3.0...v0.3.1
