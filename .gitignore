@@ -18,3 +18,5 @@ Thumbs.db
 # 工具内部状态（非项目源码）
 .workbuddy/
 .cursor/
+# 规划与交付产出（非源码）
+outputs/

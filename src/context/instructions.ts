@@ -14,6 +14,10 @@ export const RULE_EVIDENCE =
 export const RULE_CONFIDENCE =
   '`confidence` is the only trust number: 0.35 ungrounded, 0.55 anchored to a quoted `## user` line, up to 0.80 with independent corroboration; 0.90 is reserved for a human review (`omem review --confirm`, or the opt-in `memory_feedback` tool) — never write 0.90 yourself';
 
+/** 多跳检索：评测 tests/eval/search-capability.json 的 mh-* 用例量化了「拆开命中、合起来零命中」。 */
+export const RULE_MULTIHOP =
+  'For multi-hop questions, search one subquestion at a time and feed each hit into the next query — keywords are AND-matched, so one combined query returns nothing. For past values, use `as_of` on the same query.';
+
 /**
  * MCP `initialize.instructions` 正文。
  * 长度控制在 2KB 以内：部分客户端会截断或拒收过长的 instructions。
@@ -31,6 +35,8 @@ export function mcpInstructions(home: string): string {
     '4. `save_memory` needs `topic` (always), `session_id` copied as the bare id (no collector prefix), and evidence quoted from the `## user` text returned in step 2. Writing to an existing topic overwrites that document; git keeps the previous version.',
     '5. Read the response before assuming success: it reports the topic, whether the document was created or updated, whether the evidence anchored, whether the content was rejected for length, and any topic collisions. Fix and rewrite instead of retrying blindly.',
     '6. Say what you wrote and where it landed (topic, confidence). Do not ask the user to "confirm" it for the record — you have no way to record a confirmation, and a human review in `omem review` is the only path to 0.9.',
+    '',
+    `Retrieving: ${RULE_MULTIHOP}`,
     '',
     `Hard rules: one document per topic — reuse an existing topic name instead of coining a near-duplicate; never delete; the conversation that organises PROCESS.md is not itself a memory; each write leaves one local git commit when the store is a git repo (pushing is omem backup); (${RULE_CONFIDENCE}).`,
     '',

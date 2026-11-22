@@ -2,7 +2,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { readFileSync, rmSync } from 'node:fs';
 import { OmemIndex } from '../../src/core/index.js';
-import { exportContext, CONTEXT_TARGETS } from '../../src/context/export.js';
+import { exportContext, CONTEXT_TARGETS, instructionsFor } from '../../src/context/export.js';
+import { mcpInstructions, RULE_MULTIHOP } from '../../src/context/instructions.js';
 import { writeEntry } from '../../src/core/store.js';
 import { newFrontmatter } from '../../src/core/entry.js';
 import { files } from '../../src/core/paths.js';
@@ -75,5 +76,14 @@ describe('context: export four targets', () => {
 
   it('unknown target throws UsageError', () => {
     expect(() => exportContext(home, index, 'vim')).toThrow(/Unknown --for target/);
+  });
+
+  it('multi-hop retrieval guidance is shared by MCP instructions and exported rules', () => {
+    expect(mcpInstructions(home)).toContain(RULE_MULTIHOP);
+    expect(instructionsFor(home)).toContain(RULE_MULTIHOP);
+    // 三个要点：逐跳、AND 匹配、历史值走 as_of。
+    for (const phrase of ['one subquestion at a time', 'AND-matched', 'as_of']) {
+      expect(RULE_MULTIHOP).toContain(phrase);
+    }
   });
 });

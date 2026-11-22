@@ -8,7 +8,7 @@ import { generateMemoryIndex } from '../core/lifecycle.js';
 import { UsageError } from '../core/util.js';
 // evidence 门槛与置信度来源这两条规则同时出现在 MCP instructions 里（context/instructions.ts），
 // 改一处必须改另一处，所以抽成常量，两边共用同一句话。
-import { RULE_CONFIDENCE, RULE_EVIDENCE } from './instructions.js';
+import { RULE_CONFIDENCE, RULE_EVIDENCE, RULE_MULTIHOP } from './instructions.js';
 
 export type ContextTarget = 'claude-code' | 'cursor' | 'codex' | 'plain';
 
@@ -26,6 +26,8 @@ export function instructionsFor(home: string): string {
     '## omem usage instructions (auto-generated, do not edit)',
     '',
     '**Read:** the index above is this user\'s long-term memory. Search living documents first via MCP `search_memory` or `omem search "<keywords>"`. Pass `scope=sessions` or `omem search --sessions` only when the original wording is needed. If nothing matches, say so; do not invent.',
+    '',
+    `**Retrieve:** ${RULE_MULTIHOP}`,
     '',
     `**Write:** when this session produces a stable preference, decision, configuration, or lesson, call MCP \`save_memory\` with a \`topic\`. One living document per topic — writing to an existing topic overwrites that document (git keeps the previous version). To absorb new transcripts, read \`${guide}\` (groups by project fingerprint plus sessions not yet in the document; a group is not a topic name — pass your own \`topic\`), and pass \`session_id\` as the bare id shown there.`,
     '',

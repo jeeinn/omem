@@ -71,7 +71,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
       description:
         'Search the user\'s own long-term memory (preference / fact / decision / experience). Call BEFORE answering whenever ' +
         'the question touches a past preference, decision, environment setup, command, or pitfall — and whenever unsure whether ' +
-        'the user already told you this. An empty result is a real answer: say "you have no stored memory about X".\n\n' +
+        'the user already told you this. Empty result is a real answer. Multi-hop: search one subquestion at a time (AND-matched).\n\n' +
         'Words are AND-matched as substrings, so an uncommon word can rule out the whole query. Filters are exact: `topic` ' +
         'fetches one living document; `domain` / `project` must be copied from a previous hit or PROCESS.md. `detail=true` ' +
         'returns the full body, path, confidence and status; `top_k` is 1-20. `scope=sessions` returns transcript excerpts ' +
