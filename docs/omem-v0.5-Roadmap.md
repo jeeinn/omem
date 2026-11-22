@@ -146,22 +146,22 @@ v0.5.0 定位「**可信度可观测 + 上下文预算**」，收 **S1 + S3 两�
 - 项目名称与定位：omem — git 原生个人 AI 记忆层
 - 平台选型：npm CLI 包 + stdio MCP server；无数据库、无 daemon
 - 技术栈：TypeScript / Node ≥22.5 / Vitest / git；运行时仅 MCP SDK + node-zstd
-- 当前阶段：**v0.5.0 全量发布执行中（用户 2026-11-22 明确授权「直接全量发布 v0.5.0」＝A 案，推翻 B 案推荐）**
-- 已完成产出：v0.4.0（`465faf8`，tag 已推）；v0.5.0 提交 `3eac868`；Phase 2 修复提交 `0f37814`；[`omem-v0.5-测试保障方案.md`](./omem-v0.5-测试保障方案.md)（GO）；[`omem-v0.5-上线发布方案.md`](./omem-v0.5-上线发布方案.md)（Phase 3 方案 + 回滚四情形）
-- 下一步：阶段 0（版本/文档/门禁）→ 阶段 1（push + 精确 tag）→ 阶段 2（npm publish 到 latest）→ Phase 4 运维保障
-- **发布前实测（2026-11-22）**：远端 main / tag 均停在 `465faf8`（本地领先 2 笔）；`npm whoami --registry=https://registry.npmjs.org` 返回 **E401**（登录态失效）；`npm dist-tag ls` 快照 `beta: 0.3.1` / `latest: 0.3.2`，证实 0.4.0 未发包；`package.json` 已 bump 0.5.0、CHANGELOG 已转正
+- 当前阶段：**v0.5.0 git 侧已发布（`08fcad7` / tag `v0.5.0` 已推远端，同点）；npm publish 因凭据 E401 阻塞**
+- 已完成产出：v0.4.0（`465faf8`）；v0.5.0 实施 `3eac868`；Phase 2 修复 `0f37814`；发版提交 `08fcad7`；[`omem-v0.5-测试保障方案.md`](./omem-v0.5-测试保障方案.md)（GO）；[`omem-v0.5-上线发布方案.md`](./omem-v0.5-上线发布方案.md)（Phase 3 方案 + 执行记录 + 回滚四情形）
+- 下一步：用户重新 `npm login --registry=https://registry.npmjs.org` 并提供 OTP → publish `0.5.0` 到 latest → 已发布包分级验证 → Phase 4 运维保障
+- **发布实测（2026-11-22）**：完整 `release-check`（精确 tag）OK：`version 0.5.0 == tag v0.5.0`、77 打包文件、dist 72 与 src 1:1；门禁 843 tests / smoke 93-0 / 三套评测全绿 / payload 12,283；`npm whoami --registry=https://registry.npmjs.org` → **E401**（`~/.npmrc` 的 `npm_yJ…` token 失效）；dist-tag 快照 `beta: 0.3.1` / `latest: 0.3.2`（0.4.0 未发包，latest 需从 0.3.2 跳到 0.5.0）
 - **验收口径更正（团长裁决 B）**：§4 与 §6.3 的「第二信号限 ③/④」以实现为准，改为「③ 唯一强信号，④/①/② 为辅助」——④ 单独成立会把长助手回复误标为自动化例程，与「人工实质性陈述必不标」冲突。此更正记于测试保障方案第〇节。
 - 架构决策摘要：常驻 daemon 破三条不变量，改按需 hook；token 先做零每轮税渲染优化；遗忘用既有 stale 降权，不新增模块
-- 里程碑时间线：v0.4.0 发布 2026-11-22；v0.5.0 计划日期待定
+- 里程碑时间线：v0.4.0 git tag 2026-11-22（npm 未发包）；v0.5.0 git tag / push 2026-11-22 17:0x（`08fcad7`），**npm publish 待 OTP**
 - 技术债务清单：~~自动化会话打标~~ 已做（S1）；~~隐藏组假出口~~ 已修（S3）；~~多端 hook 基础~~ 已做（S2，全量多端待 v0.6）；~~work profile 退出码 P0~~ 已修；~~A 案 7 处断言~~ 已补；token B 案待腾挪；真实语料识别准确率 / 漏标门槛归 v0.6
 - **评审更正记录（2026-11-22）**：原稿 4 处「v0.4.0 已做却当新增」的误记已改（分区裁剪、stale 衰减呈现、预算 pin、工具描述长度）；1 处算术冲突已否决（全量首 40 字摘要 → ASCII 54.5 KB / CJK 98 KB 破 45,000 B）；1 处真缺陷保留（假出口）。另修正「零驻留」→「有界驻留」、「9 根」→「9 采集器 / 11 根」、「人工 `## user`」→「人工实质性陈述」、S1-c 落点为增强 `verify --quotes`、S2 补四项落地缺口、`codegraph 无 daemon` 不作决策依据、性能数字须新路径复测。全部经源码 + 实测核对属实，无一条反驳。
 
 ## 十、阶段复盘卡（Phase 3 → Phase 4）
 
-- 完成度：100%（前置清单、三阶段流程、四种回滚、合规、灰度、里程碑、AB 二选一、go/no-go 齐备）
-- 阻塞：3 项硬阻塞（version 未 bump / 本地领先远端 2 笔 / 是否发包未决策），发版 **NO-GO**
-- 下阶段：确认发版形态与授权 → 逐项执行 → Phase 4 运维守护师衔接监控告警与应急
+- 完成度：阶段 0 / 0b / 1 100%（版本、文档、门禁、push、精确 tag 全绿）；**阶段 2 npm publish 未完成**
+- 阻塞：`npm whoami --registry=https://registry.npmjs.org` E401，`~/.npmrc` token 失效，需用户重新登录并提供 OTP
+- 下阶段：恢复登录态 → publish → 已发布包分级验证 → Phase 4 运维守护师衔接监控告警与应急
 
 ## 十一、下一步
 
-v0.5.0 代码门禁 **GO**，发布门禁 **NO-GO**（待决策，非缺陷）。建议先确认「是否发包」——沿用 0.4.0 做法则仅打 tag + 推远端；若发包再定 A/B 形态。所有发版动作逐项单独授权。v0.4.0 上线后 48 小时回访节点尚未到期（11:58 推送），到时回来核对远端 tag 与用户反馈。
+**git 侧已发布**（`v0.5.0` tag 与远端 main 同点 `08fcad7`），**npm 侧未发**（latest 仍 `0.3.2`）。建议重新 `npm login --registry=https://registry.npmjs.org` 并给我 OTP，我据此完成 publish 与 packument 双通道核对；随后进 Phase 4 运维保障。注意 tag 后不得再 commit，否则精确 tag 校验失败。v0.4.0 上线后 48 小时回访节点尚未到期（11:58 推送），到时回来核对远端 tag 与用户反馈。

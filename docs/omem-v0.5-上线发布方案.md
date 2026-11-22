@@ -116,14 +116,58 @@ B 案灰度路径：beta 自愿者 `npm i @jeeinn/omem@beta` → 48h 观察 → 
 
 任一不满足 → **NO-GO**，注明阻塞项上报团长，禁止带病上线。
 
-**当前状态：NO-GO**（三个硬阻塞未解决，且「是否发包」未获授权）。
+**阶段 0 / 1 已执行（2026-11-22，用户授权「直接全量发布 v0.5.0」＝A 案）**：
+
+| 阶段 | 结果 |
+|---|---|
+| 0 版本与文档 | `package.json` → `0.5.0`；CHANGELOG `[0.5.0] - 2026-11-22` + compare 链接 + 版本跳跃提示；README / docs 索引同步 → 提交 `08fcad7 chore: release 0.5.0` |
+| 0b 门禁 | build OK；`npm test` 86 files / 843 tests；smoke 93/0；eval:search 8/8 · capability PASS · quotes PASS；payload 12,283 / instructions 1,976–2,038 / PROCESS.md ≤45,000 B；`release-check --no-tag` OK |
+| 1 推远端 + 打 tag | `push origin main` → `08fcad7`；`git tag v0.5.0` + `push origin v0.5.0`；远端 main 与 tag **同点** `08fcad7`；**完整 `release-check`（精确 tag）OK**：`version 0.5.0 == tag v0.5.0`、77 打包文件、dist 72 与 src 1:1 |
+| 2 npm publish | **阻塞，未执行**。见下 |
+
+**当前状态：阶段 2 阻塞 / 部分发布完成（git 侧已发布，npm 侧未发）**。
+
+阻塞详情：`npm whoami --registry=https://registry.npmjs.org` → **E401 Unauthorized**；默认 registry 是 `https://registry.npmmirror.com/`（镜像不支持 whoami），`~/.npmrc` 中凭据 `npm_yJ…`（40 字符）已失效或被撤销。诊断结论是**凭据问题**，不是代理或 registry 配置错误。按 go/no-go「登录态 / scope / OTP 核验」未通过，禁止带病上线；未做无效 publish 尝试（会 401/400 且 `prepublishOnly` 会重复跑门禁），未改 `~/.npmrc`、未伪造凭据。
+
+发布前留存的快照：`npm dist-tag ls @jeeinn/omem --registry=https://registry.npmjs.org` → **`beta: 0.3.1` / `latest: 0.3.2`**（证实 0.4.0 未发包）。回滚时把 latest 指回 `0.3.2`。
+
+**恢复步骤（需用户提供）**：
+1. `npm login --registry=https://registry.npmjs.org`（交互式，需要 2FA/OTP）重新换发 token；
+2. 复验 `npm whoami --registry=https://registry.npmjs.org`；
+3. `npm publish --registry=https://registry.npmjs.org --otp=<6位动态码>`（A 案不带 `--tag beta`，直接进 latest）；`prepublishOnly` 会自动跑 build + test + 精确 tag 校验；
+4. 等约 3 分钟，双通道核对 `npm view @jeeinn/omem@0.5.0 version` 与 `npm dist-tag ls`，确认 packument 追平；
+5. 在**已发布包**上跑第五节分级验证。
+
+> 注意：tag `v0.5.0` 已推远端且指向最终 commit，**此后不得再 commit**，否则 `prepublishOnly` 的精确 tag 校验会失败；若必须改代码，须走新版本号。
+
+### 发布门禁 flaky 修复（2026-11-22，用户手动 publish 前）
+
+用户手动执行 `npm publish` 时 `prepublishOnly`（`npm run build && npm test && node scripts/release-check.mjs`）报 `npm error code 1`：
+
+```
+Vitest caught 1 unhandled error during the test run.
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+Test Files 86 passed / Tests 843 passed / Errors 1 error
+```
+
+**根因**：vitest `pool: 'forks'` 下多 worker 并行时，worker → 主进程的 birpc RPC 上报偶发超时（birpc `DEFAULT_TIMEOUT = 6e4`，即 60s）。843 个用例全部通过，但 vitest 把该超时记成 unhandled error 并让 `npm test` 退出 1，整链因此中断。属框架级 flake，与产品代码无关。
+
+**排查中证伪的两条假设**（避免后人重复试）：
+- `poolOptions.forks.maxForks: 3` 降并发 → 仍报 1 error，且全量从 ~68s 拖到 ~190s；
+- `reporters: ['dot']` 减少 stdout 写入 → 仍报 1 error。
+
+**有效修复**：`vitest.config.ts` 设 `fileParallelism: false`（单 worker 全串行）。`--no-file-parallelism` 验证 exit=0；固化到配置后按 `prepublishOnly` 的裸命令连跑两次 `npm test`，均 **exit=0 / 86 files / 843 passed / 0 error**。代价是全量墙钟从 ~68s 升到 ~197s；发布门禁要确定性，本地快速迭代可单文件跑 `npx vitest run tests/unit/<file>.test.ts`。
+
+> `vitest.config.ts` 不在 npm 包白名单（`dist + bin + README + NOTICE + package.json`），不影响发布产物；但 `prepublishOnly` 的 `npm test` 读工作区配置，所以修复在**未提交状态下也会生效**。这正是当前刻意保持工作区未提交的原因之一。
+
+另：团长在工具会话内直接跑 `npm run prepublishOnly` 会触发 WorkBuddy 沙箱的 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`（`clean-dist.mjs` 一次删 `dist/` 72 个文件 > 阈值 50）——那是工具会话注入的 `node-safe-delete-shim`，**用户本地 PowerShell 不受影响**；分步验证 `build`(×4 exit=0) / `npm test`(×2 exit=0) / `release-check`(精确 tag exit=0) 均已通过。
 
 ## 九、阶段复盘卡（Phase 3 → Phase 4）
 
-- 完成度：100%（前置清单、三阶段流程、四种回滚、合规、灰度、里程碑、AB 二选一、go/no-go 齐备；三个硬阻塞已定位）
-- 阻塞：version / 远端 / 是否发包三项均待用户决策与授权；工作区一处档案改动待处置
-- 下阶段：确认发版形态与授权 → 执行阶段 0/1（可仅打 tag + 推远端）→ Phase 4 运维守护师衔接监控告警与应急
+- 完成度：阶段 0 / 0b / 1 100%；**阶段 2 因 npm 凭据 E401 阻塞**
+- 阻塞：`~/.npmrc` 的 `npm_yJ…` token 失效，需用户重新 `npm login` + 提供 OTP
+- 下阶段：恢复登录态 → publish → 已发布包分级验证 → Phase 4 运维守护师衔接监控告警与应急
 
 ## 十、下一步
 
-建议：①先确认「是否发包」（沿用 0.4.0 做法则仅打 tag + 推远端）；②若发包，确认 A/B 形态；③按阶段 0 → 1 逐步逐项授权执行；④随后进 Phase 4 运维保障。v0.4.0 上线后 48 小时回访节点尚未到期（11:58 推送），到时回来核对远端 tag 与用户反馈。
+git 侧已发布（`v0.5.0` tag 与远端 main 同点 `08fcad7`），npm 侧未发。建议：①重新 `npm login --registry=https://registry.npmjs.org` 并给我 OTP；②我据此完成 publish 与双通道核对；③随后进 Phase 4 运维保障。v0.4.0 上线后 48 小时回访节点尚未到期（11:58 推送），到时回来核对远端 tag 与用户反馈。
