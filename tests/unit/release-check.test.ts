@@ -12,6 +12,7 @@ import {
   md5File,
   normalizeTag,
   packageCountProblem,
+  quoteGateProblem,
   versionTagMismatch,
   whitelistProblems,
 } from '../../scripts/release-rules.mjs';
@@ -155,5 +156,21 @@ describe('release-check: dist 孤儿产物', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('T1: release gate for quote coverage', () => {
+  it('fails only on real misses; zero-quote and ratio=null are not failures', () => {
+    expect(quoteGateProblem({ misses: 0, matched: 2, quotes: 2, ratio: 1, noQuote: 0 })).toBeNull();
+    // 全零引文：ratio=null，不是 100%，也不判失败。
+    expect(quoteGateProblem({ misses: 0, matched: 0, quotes: 0, ratio: null, noQuote: 3 })).toBeNull();
+    const bad = quoteGateProblem({ misses: 1, matched: 1, quotes: 2, ratio: 0.5, noQuote: 1 });
+    expect(bad).toContain('1 quote(s) are not verbatim');
+    expect(bad).toContain('1/2');
+  });
+
+  it('a malformed report is a gate failure, not a silent pass', () => {
+    expect(quoteGateProblem(null)).toContain('missing');
+    expect(quoteGateProblem({})).toContain('no misses count');
   });
 });

@@ -136,7 +136,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | `omem backup` | git pull 然后 push。子命令：`status` / `pull` / `push` / `remote` / `use` |
 | `omem profile [home\|work]` | work 档默认禁止备份和导出 |
 | `omem redact --topic <name>` | 唯一硬删。`--source` 默认只预览，`--yes` 才删 |
-| `omem verify` | 从 Markdown 重建内存视图、重渲染 `MEMORY-INDEX.md`，并用账本重算每条自动分的条目与落盘值比对（只报告差异，不改写） |
+| `omem verify` | 从 Markdown 重建内存视图、重渲染 `MEMORY-INDEX.md`，并用账本重算每条自动分的条目与落盘值比对（只报告差异，不改写）。`--quotes` 加做引文逐字审计：命中率不足时退出码 2，零引文条目单列不判失败 |
 | `omem serve` | MCP server，由 install 写好的配置拉起 |
 
 退出码：`0` 成功（冲突已处理也算成功），`1` 用法错误，`2` 后端不可用或策略拒绝。
@@ -208,6 +208,8 @@ omem add "连接池上限 20，超过排队（补充：不要盲调大）" --top
 更新是整篇覆盖：同一个 topic 写第二次就是重写那份文件，旧版本留在 git 历史里。覆盖前自动打一次快照。
 
 继承规则：`created`、`source_sessions` 与 `evidence` 都累积（证据最多留 8 条 / 2000 字符，会话 id 最多 200 个），人工过目记录（`confirmations` / `last_confirmed`）保留，但**置信度永远按这次写入重算**。`evidence` 是历史链。同一次写入另存 `evidence_current`（这次提交的引文，可以是空数组）；计分和 `omem verify` 只认这一层。旧文件没有该字段时，仍按 `evidence` 计分，直到下一次覆写。覆写后分数下降时，回执写明当前层换成了这次的引文；`verify` 的漂移行标明复算用的是当前层还是旧链，当前层为空时不再把原因说成会话被删。
+
+**引文逐字审计（`omem verify --quotes`，v0.4.0）**：仅对 `active` + `source=agent` + 未经人工过目的条目，检查 `evidence_current`（缺席时退回 `evidence`）是否为某篇 `## user` 正文的**严格逐字子串**——不大小写折叠、不归一化标点，助手机的回答永不作证据。这里刻意**不复用计分用的归一化比对**：计分允许标点/大小写等价，审计要证明的是「逐字抄自用户原话」，两把尺子用途不同，也没有引入第三种 hash。命中扫描全库会话（不只 `session_id`），避免台账漏记造成假未命中。合法零引文条目（0.35 ungrounded）单列 `zero-quote`、不进分母、不判失败；全库零引文时覆盖率显示 `n/a` 而非 100%。结果写入 `logs/omem.log` 的 `quote-coverage` 行；`--quotes` 是 opt-in，无此旗标时 `verify` 行为与 v0.3.2 完全一致（永远返回 0）。有未命中时该命令返回 2（政策拒绝），`release-check` 汇总后自身返回 1。发布门禁跑的是 `tests/eval/quote-coverage.json` 固定 fixture（隔离 `OMEM_HOME`，不读真实记忆）——验证审计机制按预期工作，不对用户自己的库做发布判定；`npm run eval:quotes` 可单独复跑。
 
 正文完全相同的再次写入仍会被去重挡回，**但分数会被补**：如果这次带的 `evidence` 现在锚得上（典型情形是会话在写入之后才被 `omem sync` 收进来），frontmatter 里的 `confidence` 会刷成新算出的值，历史链 `evidence` 合并，`evidence_current` 换成这次的引文，正文一字不动（MCP 回执里的 `rescored` 会说这件事）。只升不降；人工过目过的 0.9 不碰。补采之后想让一条 0.35 的记忆自愈，就把它连同现在能锚上的引文再发一次——不用改写正文。补分会一并重算 `PROCESS.md`：这次引用的会话并入文档后，立刻退出待吸收清单。
 

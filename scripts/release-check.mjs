@@ -122,6 +122,20 @@ function main(argv) {
   if (countProblem) failures.push(`packaging: ${countProblem}`);
   else console.log(`packaging: ${files.length} file(s) = dist + bin + README + NOTICE + package.json`);
 
+  // 3d. T1 引文覆盖率门禁：跑固定 fixture（隔离 home，不读真实 ~/.omem），
+  //     判据由 quoteGateProblem 纯函数给出，单测钉在 release-check.test.ts。
+  try {
+    execFileSync(process.execPath, [join(ROOT, 'scripts', 'eval-quote-coverage.mjs')], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    console.log('quote coverage: fixture passes verbatim-substring gate');
+  } catch (e) {
+    const detail = String(e?.stdout ?? '') || String(e?.stderr ?? e?.message ?? e);
+    failures.push(`quote coverage: fixed fixture failed (${detail.trim().split('\n').slice(-3).join(' | ')})`);
+  }
+
   // 4. tarball md5（供 docs/releases.md 登记）
   if (tarballArg) {
     const path = resolve(ROOT, tarballArg.slice('--tarball='.length));

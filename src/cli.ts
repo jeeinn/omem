@@ -75,7 +75,7 @@ const COMMANDS: Record<string, Command> = {
   },
   verify: {
     desc: 'Rebuild the in-memory view from markdown and re-render MEMORY-INDEX',
-    usage: 'omem verify',
+    usage: 'omem verify [--quotes]',
     run: cmdVerify,
   },
   backup: {

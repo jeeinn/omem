@@ -119,3 +119,15 @@ export function packageCountProblem(packed, root = ROOT) {
 export function md5File(path) {
   return createHash('md5').update(readFileSync(path)).digest('hex');
 }
+
+/**
+ * T1 引文覆盖率门禁判据（纯函数，供 release-check 与单测共用）。
+ * 输入是 verifyQuoteCoverage 的报告；misses > 0 才失败，零引文（noQuote）不判失败。
+ * ratio===null（全库零引文）视为 pass——"100% of nothing" 不伪造，也不惩罚诚实 abstain。
+ */
+export function quoteGateProblem(coverage) {
+  if (!coverage || typeof coverage !== 'object') return 'quote coverage report is missing';
+  if (!Number.isInteger(coverage.misses)) return 'quote coverage report has no misses count';
+  if (coverage.misses === 0) return null;
+  return `${coverage.misses} quote(s) are not verbatim substrings of a ## user section (${coverage.matched}/${coverage.quotes})`;
+}

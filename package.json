@@ -41,6 +41,7 @@
     "test:live": "npm run build && node tests/live/verify-local.mjs",
     "eval:search": "tsc -p tsconfig.json && node scripts/eval-search.mjs",
     "eval:capability": "tsc -p tsconfig.json && node scripts/eval-search-capability.mjs",
+    "eval:quotes": "tsc -p tsconfig.json && node scripts/eval-quote-coverage.mjs",
     "test:watch": "vitest",
     "smoke": "npm run build && bash tests/smoke.sh",
     "prepublishOnly": "npm run build && npm test && node scripts/release-check.mjs",

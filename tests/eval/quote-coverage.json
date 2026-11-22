@@ -1,0 +1,55 @@
+{
+  "kind": "quote-coverage",
+  "note": "T1 引文覆盖率门禁的固定 fixture。会话原文与活文档都在隔离 OMEM_HOME 里重建，脚本只读本文件、不读真实 ~/.omem。判定谓词是严格逐字子串（不小写、不归一化）；零引文条目单列不进分母；ratio=null 不写 100%。",
+  "sessions": [
+    {
+      "agent": "claude-code",
+      "id": "sess-alpha",
+      "body": "## user\n连接池上限设为 20，超过就排队\n## assistant\n已记录。\n"
+    },
+    {
+      "agent": "cursor",
+      "id": "sess-beta",
+      "body": "## user\n车贷利率 3.6% 是 2026 年重签的\n## assistant\n明白。\n"
+    }
+  ],
+  "entries": [
+    {
+      "topic": "pool-tuning",
+      "body": "连接池上限 20",
+      "session_id": "sess-alpha",
+      "evidence_current": ["连接池上限设为 20，超过就排队"],
+      "expect": "matched"
+    },
+    {
+      "topic": "loan-rate",
+      "body": "车贷利率 3.6%",
+      "session_id": "sess-beta",
+      "source_sessions": [],
+      "evidence_current": ["车贷利率 3.6% 是 2026 年重签的"],
+      "expect": "matched"
+    },
+    {
+      "topic": "verbatim-drift",
+      "body": "大小写漂移测试",
+      "session_id": "sess-alpha",
+      "evidence_current": ["连接池上限设为 20，超过就排队。"],
+      "expect": "miss-not-in-user-text"
+    },
+    {
+      "topic": "no-quote-entry",
+      "body": "无证据的未锚定条目",
+      "session_id": "sess-alpha",
+      "evidence_current": [],
+      "expect": "no-quote"
+    }
+  ],
+  "expected": {
+    "checked": 4,
+    "quotes": 3,
+    "matched": 2,
+    "ratio": 0.6666666666666666,
+    "noQuote": 1,
+    "misses": 1
+  }
+}

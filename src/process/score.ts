@@ -1,7 +1,7 @@
 // save_memory 的自动置信度。只改 confidence——D2 之后没有别的信任标记。
 // 依据必须是会话文件里某个 ## user 段的连续子串；模型引用自己的话不算。
 // 比对前先归一化（D8）：复用 normalizeForHash，两条写入路径共用一把尺子。
-import { evidenceUserKey, evidenceUserText, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
+import { evidenceUserKey, evidenceUserText, listStoredSessionFiles, readSessionsById, readStoredSession, splitSessionKey } from '../collect/session-store.js';
 import { listEntries } from '../core/store.js';
 import { evidenceForScore } from '../core/entry.js';
 import { searchSessions } from '../core/search.js';
@@ -368,6 +368,111 @@ export function verifyConfidence(
   }
   drifts.sort((a, b) => a.topic.localeCompare(b.topic));
   return { checked, skipped, drifts };
+}
+
+// ── 引文覆盖率（v0.4.0 T1）──────────────────────────────────────────────
+// 审计门槛用严格逐字子串，与计分用的 evidenceIn（归一化）是两把不同用途的尺子：
+// 归一化会放过「仅标点/大小写不同」的引文，不能用来证明「原文逐字引用」。
+// 本函数只读 Markdown + 会话原文，不写盘、不改 confidence（verify reports, never rewrites）。
+
+export type QuoteMissReason = 'session-not-found' | 'not-in-user-text';
+
+export interface QuoteMiss {
+  topic: string;
+  quote: string;
+  layer: 'current' | 'legacy';
+  reason: QuoteMissReason;
+}
+
+export interface QuoteCoverage {
+  /** 进入分母的条目数（active + agent + confirmations===0）。 */
+  checked: number;
+  /** 分母里的引文总条数（零引文条目不贡献）。 */
+  quotes: number;
+  matched: number;
+  /** matched / quotes；quotes===0 时为 null，不伪造 100%。 */
+  ratio: number | null;
+  misses: QuoteMiss[];
+  /** 合法零引文条目（0.35 ungrounded）：单列、不进分母、不判失败。 */
+  noQuote: number;
+  /** 未纳入审计的条目（stale/archived/manual/llm/过目）。 */
+  skipped: number;
+}
+
+/**
+ * 严格逐字引文覆盖率。判定谓词与 `evidenceIn` 刻意不同：
+ *   - 这里：原文 `includes`，不小写、不归一化——审计的是「是否逐字抄自 ## user」。
+ *   - 计分：`evidenceIn` 走 normalizeForHash——语义等价即可。
+ * 会话文本经 `evidenceUserText` 只剥 metadata 围栏，保留原大小写与标点。
+ * 扫描全库会话而非只查 session_id：frontmatter 的 source_sessions 可能漏记，
+ * 但引文确实存在于某篇会话里，应算命中（不因台账不全造假未命中）。
+ */
+export function verifyQuoteCoverage(home: string, index: OmemIndex): QuoteCoverage {
+  // 一次性构建「证据域原文」池：session key → 剥净后的 ## user 文本。
+  const userTexts = new Map<string, string>();
+  const sessionTexts: string[] = [];
+  for (const path of listStoredSessionFiles(home)) {
+    const stored = readStoredSession(path);
+    if (!stored) continue;
+    const text = evidenceUserText(stored.body);
+    userTexts.set(stored.sessionId, text);
+    userTexts.set(`${stored.agent}:${stored.sessionId}`, text);
+    sessionTexts.push(text);
+  }
+
+  const misses: QuoteMiss[] = [];
+  let checked = 0;
+  let quotes = 0;
+  let matched = 0;
+  let noQuote = 0;
+  let skipped = 0;
+
+  for (const loc of listEntries(home)) {
+    const fm = loc.entry.fm;
+    if (fm.status !== 'active' || fm.source !== 'agent' || fm.confirmations > 0) {
+      skipped++;
+      continue;
+    }
+    checked++;
+    const used = evidenceForScore(fm);
+    const layer = fm.evidence_current !== undefined ? 'current' as const : 'legacy' as const;
+    if (used.length === 0) {
+      noQuote++;
+      continue;
+    }
+    // 该条目声明的来源文本优先（不重复计入池），再加全库扫描。
+    const declared: string[] = [];
+    for (const id of [fm.session_id, ...(fm.source_sessions ?? [])]) {
+      if (!id) continue;
+      const t = userTexts.get(id);
+      if (t !== undefined) declared.push(t);
+    }
+    for (const quote of used) {
+      quotes++;
+      const hit = declared.some((t) => t.includes(quote)) || sessionTexts.some((t) => t.includes(quote));
+      if (hit) {
+        matched++;
+      } else {
+        misses.push({
+          topic: fm.topic,
+          quote,
+          layer,
+          reason: declared.length === 0 && sessionTexts.length === 0 ? 'session-not-found' : 'not-in-user-text',
+        });
+      }
+    }
+  }
+
+  misses.sort((a, b) => a.topic.localeCompare(b.topic) || a.quote.localeCompare(b.quote));
+  return {
+    checked,
+    quotes,
+    matched,
+    ratio: quotes === 0 ? null : matched / quotes,
+    misses,
+    noQuote,
+    skipped,
+  };
 }
 
 // applyAssent 已迁至 core/lifecycle.ts：它是「确认刷新」的一种，与 reconfirm 同属
