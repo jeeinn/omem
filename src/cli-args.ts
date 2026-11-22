@@ -13,6 +13,7 @@ export const VALUE_FLAGS = new Set([
   'type', 'tags', 'supersedes', 'domain', 'project', 'topic', 'expected-revision',
   // search
   // （domain/project 已在上）
+  'as-of',
   // run
   'tier', 'since', 'session', 'collectors', 'base', 'model', 'limit',
   // review

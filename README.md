@@ -19,7 +19,7 @@ V0.3 正式版 `0.3.2`（`npm install -g @jeeinn/omem`）。`omem sync` 只采�
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 
-**v0.3 起在该 tag 之上陆续落地的行为**：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降。证据分成历史链 `evidence` 与本次引文 `evidence_current`；评分阶梯仍是 0.35 / 0.55 / 印证 / 0.80 / 0.90。v0.3 计划已归档，见 `docs/archive/`。
+**v0.3 起在该 tag 之上陆续落地的行为**：显式归档复活、`exclude_paths` 接线、`redact` 护栏、写入差异预览、检索结构化证据回传、`expected_revision` best-effort CAS、去重命中只升不降、`as_of` 只读历史视图。证据分成历史链 `evidence` 与本次引文 `evidence_current`；评分阶梯仍是 0.35 / 0.55 / 印证 / 0.80 / 0.90。v0.3 计划已归档，见 `docs/archive/`。
 
 这一版的产品形状（自 v0.2 起）：
 
@@ -95,7 +95,7 @@ CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/
 MCP 侧三个容易踩空的点，现在都在协议里给出了：
 
 - `initialize` 会返回 `instructions`（含 `PROCESS.md` 绝对路径与写回循环），所以 `save_memory` 描述里「先读 instructions 拿路径」这句真的能兑现，不再只依赖额外的导出命令。
-- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的活文档（topic 本身就是句柄）。历史版本在 git 里，不在检索结果里。搜会话只认 `## user` 段——助手的回答不是证据，也不该被检索到。
+- `search_memory` 支持 `topic` 与 `status`：只给 `topic` 就返回该主题的活文档（topic 本身就是句柄）。`as_of` 走只读历史视图——传 ISO 时间戳、`HEAD~N` 或 commit sha，检索的是那个时点提交进 git 的 Markdown，命中行带当时的正文与证据；`path` 是 `rev:path` 形式的 git 对象引用，磁盘上不存在，`revision` 是 `snapshot:<sha>`，**不能**当 `expected_revision` 写回。非 git 数据仓报后端不可用。CLI 对应 `omem search <query> --as-of <...>`。搜会话只认 `## user` 段——助手的回答不是证据，也不该被检索到。
 - `top_k` 声明并夹取在 1-20（省略时用 `config.toml` 的 `search.top_k`，它可配到 50）；响应固定给 `matched M · showing N`，能看出还有多少没返回。
 
 写入结论的路径（`save_memory` / `omem add`）默认各留**一笔本地提交**（`[process] auto_commit = "session"`，可设 `off` 关闭）；`omem sync` 一轮 run 一笔。只有 `omem backup` 才推送远端——它在拉取前会把未提交改动收成一次提交，冲突时保留本地版，远端版写成 `.conflict.md`。
@@ -128,7 +128,7 @@ MCP 侧三个容易踩空的点，现在都在协议里给出了：
 | `omem process [--limit N] [--dry-run]` | 可选：用 API 模型 drain 待加工队列，写入活文档。**不扫采集器**。详见下方 API 配置 |
 | `omem skip <session-id>` | 把会话标记为「不必沉淀」，从 `PROCESS.md` 的待办里移出（`list` / `remove` 可回看） |
 | `omem add <content> --topic <name>` | 手工写入一份活文档，自动脱敏。同 topic 再写一次就是覆盖（git 保留历史） |
-| `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文 |
+| `omem search <query>` | 查结论。`--sessions` 查原文，`--detail` 打出正文，`--as-of <ISO\|HEAD~N\|sha>` 查只读历史快照 |
 | `omem review [<topic>]` | 待审默认最近 10 条。带 topic 打开正文；`--confirm <topic[,topic]>` / `--dismiss` / `--stale` 过目、归档或冷却；`--gc [--days N]` 扫描长期未过目的文档 |
 | `omem review --ui` | 起一个本地页面，勾选后一次提交。`--no-open` 只打印链接，`--port N` 指定端口，`--timeout SEC` 改超时（默认 600） |
 | `omem topics [list]` | 列活文档主题（主题名 / 项目 / 最近更新 / 置信度 / 标题） |

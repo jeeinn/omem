@@ -21,7 +21,7 @@ const DATA = JSON.parse(readFileSync(join(ROOT, 'tests', 'eval', 'search-capabil
 if (DATA.kind !== 'search-capability') throw new Error(`unexpected dataset kind: ${DATA.kind}`);
 
 const home = mkdtempSync(join(tmpdir(), 'omem-capability-'));
-const git = (args) => execFileSync('git', args, { cwd: home, encoding: 'utf8' });
+const git = (args) => execFileSync('git', args, { cwd: home, encoding: 'utf8' }).trim();
 const index = new OmemIndex(home);
 const failures = [];
 let gaps = 0;
@@ -82,6 +82,9 @@ try {
       }
     }
   }
+  // 覆盖前的提交：作为产品层 as_of 快照锚点。此时 pool-limit / loan-rate 还是旧值。
+  // 必须在 overwrites 之前取——放在之后会拿到新值，评测就变成假阳性。
+  const asOfRev = git(['rev-parse', 'HEAD']);
   for (const doc of DATA.overwrites) {
     const loc = write(doc);
     paths.set(doc.topic, loc);
@@ -121,16 +124,30 @@ try {
       if (revs.length < 2) { bump(c.kind, record(c.id, false, `need >=2 revisions for ${loc.rel}, got ${revs.length}`)); continue; }
       const prior = git(['show', `${revs[revs.length - 1]}:${loc.rel}`]);
       const current = readFileSync(loc.path, 'utf8');
-      const ok = record(c.id,
-        prior.includes(c.prior_body_contains) && current.includes(c.current_body_contains),
-        `git history missing ${JSON.stringify(c.prior_body_contains)} or current missing ${JSON.stringify(c.current_body_contains)}`);
-      bump(c.kind, ok);
-      // 产品层缺口：当前 search_memory/searchEntriesPage 没有 as_of 参数，
-      // 有历史数据不等于能按时间截面查。等 P1-1 落地后把数据文件标记改为 true，
-      // 这里改为断言 as_of 检索命中旧值。
-      if (!c.product_as_of_supported) {
+      const dataOk = prior.includes(c.prior_body_contains) && current.includes(c.current_body_contains);
+      bump(c.kind, record(c.id, dataOk,
+        `git history missing ${JSON.stringify(c.prior_body_contains)} or current missing ${JSON.stringify(c.current_body_contains)}`));
+
+      // 产品层转正：真正调用 searchEntriesPage(as_of)，断言旧值由产品层返回。
+      if (c.product_as_of_supported) {
+        const snap = searchEntriesPage(index, {
+          query: c.query, as_of: asOfRev, limit: 20, staleWeight: CONFIG.process.stale_weight,
+        });
+        const hit = snap.rows.find((r) => r.topic === c.topic);
+        const snapBody = hit?.snapshotBody ?? '';
+        const checks = {
+          hit: Boolean(hit),
+          prior: snapBody.includes(c.prior_body_contains),
+          notCurrent: !snapBody.includes(c.current_body_contains),
+          pathRef: hit?.path.startsWith(`${asOfRev}:`) ?? false,
+          snapshotRev: snap.snapshot?.rev === asOfRev,
+        };
+        const productOk = Object.values(checks).every(Boolean);
+        bump(c.kind, record(`${c.id}/product`, productOk,
+          `as_of checks=${JSON.stringify(checks)} rev=${snap.snapshot?.rev} body=${JSON.stringify(snapBody.slice(0, 120))} path=${JSON.stringify(hit?.path)}`));
+      } else {
         gaps++;
-        console.log(`  KNOWN GAP ${c.id}: git can restore ${JSON.stringify(c.prior_body_contains)}, but product has no as_of query`);
+        console.log(`  KNOWN GAP ${c.id}: data layer recovers old value but product_as_of_supported=false`);
       }
       continue;
     }
@@ -188,7 +205,7 @@ try {
     console.log(`  ${kind.padEnd(14)} ${t.pass}/${t.total}`);
   }
   console.log(`  ablations      ${ablationPass}/${ablationTotal}`);
-  console.log(`  product as-of  ${gaps} known gap(s) (data layer recoverable, no query surface yet)`);
+  console.log(`  as-of gaps     ${gaps} (declared unsupported; 0 expected after promotion)`);
   if (failures.length === 0) {
     console.log('RESULT: PASS');
   } else {

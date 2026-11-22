@@ -20,7 +20,7 @@ let index;
 const config = defaultConfig();
 const paths = new Map();
 
-const git = (args) => execFileSync('git', args, { cwd: home, encoding: 'utf8' });
+const git = (args) => execFileSync('git', args, { cwd: home, encoding: 'utf8' }).trim();
 
 function write(doc) {
   const r = commitEntry(home, config, index, {
@@ -37,6 +37,7 @@ function write(doc) {
   return { path: r.path, rel: relative(home, r.path).replace(/\\/g, '/') };
 }
 
+let asOfRev;
 beforeAll(() => {
   home = makeHome();
   index = new OmemIndex(home);
@@ -57,6 +58,8 @@ beforeAll(() => {
       }
     }
   }
+  // 覆盖前锚点：必须在 overwrites 之前取，否则快照里已是新值。
+  asOfRev = git(['rev-parse', 'HEAD']);
   for (const doc of DATA.overwrites) paths.set(doc.topic, write(doc));
 });
 
@@ -93,9 +96,9 @@ describe(`search capability dataset (${DATA.kind})`, () => {
     }
   });
 
-  it('historical: prior values are recoverable from git, product as_of is a known gap', () => {
-    const historical = DATA.cases.filter((c) => c.kind === 'historical');
-    expect(historical.length).toBeGreaterThan(0);
+  it('historical: data layer and product as_of both surface the prior value', () => {
+    const historical = DATA.cases.filter((c) => c.kind === 'historical' && c.product_as_of_supported);
+    expect(historical.length).toBeGreaterThanOrEqual(2);
     for (const c of historical) {
       const loc = paths.get(c.topic);
       expect(loc).toBeDefined();
@@ -104,8 +107,18 @@ describe(`search capability dataset (${DATA.kind})`, () => {
       const prior = git(['show', `${revs[revs.length - 1]}:${loc.rel}`]);
       expect(prior).toContain(c.prior_body_contains);
       expect(readFileSync(loc.path, 'utf8')).toContain(c.current_body_contains);
-      // 产品层缺口要显式钉住：标记一旦翻成 true 而代码没跟上，这条会红。
-      expect(c.product_as_of_supported).toBe(false);
+
+      // 产品层：真正走 as_of 检索，旧值由产品返回，不是测试自己读 git。
+      const page = searchEntriesPage(index, {
+        query: c.query, as_of: asOfRev, limit: 20, staleWeight: config.process.stale_weight,
+      });
+      const hit = page.rows.find((r) => r.topic === c.topic);
+      expect(hit).toBeDefined();
+      const body = hit.snapshotBody;
+      expect(body).toContain(c.prior_body_contains);
+      expect(body).not.toContain(c.current_body_contains);
+      expect(hit.path.startsWith(`${asOfRev}:`)).toBe(true);
+      expect(page.snapshot?.rev).toBe(asOfRev);
     }
   });
 

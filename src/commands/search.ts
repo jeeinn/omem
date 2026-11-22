@@ -3,6 +3,8 @@ import { openCtx } from '../core/ctx.js';
 import { searchEntriesPage, searchSessions } from '../core/search.js';
 import { formatNoHits } from '../core/search-format.js';
 import { readEntryFile } from '../core/store.js';
+import { parseEntry } from '../core/entry.js';
+import type { AsOfRow } from '../core/history.js';
 import { readCurrentRevision } from '../core/commit.js';
 import { formatStaleness } from '../core/lifecycle.js';
 import { truncate } from '../core/util.js';
@@ -12,7 +14,7 @@ import type { ParsedArgs } from '../cli-args.js';
 
 export async function cmdSearch(args: ParsedArgs): Promise<number> {
   const query = args._.join(' ').trim();
-  if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y] [--sessions]');
+  if (!query) throw new UsageError('Usage: omem search <query> [--detail] [--all] [--domain X] [--project Y] [--sessions] [--as-of <ISO|HEAD~N|sha>]');
   const { config, index } = openCtx();
   try {
     return await searchBody(args, query, config, index);
@@ -30,6 +32,10 @@ async function searchBody(
 ): Promise<number> {
   const detail = flagBool(args.flags, 'detail');
   const all = flagBool(args.flags, 'all');
+  const asOf = flagStr(args.flags, 'as-of');
+  if (asOf && flagBool(args.flags, 'sessions')) {
+    throw new UsageError('--as-of only applies to conclusions; drop --sessions or --as-of.');
+  }
   if (flagBool(args.flags, 'sessions')) {
     const hits = searchSessions(index, query, config.search.top_k);
     if (hits.length === 0) {
@@ -56,6 +62,7 @@ async function searchBody(
     all,
     limit: detail ? Math.max(3, config.search.top_k) : config.search.top_k,
     staleWeight: config.process.stale_weight,
+    ...(asOf ? { as_of: asOf } : {}),
   });
   const hits = page.rows;
 
@@ -65,6 +72,9 @@ async function searchBody(
     return 0;
   }
 
+  if (page.snapshot) {
+    console.log(`Read-only historical snapshot ${page.snapshot.rev} (committed ${page.snapshot.committedAt}; ${page.snapshot.count} document(s)).\n`);
+  }
   const unit = hits.length === 1 ? 'memory' : 'memories';
   console.log(`Found ${hits.length} ${unit}${all ? ' (including archived)' : ''}:\n`);
   if (page.matched > hits.length) {
@@ -75,15 +85,17 @@ async function searchBody(
     // topic 既是身份也是文件名：标题行与句柄都直接用它，不再有 id。
     console.log(`   #${row.type} #${row.domain} · topic \`${row.topic}\` · confidence ${row.confidence}`);
     if (detail) {
-      const entry = readEntryFile(row.path);
-      console.log(`   File: ${row.path}`);
-      // D3：CLI 侧也要能拿到写入用的版本基线，否则 --expected-revision 无从取值。
-      console.log(`   revision: ${readCurrentRevision(row.path)}`);
-      if (entry) {
-        console.log('   ---');
-        for (const l of entry.body.split('\n')) console.log(`   ${l}`);
-        console.log('   ---');
-      }
+      const s = hits[i] as AsOfRow;
+      const entry = s.snapshotBody ? parseEntry(s.snapshotBody, s.path) : readEntryFile(s.path);
+      console.log(`   File: ${s.path}`);
+      // D3：当前行要给出写入基线；历史行的 revision 是 git sha，不可当基线。
+      console.log(s.snapshotRev
+        ? `   Historical version: ${s.snapshotRev} — read-only, not a write baseline.`
+        : `   revision: ${readCurrentRevision(s.path)}`);
+      console.log('   ---');
+      for (const l of (entry?.body ?? '').split('\n')) console.log(`   ${l}`);
+      console.log('   ---');
+      if (s.snapshotRev) console.log(`   Historical version: ${s.snapshotRev} — read-only, not a write baseline.`);
     } else {
       console.log(`   ${truncate(row.summary, 100)}`);
     }

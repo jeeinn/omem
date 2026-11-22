@@ -4,6 +4,8 @@
 // D2：`verified` 已删，排序里也没有它：信任只剩 confidence 一个数字。
 // 会话只搜 `## user` 证据域：assistant 段不能当证据，也不该出现在检索结果里。
 import type { OmemIndex, EntryRow } from './index.js';
+import { readAsOf } from './history.js';
+import type { AsOfRow } from './history.js';
 import { evidenceUserText, readStoredSession } from '../collect/session-store.js';
 
 export interface SearchQuery {
@@ -18,12 +20,16 @@ export interface SearchQuery {
   all?: boolean;
   limit?: number;
   staleWeight?: number;
+  /** 只读历史视图：ISO 时间戳 / HEAD~N / commit sha。命中行带 snapshotBody，不可作为写入基线。 */
+  as_of?: string;
 }
 
 export interface SearchPage {
   rows: EntryRow[];
   /** 满足过滤条件的总数（不受 limit 影响）。 */
   matched: number;
+  /** as_of 解析出的提交 sha 与时间；非历史查询时缺席。 */
+  snapshot?: { rev: string; committedAt: string; count: number };
 }
 
 function charLen(s: string): number {
@@ -39,17 +45,19 @@ interface Ranked {
 /**
  * 过滤 + 打分 + 排序（唯一裁决点）。
  *
+ * `rows` 由调用方提供：当前索引走 `index.rows()`，as_of 走 git 时点快照。
+ * 两套来源共用这一份裁决逻辑——历史视图不得自带第二套排序口径。
  * 过滤与排序分开的理由：`matched` 要在截断前算总数，
  * 而排序只在「有查询词」时才需要——纯 topic 查询按 created 倒序，与历史口径一致。
  */
 function rank(
-  index: OmemIndex,
+  rows: { row: EntryRow; lower: string }[],
   q: SearchQuery,
   tokens: string[],
   staleWeight: number,
 ): Ranked[] {
   const out: Ranked[] = [];
-  for (const { row, lower } of index.rows()) {
+  for (const { row, lower } of rows) {
     if (q.status && q.status.length > 0) {
       if (!q.status.includes(row.status)) continue;
     } else if (!q.all && row.status === 'archived') {
@@ -90,19 +98,29 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
   const limit = q.limit && q.limit > 0 ? Math.floor(q.limit) : 3;
   const staleWeight = q.staleWeight ?? 0.5;
 
-  // 无关键词：只按 topic 取文档（按 created DESC，与 index.findActiveByTopic 同口径）
-  if (!query) {
-    if (!q.topic) return { rows: [], matched: 0 };
-    const rows = rank(index, q, [], staleWeight)
-      .map((r) => r.row)
-      .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
-    return { rows: rows.slice(0, limit), matched: rows.length };
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+  // as_of：把当前行换成 git 时点快照行，后续过滤/打分/排序完全共用。
+  // 历史行带 snapshotBody，调用方读详情必须用它，不能用 path 读当前磁盘正文。
+  let source: { row: EntryRow; lower: string }[] = index.rows();
+  let snapshot: SearchPage['snapshot'];
+  if (q.as_of) {
+    const history = readAsOf(index.home, q.as_of);
+    snapshot = { rev: history.rev, committedAt: history.committedAt, count: history.rows.length };
+    source = history.rows.map((r) => ({ row: r, lower: r.snapshotBody.toLowerCase() }));
   }
 
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const ranked = rank(index, q, tokens, staleWeight);
+  if (!query) {
+    if (!q.topic) return { rows: [], matched: 0, ...(snapshot ? { snapshot } : {}) };
+    const rows = rank(source, q, [], staleWeight)
+      .map((r) => r.row)
+      .sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+    return { rows: rows.slice(0, limit), matched: rows.length, ...(snapshot ? { snapshot } : {}) };
+  }
+
+  const ranked = rank(source, q, tokens, staleWeight);
   const rows = ranked.slice(0, limit).map((r) => ({ ...r.row, rank: -r.hits }));
-  return { rows, matched: ranked.length };
+  return { rows, matched: ranked.length, ...(snapshot ? { snapshot } : {}) };
 }
 
 /** 只要结果集的调用方（CLI、内部流程）用这个，签名保持不变。 */

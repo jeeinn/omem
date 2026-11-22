@@ -52,6 +52,43 @@ export interface SessionRecord {
   processed_at: string;
 }
 
+/**
+ * 把解析好的条目构造成检索行。当前索引与 as_of 历史视图共用这一个构造函数——
+ * 行形状一旦分叉，同一个 topic 在两个视图里会有不同的 hash / 排序口径。
+ * `path` 是身份来源：topic 从文件名注入，frontmatter 里永远不写 topic。
+ */
+export function entryToRow(entry: Entry, path: string, text: string, size: number, mtimeMs: number): EntrySlot {
+  const topic = topicOf(path);
+  entry.fm.topic = topic;
+  const fm = entry.fm;
+  return {
+    row: {
+      topic,
+      path,
+      hash: sha256hex(text).slice(0, 32),
+      body_hash: contentHash(entry.body),
+      domain: fm.domain,
+      type: fm.type,
+      profile: fm.profile,
+      status: fm.status,
+      source: fm.source,
+      confidence: fm.confidence,
+      session_id: fm.session_id ?? null,
+      project: fm.project ?? null,
+      source_sessions: JSON.stringify(fm.source_sessions ?? []),
+      created: fm.created,
+      last_confirmed: fm.last_confirmed,
+      confirmations: fm.confirmations,
+      tags: fm.tags.join(' '),
+      title: deriveTitle(entry.body),
+      summary: deriveSummary(entry.body),
+      size,
+      mtime_ms: mtimeMs,
+    },
+    lower: entry.body.toLowerCase(),
+  };
+}
+
 interface EntrySlot {
   row: EntryRow;
   /** 小写正文，检索直接扫它，避免每次查询重新 toLowerCase。 */
@@ -106,38 +143,12 @@ export class OmemIndex {
     }
     const entry = parseEntry(text);
     if (!entry) return false;
-    const topic = topicOf(path);
+    const slot = entryToRow(entry, path, text, size, mtime);
+    const topic = slot.row.topic;
     const prev = this.entries.get(topic);
     const sig = `${size}:${mtime}`;
     if (!opts.force && prev && this.snap.get(topic) === sig && prev.row.path === path) return false;
-    entry.fm.topic = topic;
-    const fm = entry.fm;
-    this.entries.set(topic, {
-      row: {
-        topic,
-        path,
-        hash: sha256hex(text).slice(0, 32),
-        body_hash: contentHash(entry.body),
-        domain: fm.domain,
-        type: fm.type,
-        profile: fm.profile,
-        status: fm.status,
-        source: fm.source,
-        confidence: fm.confidence,
-        session_id: fm.session_id ?? null,
-        project: fm.project ?? null,
-        source_sessions: JSON.stringify(fm.source_sessions ?? []),
-        created: fm.created,
-        last_confirmed: fm.last_confirmed,
-        confirmations: fm.confirmations,
-        tags: fm.tags.join(' '),
-        title: deriveTitle(entry.body),
-        summary: deriveSummary(entry.body),
-        size,
-        mtime_ms: mtime,
-      },
-      lower: entry.body.toLowerCase(),
-    });
+    this.entries.set(topic, slot);
     this.snap.set(topic, sig);
     return true;
   }
