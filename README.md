@@ -11,7 +11,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 - 不自动删除。硬删只有 `omem redact`
 - MCP 默认只暴露 `search_memory` / `save_memory`
 
-分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)。
+分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；版本变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 状态
 

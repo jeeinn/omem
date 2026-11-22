@@ -11,7 +11,7 @@
 | [`README.md`](../README.md) | 对外入口：安装、命令、信任模型与使用方式 |
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 现行分层、数据流、生命周期与检索口径 |
 | [`AGENTS.md`](../AGENTS.md) | Agent / 贡献者不变量与模块边界 |
-| [`releases.md`](./releases.md) | 版本发布记录 |
+| [`CHANGELOG.md`](../CHANGELOG.md) | 版本变更记录（Keep a Changelog 格式） |
 | [`手动测试指南.md`](./手动测试指南.md) | CLI 手工回归 |
 | [`记忆可信度的人工核实与Agent协作手册.md`](./记忆可信度的人工核实与Agent协作手册.md) | 人工过目与 Agent 协作测可信度 |
 

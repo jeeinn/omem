@@ -26,22 +26,22 @@ export function mcpInstructions(home: string): string {
   const guide = files.processGuide(home);
   const knowledge = dirs.knowledge(home);
   return [
-    `omem is the user's git-native memory store. Markdown under ${knowledge} is the source of truth; the index is derived.`,
+    `omem: git-native memory; Markdown under ${knowledge} is the source of truth (index is derived).`,
     '',
-    'Work loop when the user asks you to organise or update memories:',
-    `1. Read ${guide} — it lists each project group, the topics that already exist, and the bare session ids not yet absorbed (no file paths).`,
-    '2. Read a transcript by id: `search_memory(scope="sessions", session_id="<id>")` returns its `## user` text with character offsets; assistant text is never returned as evidence.',
-    '3. The topic is also the document name. To update a subject, reuse its topic; to start a new one, pick a short lowercase name (e.g. "knee-rehab"). Never invent a second name for the same subject.',
-    '4. `save_memory` needs `topic` (always), `session_id` copied as the bare id (no collector prefix), and evidence quoted from the `## user` text returned in step 2. Writing to an existing topic overwrites that document; git keeps the previous version.',
-    '5. Read the response before assuming success: it reports the topic, whether the document was created or updated, whether the evidence anchored, whether the content was rejected for length, and any topic collisions. Fix and rewrite instead of retrying blindly.',
-    '6. Say what you wrote and where it landed (topic, confidence). Do not ask the user to "confirm" it for the record — you have no way to record a confirmation, and a human review in `omem review` is the only path to 0.9.',
+    'Work loop (organise memories):',
+    `1. Read ${guide}: project groups, existing topics, bare session ids not yet absorbed (no paths).`,
+    '2. `search_memory(scope="sessions", session_id="<id>")` returns that transcript\'s `## user` text with offsets. Assistant text is never evidence.',
+    '3. Topic = document name. Reuse an existing topic; for a new one use a short lowercase slug (e.g. "knee-rehab"). Never coin a second name for the same subject.',
+    '4. `save_memory` needs `topic` (always), the bare `session_id` (no collector prefix), and evidence quoted from step 2. Writing an existing topic overwrites it; git keeps the old version.',
+    '5. Read the response: it reports topic, created/updated, whether evidence anchored, length rejection and topic collisions. Fix and rewrite — do not retry blindly.',
+    '6. Report what you wrote (topic, confidence). Never ask the user to "confirm" — only `omem review` does.',
     '',
     `Retrieving: ${RULE_MULTIHOP}`,
     '',
-    `Hard rules: one document per topic — reuse an existing topic name instead of coining a near-duplicate; never delete; the conversation that organises PROCESS.md is not itself a memory; each write leaves one local git commit when the store is a git repo (pushing is omem backup); (${RULE_CONFIDENCE}).`,
+    `Hard: no near-duplicates; never delete; this conversation is not a memory; each write makes one local git commit (push = omem backup). ${RULE_CONFIDENCE}`,
     '',
-    `Grounding: ${RULE_EVIDENCE}. A quote that cannot be matched drops the entry to confidence 0.35 and tags it \`ungrounded\`, so check the response line rather than assuming success.`,
+    `Grounding: ${RULE_EVIDENCE}. An unmatched quote makes the entry 0.35 \`ungrounded\` — check the response.`,
     '',
-    'Correction channel: if a memory you retrieved turns out to be wrong, rewrite that same topic with the corrected content and tell the user, so they can review it. Do not silently edit the file.',
+    'Correction: rewrite the same topic with corrected content and tell the user; never silently edit files.',
   ].join('\n');
 }

@@ -63,7 +63,7 @@ describe('release-check: packing must not ship tests or docs', () => {
     expect(findForbiddenPath(['test/unit/commit.ts'])).toContain('test/');
     expect(findForbiddenPath(['dist/__tests__/x.test.js'])).toBeTruthy();
     expect(findForbiddenPath(['dist/core/commit.test.js'])).toContain('commit.test.js');
-    expect(findForbiddenPath(['docs/releases.md'])).toContain('docs/');
+    expect(findForbiddenPath(['docs/CHANGELOG.md'])).toContain('docs/');
     expect(findForbiddenPath(['src/cli.ts'])).toContain('src/');
   });
 
@@ -92,7 +92,7 @@ describe('release-check: whitelist and entry points', () => {
     expect(whitelistProblems(broken).join()).toContain('entry point not found');
   });
 
-  it('md5File hashes the tarball for registration in docs/releases.md', () => {
+  it('md5File hashes the tarball (print-only; md5 is not a consistency criterion)', () => {
     const file = join(process.cwd(), 'package.json');
     expect(md5File(file)).toMatch(/^[0-9a-f]{32}$/);
   });

@@ -8,7 +8,7 @@
 //   1. package.json.version 必须等于 HEAD 上的精确 tag（v 前缀会被剥除）；
 //   2. `npm pack --dry-run --json` 的文件清单里不得出现测试残留 / docs / 源码；
 //   3. files 白名单必含 dist、bin，且 main / bin 入口存在（空包也是发布事故）；
-//   4. 打了 tarball 时打印 md5，供登记进 docs/releases.md（人工一步，但数字由命令给出）。
+//   4. 打了 tarball 时打印 md5（仅打印信息；md5 含打包时间戳不可复现，不作为一致性判据）。
 //
 // 用法：
 //   node scripts/release-check.mjs              # 完整检查（发布前）
@@ -136,11 +136,11 @@ function main(argv) {
     failures.push(`quote coverage: fixed fixture failed (${detail.trim().split('\n').slice(-3).join(' | ')})`);
   }
 
-  // 4. tarball md5（供 docs/releases.md 登记）
+  // 4. tarball md5（仅打印，供人工备查）
   if (tarballArg) {
     const path = resolve(ROOT, tarballArg.slice('--tarball='.length));
     if (!existsSync(path)) failures.push(`tarball not found: ${path}`);
-    else console.log(`md5: ${md5File(path)}  ${path.split(/[\\/]/).pop()}  (register in docs/releases.md)`);
+    else console.log(`md5: ${md5File(path)}  ${path.split(/[\\/]/).pop()}  (print-only, not a consistency criterion)`);
   }
 
   if (failures.length > 0) {
