@@ -1,6 +1,6 @@
 // omem sync：采集会话到 sessions/ 并刷新 PROCESS.md（规格 §7）。不调用模型。
 // 采集器：claude-code、workbuddy、cursor、qwenwork 等，都只读。
-// --since 7d|YYYY-MM-DD · --session <id> · --collectors id,id · --dry-run
+// --since 7d|YYYY-MM-DD · --session <id> · --collectors id,id · --dry-run · --verbose
 // 兼容：--tier api 打印 deprecation 后只跑 process（不采集）；下一版可改为拒绝。
 import { existsSync } from 'node:fs';
 import { openCtx } from '../core/ctx.js';
@@ -17,7 +17,7 @@ import { cmdProcess, processSummaryLines } from './process.js';
 import { cmdWatchOnce } from './watch-once.js';
 
 /** 跑完后的总结和下一步。不包含会话路径或逐条结果。 */
-export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
+export function runSummaryLines(report: RunReport, dryRun: boolean, verbose = false): string[] {
   const lines: string[] = ['Summary'];
   for (const n of report.notes) {
     if (n.includes('not found')) lines.push(`  ${n}`);
@@ -33,12 +33,26 @@ export function runSummaryLines(report: RunReport, dryRun: boolean): string[] {
   const waiting = `${topics} topic group(s) / ${waitingSessions} session(s) waiting`
     + (unassigned > 0 ? ` · ${unassigned} unassigned` : '');
   lines.push(`  ${waiting}${dryRun ? '' : ' · PROCESS.md updated'}`);
+
+  // 明细只在 --verbose 打：默认总结保持一行一句，不把几十条会话糊满终端。
+  if (verbose) {
+    const ingested = report.ingested ?? [];
+    lines.push('');
+    lines.push(`Collected ${ingested.length} session(s):`);
+    for (const s of ingested) {
+      lines.push(`  ${s.agent}:${s.session_id}  ${s.messages} msg  ${s.project_fp || 'unknown'}`);
+    }
+  }
+
   lines.push('');
   lines.push('Next');
   if (dryRun) lines.push('  Drop --dry-run to write sessions and PROCESS.md.');
   else if (topics + unassigned > 0) {
+    // 按当前水位给一条真能跑的命令：只说「drain the queue」等于让用户自己猜批量大小。
+    const batch = Math.max(1, Math.min(10, waitingSessions > 0 ? waitingSessions : topics));
     lines.push('  Read PROCESS.md, then save conclusions with save_memory or omem add.');
-    lines.push('  Or run omem process to drain the optional API queue.');
+    lines.push(`  omem process --limit ${batch}          drain a first batch from the API queue`);
+    lines.push('  omem review --pending              list candidates that still have no evidence');
     lines.push('  omem search "<query>"');
   } else {
     lines.push('  Nothing is waiting. Run omem sync again after the next session.');
@@ -142,7 +156,7 @@ export async function cmdRun(args: ParsedArgs): Promise<number> {
       console.log(`  → delete that line from ${files.config(home)} to avoid confusion.`);
     }
 
-    for (const line of runSummaryLines(report, Boolean(opts.dryRun))) console.log(line);
+    for (const line of runSummaryLines(report, Boolean(opts.dryRun), flagBool(args.flags, 'verbose'))) console.log(line);
     return 0;
   } finally {
     // Windows 上 SQLite 句柄不释放会导致 OMEM_HOME 删除 EBUSY（同 cmdSync 的处置）

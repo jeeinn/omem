@@ -40,7 +40,7 @@ const COMMANDS: Record<string, Command> = {
   },
   sync: {
     desc: 'Ingest session transcripts and refresh PROCESS.md (never calls a model)',
-    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run] [--watch-once [--quiet-ms N] [--hard-cap-ms N]]',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run] [--verbose] [--watch-once [--quiet-ms N] [--hard-cap-ms N]]',
     run: cmdRun,
   },
   process: {
