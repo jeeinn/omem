@@ -109,11 +109,14 @@ export function distProblems(root = ROOT) {
  */
 export function packageCountProblem(packed, root = ROOT) {
   const distCount = walkFiles(join(root, 'dist')).length;
-  // 固定 5 个顶层条目：bin/omem.js、README.md、NOTICE、LICENSE（npm 自动带上）、package.json
-  const FIXED = 5;
-  const expected = distCount + FIXED;
+  // bin/ 目录不止一个文件是常态（omem.js + startup-hint.js 同属启动链），
+  // 写死「bin 只有 1 个」会让一次纯新增文件把发布门禁判红。按实际文件数算。
+  const binCount = walkFiles(join(root, 'bin')).length;
+  // 4 个顶层条目：README.md、NOTICE、LICENSE（npm 自动带上）、package.json
+  const ROOT_FILES = 4;
+  const expected = distCount + binCount + ROOT_FILES;
   if (packed === expected) return null;
-  return `packed ${packed} file(s) but dist(${distCount}) + ${FIXED} fixed entries = ${expected}`;
+  return `packed ${packed} file(s) but dist(${distCount}) + bin(${binCount}) + ${ROOT_FILES} fixed entries = ${expected}`;
 }
 
 export function md5File(path) {

@@ -104,12 +104,14 @@ describe('release-check: dist 孤儿产物', () => {
     const root = mkdtempSync(join(tmpdir(), 'omem-dist-'));
     mkdirSync(join(root, 'src', 'commands'), { recursive: true });
     mkdirSync(join(root, 'dist', 'commands'), { recursive: true });
+    mkdirSync(join(root, 'bin'), { recursive: true });
     writeFileSync(join(root, 'src', 'cli.ts'), 'export const a = 1;\n');
     writeFileSync(join(root, 'src', 'commands', 'add.ts'), 'export const b = 1;\n');
     writeFileSync(join(root, 'dist', 'cli.js'), 'export const a = 1;\n');
     writeFileSync(join(root, 'dist', 'commands', 'add.js'), 'export const b = 1;\n');
     mkdirSync(join(root, 'dist', 'core'), { recursive: true });
     writeFileSync(join(root, 'dist', 'core', 'build-info.json'), '{}');
+    writeFileSync(join(root, 'bin', 'omem.js'), '#!/usr/bin/env node\n');
     return root;
   }
 
@@ -147,12 +149,24 @@ describe('release-check: dist 孤儿产物', () => {
     }
   });
 
-  it('包内文件数必须等于 dist + 5 个固定条目', () => {
+  it('包内文件数 = dist + bin 目录实际文件数 + 4 个根条目', () => {
     const root = fixture();
     try {
-      // dist 3 个文件 → 期望 8
+      // dist 3 个文件 + bin 1 个文件 + 4 个根条目 = 8
       expect(packageCountProblem(8, root)).toBeNull();
       expect(packageCountProblem(9, root)).toContain('packed 9 file(s)');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('bin 多一个文件（startup-hint.js 这类）不再把门禁判红', () => {
+    const root = fixture();
+    try {
+      writeFileSync(join(root, 'bin', 'startup-hint.js'), 'export const hint = 1;\n');
+      // dist 3 + bin 2 + 4 = 9
+      expect(packageCountProblem(9, root)).toBeNull();
+      expect(packageCountProblem(8, root)).toContain('bin(2)');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
