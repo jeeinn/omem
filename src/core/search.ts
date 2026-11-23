@@ -7,6 +7,7 @@ import type { OmemIndex, EntryRow } from './index.js';
 import { readAsOf } from './history.js';
 import type { AsOfRow } from './history.js';
 import { evidenceUserText, readStoredSession } from '../collect/session-store.js';
+import { queryTokens } from './query-tokens.js';
 
 export interface SearchQuery {
   /** 关键词。可省略——省略时必须给 topic，否则返回空。 */
@@ -30,6 +31,13 @@ export interface SearchPage {
   matched: number;
   /** as_of 解析出的提交 sha 与时间；非历史查询时缺席。 */
   snapshot?: { rev: string; committedAt: string; count: number };
+  /** 实际参与匹配的 token（已剥离中文疑问词/虚词）。 */
+  tokens?: string[];
+  /**
+   * true 表示严格 AND 没有命中，退回了 OR。
+   * 只在「一个原始 token 被停用词切开」时发生，用户显式空格分隔的查询不会触发。
+   */
+  relaxed?: boolean;
 }
 
 function charLen(s: string): number {
@@ -49,12 +57,15 @@ interface Ranked {
  * 两套来源共用这一份裁决逻辑——历史视图不得自带第二套排序口径。
  * 过滤与排序分开的理由：`matched` 要在截断前算总数，
  * 而排序只在「有查询词」时才需要——纯 topic 查询按 created 倒序，与历史口径一致。
+ *
+ * `matchAll` 只在 OR 回退时传 false：命中任意一个 token 即保留，`hits` 仍用于排序。
  */
 function rank(
   rows: { row: EntryRow; lower: string }[],
   q: SearchQuery,
   tokens: string[],
   staleWeight: number,
+  matchAll = true,
 ): Ranked[] {
   const out: Ranked[] = [];
   for (const { row, lower } of rows) {
@@ -73,12 +84,13 @@ function rank(
       let all = true;
       for (const t of tokens) {
         if (haystack.includes(t)) hits++;
-        else {
+        else if (matchAll) {
           all = false;
           break;
         }
       }
-      if (!all) continue;
+      if (matchAll && !all) continue;
+      if (!matchAll && hits === 0) continue;
     }
 
     const weight = row.status === 'stale' ? staleWeight : 1;
@@ -98,7 +110,9 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
   const limit = q.limit && q.limit > 0 ? Math.floor(q.limit) : 3;
   const staleWeight = q.staleWeight ?? 0.5;
 
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  // 中文整句在这里被拆成关键词：疑问词/虚词剥离见 core/query-tokens.ts。
+  const parsed = queryTokens(query);
+  const tokens = parsed.tokens;
 
   // as_of：把当前行换成 git 时点快照行，后续过滤/打分/排序完全共用。
   // 历史行带 snapshotBody，调用方读详情必须用它，不能用 path 读当前磁盘正文。
@@ -118,9 +132,25 @@ export function searchEntriesPage(index: OmemIndex, q: SearchQuery): SearchPage 
     return { rows: rows.slice(0, limit), matched: rows.length, ...(snapshot ? { snapshot } : {}) };
   }
 
-  const ranked = rank(source, q, tokens, staleWeight);
+  let ranked = rank(source, q, tokens, staleWeight);
+  // OR 回退的边界：只有系统自己切开的 token（autoSplit）才放宽。
+  // 用户显式用空格写的多词查询保持严格 AND —— 那是有意的「这些词要一起出现」。
+  let relaxed = false;
+  if (ranked.length === 0 && parsed.autoSplit && tokens.length > 1) {
+    const any = rank(source, q, tokens, staleWeight, false);
+    if (any.length > 0) {
+      ranked = any;
+      relaxed = true;
+    }
+  }
   const rows = ranked.slice(0, limit).map((r) => ({ ...r.row, rank: -r.hits }));
-  return { rows, matched: ranked.length, ...(snapshot ? { snapshot } : {}) };
+  return {
+    rows,
+    matched: ranked.length,
+    ...(snapshot ? { snapshot } : {}),
+    tokens,
+    ...(relaxed ? { relaxed } : {}),
+  };
 }
 
 /** 只要结果集的调用方（CLI、内部流程）用这个，签名保持不变。 */

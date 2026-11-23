@@ -68,7 +68,16 @@ async function searchBody(
 
   if (hits.length === 0) {
     // 与 MCP 共用一份零结果文案：过滤器写错与真的没有，必须能分开说。
-    for (const line of formatNoHits({ query, domain, project }, { cli: true })) console.log(line);
+    for (const line of formatNoHits(
+      {
+        query,
+        domain,
+        project,
+        normalizedQuery: (page.tokens ?? []).join(' '),
+        relaxed: page.relaxed,
+      },
+      { cli: true },
+    )) console.log(line);
     return 0;
   }
 

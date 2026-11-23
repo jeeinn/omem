@@ -656,7 +656,14 @@ async function toolSearch(
   };
 
   if (page.rows.length === 0) {
-    const noHits = formatNoHits({ query, topic, domain, project }).join('\n');
+    const noHits = formatNoHits({
+      query,
+      topic,
+      domain,
+      project,
+      normalizedQuery: (page.tokens ?? []).join(' '),
+      relaxed: page.relaxed,
+    }).join('\n');
     const header = page.snapshot
       ? `Historical snapshot ${page.snapshot.rev} (committed ${page.snapshot.committedAt}): no matches.\n`
       : '';
