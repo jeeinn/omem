@@ -5,6 +5,7 @@
 // 保留这个包装器是因为 npm bin shim 需要一个稳定入口，且 OMEM_CLI_ENTRY 约定在 CLI 侧。
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { diagnoseStartupFailure } from './startup-hint.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const main = join(here, '..', 'dist', 'cli.js');
@@ -13,7 +14,7 @@ process.env.OMEM_CLI_ENTRY = '1';
 try {
   await import(pathToFileURL(main).href);
 } catch (err) {
-  console.error(`omem: startup failed: ${err?.message ?? err}`);
-  console.error('Hint: run `npm run build` first — the published package ships dist/.');
+  // 分型文案见 startup-hint.js：这里只负责打印与退出码。
+  for (const line of diagnoseStartupFailure(err).lines) console.error(line);
   process.exit(1);
 }

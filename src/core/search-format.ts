@@ -8,6 +8,13 @@ export interface NoHitsContext {
   topic?: string;
   domain?: string;
   project?: string;
+  /**
+   * 规范化后的查询（剥离过中文疑问词/虚词）。
+   * 与原文不同时必须说出来：用户以为自己在问整句，检索实际只看几个关键词。
+   */
+  normalizedQuery?: string;
+  /** 严格 AND 未命中、已退回 OR 时为 true。 */
+  relaxed?: boolean;
 }
 
 export interface NoHitsOptions {
@@ -29,6 +36,10 @@ export function formatNoHits(ctx: NoHitsContext, opts: NoHitsOptions = {}): stri
     lines.push(`No document found for topic "${ctx.topic}".`);
   } else if (query) {
     lines.push(`No memories found matching "${query}".`);
+    const normalized = (ctx.normalizedQuery ?? '').trim();
+    if (normalized && normalized !== query.toLowerCase()) {
+      lines.push(`Interpreted as: ${normalized} (question words and particles are dropped).`);
+    }
   } else {
     lines.push('Nothing to search: pass a query, or a topic.');
   }
@@ -51,7 +62,11 @@ export function formatNoHits(ctx: NoHitsContext, opts: NoHitsOptions = {}): stri
     lines.push('');
     // B 阶段起检索是纯子串匹配（内存扫描），不再有 FTS5 trigram 的 3 字符门槛。
     // 旧的提示词还在教用户「中文要 3 个字」，那是 SQLite 时代的遗留。
-    lines.push('Tip: every word is matched as a substring, so one uncommon word can rule the whole query out — try fewer, more specific words.');
+    lines.push('Tip: each word must appear verbatim, and every word must match (substring AND). Two or three key nouns beat a full sentence.');
+    // 已经替用户切开过一次还查不到：明确说「放宽也没找到」，别再让他以为是切词没切好。
+    if (ctx.relaxed) {
+      lines.push('Already relaxed to "any word matches" and still nothing — the words themselves are probably not in your memory.');
+    }
     if (opts.cli) lines.push('Tip: add --all to include archived entries.');
     else lines.push('Tip: archived entries are excluded by default; pass status to include them.');
   }

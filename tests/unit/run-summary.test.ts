@@ -65,3 +65,31 @@ describe('omem process summary', () => {
     expect(text).toContain('omem review');
   });
 });
+
+describe('omem sync summary: actionable next step and verbose detail', () => {
+  it('Next gives a concrete batch size and the pending-review entry point', () => {
+    const text = runSummaryLines(report(), false).join('\n');
+    expect(text).toContain('omem process --limit 5');
+    expect(text).toContain('omem review --pending');
+  });
+
+  it('a large backlog caps the suggested batch at 10', () => {
+    const text = runSummaryLines(report({ waitingSessions: 900 }), false).join('\n');
+    expect(text).toContain('omem process --limit 10');
+  });
+
+  it('--verbose lists what was collected; the default summary stays quiet', () => {
+    const r = report({
+      ingested: [
+        { agent: 'claude-code', session_id: 's-1', messages: 3, project_fp: 'local:aaa' },
+        { agent: 'deepseek', session_id: 's-2', messages: 5, project_fp: 'unknown' },
+      ],
+    });
+    expect(runSummaryLines(r, false).join('\n')).not.toContain('s-1');
+
+    const loud = runSummaryLines(r, false, true).join('\n');
+    expect(loud).toContain('Collected 2 session(s)');
+    expect(loud).toContain('claude-code:s-1');
+    expect(loud).toContain('deepseek:s-2');
+  });
+});

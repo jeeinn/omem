@@ -1,5 +1,5 @@
 // MCP 工具面（规格 §8：最小工具面原则，对齐 codegraph）。
-// 默认只列 search_memory / save_memory；memory_feedback 用 OMEM_MCP_TOOLS=feedback 开启。
+// 默认工具：search_memory / save_memory，加一个只读诊断 omem_status；memory_feedback 用 OMEM_MCP_TOOLS=feedback 开启。
 // description 写成触发条件式（规划 5.4-1：Agent 调用意愿是生死问题）。
 //
 // 纪律（2026-10-27 复核后加固）：
@@ -22,6 +22,9 @@ import { autoCommit, commitEntry, metadataDrift, normalizeTopic, overCapNotice, 
 import { absorbedSessionIds } from '../process/guide.js';
 import { scoreEvidence } from '../process/score.js';
 import { readSessionsById, sessionFilePath, userSegments } from '../collect/session-store.js';
+import { COLLECTOR_IDS, getCollector } from '../collect/collector.js';
+import { existsSync } from 'node:fs';
+import { OMEM_VERSION } from '../core/version.js';
 import type { EntryRow } from '../core/index.js';
 import type { AsOfRow } from '../core/history.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -264,6 +267,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         properties: {
           status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / needs-reactivation / stale-revision. Under dry_run nothing is written regardless of status.' },
           topic: { type: 'string', description: 'The document name written (or deduped against).' },
+          path: { type: 'string', description: 'Absolute path on disk; absent on dry_run.' },
           updated: { type: 'boolean', description: 'true when an existing living document was overwritten.' },
           confidence: { type: 'number', description: 'Evidence-support score used for ranking, not a probability of being true. Derived from quoted evidence, never caller-controlled.' },
           tags: { type: 'array', items: { type: 'string' } },
@@ -356,6 +360,27 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         openWorldHint: false,
       },
     },
+    {
+      name: 'omem_status',
+      title: 'omem status',
+      // 只读诊断：升级包后 MCP 进程仍是旧代码，而 serverInfo 不进 tools/list，
+      // 没有这个工具就只能靠猜「升级到底生效了没有」。
+      description:
+        'Read-only diagnostics: version, store path, counts, collector health. ' +
+        'Use to verify an upgrade took effect or why a source has no sessions.',
+      inputSchema: { type: 'object', properties: {}, required: [] },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          version: { type: 'string' },
+          home: { type: 'string' },
+          documents: { type: 'object' },
+          sessions: { type: 'object' },
+          collectors: { type: 'array' },
+        },
+      },
+      annotations: { readOnlyHint: true },
+    },
   ];
   if ((env.OMEM_MCP_TOOLS ?? '').split(',').includes('feedback')) {
     tools.push({
@@ -397,10 +422,73 @@ export async function handleTool(name: string, args: Record<string, any>, ctx: T
       return ok(r.text, r.structured);
     }
     if (name === 'memory_feedback') return ok(toolFeedback(args, ctx));
+    if (name === 'omem_status') {
+      const r = toolStatus(ctx);
+      return ok(r.text, r.structured);
+    }
     return err(`Unknown tool: ${name}`);
   } catch (e: any) {
     return err(String(e?.message ?? e));
   }
+}
+
+// ── omem_status ──
+
+/**
+ * 只读诊断。
+ *
+ * 存在的理由：MCP 是长驻进程，`npm i -g` 升版后旧进程仍在跑，而 serverInfo.version
+ * 不进 tools/list —— 调用方看不到自己连的是哪个 build，「升级有没有生效」只能猜。
+ * 这里把版本、存储路径、计数与采集器健康一次说清；不读会话正文，只做 existsSync + 自检。
+ */
+function toolStatus(ctx: ToolCtx): { text: string; structured: Record<string, unknown> } {
+  const rows = ctx.index.rows().map((r) => r.row);
+  const documents = {
+    total: rows.length,
+    active: rows.filter((r) => r.status === 'active').length,
+    stale: rows.filter((r) => r.status === 'stale').length,
+    archived: rows.filter((r) => r.status === 'archived').length,
+    unreviewed: rows.filter((r) => r.status === 'active' && r.confirmations === 0).length,
+  };
+
+  const sessions = ctx.index.listSessions();
+  const latest = sessions.reduce((acc, s) => ((s.last_ts ?? '') > acc ? s.last_ts : acc), '');
+
+  const collectors = COLLECTOR_IDS.map((id) => {
+    try {
+      const collector = getCollector(id, ctx.config);
+      const root = collector.root();
+      const exists = existsSync(root);
+      const error = exists ? collector.preflight?.() : undefined;
+      return { id, root, exists, ...(error ? { error } : {}) };
+    } catch (e) {
+      return { id, root: '', exists: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  const available = collectors.filter((c) => c.exists && !c.error).map((c) => c.id);
+  const broken = collectors.filter((c) => c.error);
+
+  const lines = [
+    `omem ${OMEM_VERSION}`,
+    `Store: ${ctx.home}`,
+    `Documents: ${documents.total} (active ${documents.active}, stale ${documents.stale}, archived ${documents.archived}) · unreviewed ${documents.unreviewed}`,
+    `Sessions indexed: ${sessions.length}${latest ? ` (latest ${latest})` : ''}`,
+    `Collectors available: ${available.length > 0 ? available.join(', ') : 'none'}`,
+  ];
+  for (const b of broken) lines.push(`Collector unavailable: ${b.id} — ${b.error}`);
+  if (broken.length > 0) lines.push('Run `omem doctor` in a terminal for the full check.');
+
+  return {
+    text: lines.join('\n'),
+    structured: {
+      version: OMEM_VERSION,
+      home: ctx.home,
+      documents,
+      sessions: { indexed: sessions.length, latest },
+      collectors,
+    },
+  };
 }
 
 // ── search_memory ──
@@ -656,7 +744,14 @@ async function toolSearch(
   };
 
   if (page.rows.length === 0) {
-    const noHits = formatNoHits({ query, topic, domain, project }).join('\n');
+    const noHits = formatNoHits({
+      query,
+      topic,
+      domain,
+      project,
+      normalizedQuery: (page.tokens ?? []).join(' '),
+      relaxed: page.relaxed,
+    }).join('\n');
     const header = page.snapshot
       ? `Historical snapshot ${page.snapshot.rev} (committed ${page.snapshot.committedAt}): no matches.\n`
       : '';
@@ -853,6 +948,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
     Object.assign(structured, {
       status: result.status,
       topic: result.topic,
+      // 写入方最常问的下一个问题就是「落在哪个文件」；回执里没有就只能再 search 一次。
+      ...(result.path ? { path: result.path } : {}),
       updated: result.updated ?? false,
       // 去重命中时磁盘上的分是既有条目的分；这次算出来的只是「如果写下去会是几分」。
       confidence: result.status === 'deduped' ? (result.existing?.confidence ?? scored.confidence) : scored.confidence,
@@ -910,6 +1007,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       const savedType = saved?.fm.type ?? type;
       const verb = result.updated ? 'Updated' : 'Saved';
       parts.push(`${verb} (topic: ${result.topic}, ${domain}/${savedType}, confidence ${scored.confidence}). Not reviewed by a human yet.`);
+      // 落盘位置直接给出：回执里没有它，调用方回读确认就只能再 search 一次。
+      if (result.path) parts.push(`File: ${result.path}`);
       if (result.scoreDropped) parts.push(scoreDropNotice(result.scoreDropped));
       // 锚定结果必须写出来：只报 confidence 时，「举证成功」与「根本没举证」看起来一模一样。
       const anchors = scored.anchors;

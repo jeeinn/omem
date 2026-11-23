@@ -13,6 +13,7 @@ import { cmdSearch } from './commands/search.js';
 import { cmdReview } from './commands/review.js';
 import { cmdTopics } from './commands/topic.js';
 import { cmdVerify } from './commands/verify.js';
+import { cmdDoctor } from './commands/doctor.js';
 import { cmdSync } from './commands/sync.js';
 import { cmdProfile } from './commands/profile.js';
 import { cmdRedact } from './commands/redact.js';
@@ -40,7 +41,7 @@ const COMMANDS: Record<string, Command> = {
   },
   sync: {
     desc: 'Ingest session transcripts and refresh PROCESS.md (never calls a model)',
-    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run] [--watch-once [--quiet-ms N] [--hard-cap-ms N]]',
+    usage: 'omem sync [--since 7d|YYYY-MM-DD] [--session <id>] [--collectors id,id] [--dry-run] [--verbose] [--watch-once [--quiet-ms N] [--hard-cap-ms N]]',
     run: cmdRun,
   },
   process: {
@@ -65,7 +66,7 @@ const COMMANDS: Record<string, Command> = {
   },
   review: {
     desc: 'Review a short queue; open one entry by topic, or review in the browser',
-    usage: 'omem review [<topic>] [--all] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
+    usage: 'omem review [<topic>] [--all] [--pending] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
   topics: {
@@ -77,6 +78,11 @@ const COMMANDS: Record<string, Command> = {
     desc: 'Rebuild the in-memory view from markdown and re-render MEMORY-INDEX',
     usage: 'omem verify [--quotes]',
     run: cmdVerify,
+  },
+  doctor: {
+    desc: 'Read-only health check: Node, version, store, zstd, backup, collector roots',
+    usage: 'omem doctor [--strict]',
+    run: cmdDoctor,
   },
   backup: {
     desc: 'Back up the data repo (git pull + push; conflicts are reported only)',

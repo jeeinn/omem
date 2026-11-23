@@ -15,7 +15,23 @@
 
 ## [Unreleased]
 
-暂无。
+### 新增
+
+- **`omem doctor`**：一条命令输出 Node 版本、omem 版本、存储路径与 config、文档/会话计数、备份仓状态、zstd 后端、九个采集器的根目录与自检结果。默认只读恒返回 0，`--strict` 时才在存在 error 级问题时返回 1。
+- **`omem_status`（MCP 只读工具）**：返回 version / store / 计数 / 采集器健康。MCP 是长驻进程，`npm i -g` 升版后旧进程仍在跑，而 `serverInfo.version` 不进 `tools/list`——这是调用方唯一能确认「跑的是哪个 build」的入口。工具面预算上限相应从 12,300 调到 13,000（新增约 466 字符），见 `tests/unit/tool-budget.test.ts`。
+- **`omem review --pending`**：跨全部时间列出「无 evidence、无会话」的候选条目。这类条目永远拿不到 0.55 以上的分，却会在 14 天后掉出默认队列；现在有批量确认入口（`--confirm` 升到 0.9）。
+- **`omem sync --verbose`**：列出本批实际采集的会话（`agent:session_id`、消息数、项目指纹）。默认总结保持一行一句。
+- **写入回执带 `path`**：`save_memory` 的 `structuredContent` 新增 `path`，文本回执新增 `File:` 行；回读确认位置不再需要额外一次 search。
+
+### 修复
+
+- **一个采集器的原生依赖不再拖垮整个 CLI**：`@toondepauw/node-zstd` 的 `index.js` 在 import 期就会抛，原实现又在 `collect/deepseek.ts` 顶层 `new Decoder()`，导致原生绑定缺失时 `omem --version` 也无法启动。现在：优先用 Node 内置 `zlib.zstdDecompressSync`（22.15+，零原生依赖），老 Node 才回退到预编译包；加载是惰性且可捕获的，`Collector.preflight` 把原因报进 `omem sync` 的 notes，而不是中断整轮。
+- **启动失败给出可执行命令**：`bin/omem.js` 不再对所有异常都提示 `npm run build`（全局安装的用户没有源码）。新增 `bin/startup-hint.js` 按原生绑定 / 包不完整 / 权限 / 运行时四类分型给修复命令，并打印 `Error.cause` 链——真实原因此前被埋在第二层。
+
+### 变更
+
+- **中文整句查询可命中**：检索仍是「子串 AND」，但查询先经 `core/query-tokens.ts` 剥离疑问词与虚词。此前「我最近的工作都有哪些项目？」是一个 token，要整句子串命中，必然 0 结果。**边界**：只有「原本一个 token 被切开」（autoSplit）时才在 0 命中后退回 OR；用户显式用空格写出的多词查询保持严格 AND，multi-hop 的「拼起来的查询不该命中」语义不变。零结果文案会说明实际检索的 token，不再只说「试试更少的词」。
+- 零结果提示改为 "each word must appear verbatim…"，并区分「已放宽为任一词仍无结果」与「关键词本身不在库里」。
 
 ## [0.5.0] - 2026-11-22
 

@@ -53,3 +53,20 @@ export function composeVersion(base: string, info?: BuildInfo): string {
 }
 
 export const OMEM_VERSION = composeVersion(readBaseVersion(), readBuildInfo());
+
+/**
+ * package.json 里声明的 Node 下限（形如 ">=22.5.0"）。
+ * doctor 要拿它和运行中的 process.versions.node 比对，所以不能各处手写第二份。
+ */
+function readEnginesNode(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(here, '..', '..', 'package.json'), 'utf8')) as {
+      engines?: { node?: string };
+    };
+    return typeof pkg.engines?.node === 'string' && pkg.engines.node ? pkg.engines.node : '>=22.5.0';
+  } catch {
+    return '>=22.5.0';
+  }
+}
+
+export const OMEM_REQUIRED_NODE = readEnginesNode();

@@ -11,7 +11,7 @@ import { listCursorTranscripts, parseCursorTranscript } from './cursor.js';
 import { parseWorkbuddyFile } from './workbuddy.js';
 import { parseQwenworkFile } from './qwenwork.js';
 import { listDoubaoSessions, parseDoubaoFile, defaultDoubaoRoot } from './doubao.js';
-import { listDeepSeekSessions, parseDeepSeekFile, defaultDeepSeekRoot } from './deepseek.js';
+import { listDeepSeekSessions, parseDeepSeekFile, defaultDeepSeekRoot, deepseekZstdError } from './deepseek.js';
 import { listQoderSessions, parseQoderFile, defaultQoderRoot, defaultQoderCnRoot } from './qoder.js';
 import { listCatpawTranscripts, parseCatpawFile, defaultCatpawRoot } from './catpaw.js';
 import {
@@ -32,6 +32,12 @@ export interface Collector {
   root(): string;
   list(): { path: string; sessionId: string; mtimeMs: number }[];
   parse(path: string): SessionDigest | null;
+  /**
+   * 可选自检：返回 undefined 表示可用，否则返回不可用原因。
+   * 用于「目录存在但这个采集器根本跑不起来」的情况（例如解压器缺失），
+   * 让 sync 能把原因报出来，而不是静默少采一批会话。
+   */
+  preflight?(): string | undefined;
 }
 
 /** 配置以 ~ 开头时允许环境变量覆盖；绝对路径以配置为准（测试隔离）。 */
@@ -97,7 +103,13 @@ export function getCollector(id: string, config: OmemConfig, env: NodeJS.Process
     const root = config.collect.deepseek_projects.startsWith('~')
       ? defaultDeepSeekRoot(env)
       : config.collect.deepseek_projects;
-    return { id, root: () => root, list: () => listDeepSeekSessions(root), parse: (path) => parseDeepSeekFile(path) };
+    return {
+      id,
+      root: () => root,
+      list: () => listDeepSeekSessions(root),
+      parse: (path) => parseDeepSeekFile(path),
+      preflight: () => deepseekZstdError(),
+    };
   }
   if (id === 'qoder') {
     const rootIntl = config.collect.qoder_projects.startsWith('~')
@@ -152,6 +164,8 @@ export interface ScanRoot {
   id: string;
   root: string;
   exists: boolean;
+  /** 采集器自检或枚举失败的原因；有值表示这一路会话被跳过了。 */
+  error?: string;
 }
 
 export interface ScanResult {
@@ -175,13 +189,26 @@ export function scanSessions(
   const work: { collector: Collector; path: string }[] = [];
   const ids = opts.collectors && opts.collectors.length > 0 ? opts.collectors : COLLECTOR_IDS;
   for (const id of ids) {
-    const collector = getCollector(id, config);
-    const root = collector.root();
-    const rootExists = existsSync(root);
-    roots.push({ id, root, exists: rootExists });
-    if (!rootExists) continue;
-    const files = collector.list().filter((f) => (opts.sessionId ? f.sessionId === opts.sessionId : true));
-    for (const f of files) {
+    // 一个采集器坏掉不能带走整轮 sync：加载 / 自检 / 枚举三处分别兜底。
+    // 失败只让这一路缺席，原因记进 ScanRoot.error 由上层渲染成一条 note。
+    const entry: ScanRoot = { id, root: '', exists: false };
+    let collector: Collector | undefined;
+    let files: { path: string; sessionId: string; mtimeMs: number }[] = [];
+    try {
+      collector = getCollector(id, config);
+      entry.root = collector.root();
+      entry.exists = existsSync(entry.root);
+      if (entry.exists) {
+        const preflight = collector.preflight?.();
+        if (preflight) entry.error = preflight;
+        else files = collector.list();
+      }
+    } catch (err) {
+      entry.error = err instanceof Error ? err.message : String(err);
+    }
+    roots.push(entry);
+    if (entry.error || !entry.exists || !collector) continue;
+    for (const f of files.filter((f) => (opts.sessionId ? f.sessionId === opts.sessionId : true))) {
       if (isExcludedPath(f.path, excludes)) {
         excludedPaths++;
         continue;

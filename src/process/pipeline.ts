@@ -86,6 +86,11 @@ export interface RunReport {
   /** 未吸收会话总数（含 unassigned、含同指纹副本）。 */
   waitingSessions?: number;
   duplicateTopics?: number;
+  /**
+   * 本批实际采集到的会话（id + agent + 消息数）。
+   * 只给 `omem sync --verbose` 用：默认总结不列明细，但「到底采了哪几条」总得有个入口。
+   */
+  ingested?: { agent: string; session_id: string; messages: number; project_fp: string }[];
 }
 
 /** 显式 --tier 优先。rules 已从产品路径移除，残留配置按 agent 处理。 */
@@ -444,11 +449,18 @@ function ingest(
   onProgress?: (phase: string, done: number, total: number) => void,
 ): void {
   const total = digests.length;
+  report.ingested = report.ingested ?? [];
   for (let i = 0; i < digests.length; i++) {
     const digest = digests[i];
     onProgress?.('Writing sessions', i + 1, total);
     report.sessions++;
     report.messages += digest.messages.length;
+    report.ingested.push({
+      agent: digest.agent,
+      session_id: digest.session_id,
+      messages: digest.messages.length,
+      project_fp: digest.project_fp,
+    });
     const { body, hash } = prepareDialogue(digest);
     if (dryRun) continue;
     const { path, text, apiState } = writeSessionFile(home, digest, body, hash);
@@ -513,6 +525,12 @@ function rootEnvHint(id: string): string {
 /** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */
 function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
   for (const r of scan.roots) {
+    // 目录在、采集器却跑不起来：必须说清是哪一路缺席，否则「少采了一批」看起来
+    // 和「本来就没有」完全一样。error 优先于 exists——它才是真正的缺席原因。
+    if (r.error) {
+      report.notes.push(`Collector ${r.id} unavailable: ${r.error} (its sessions were skipped)`);
+      continue;
+    }
     if (r.exists) continue;
     report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${rootEnvHint(r.id)})`);
   }

@@ -83,3 +83,39 @@ describe('omem review queue', () => {
     expect(text).toContain('git-sync');
   });
 });
+
+describe('omem review --pending', () => {
+  it('lists evidence-less entries regardless of age, with a batch confirm hint', async () => {
+    const fresh = add('fresh note with no evidence at all');
+    const old = add('ancient note with no evidence at all');
+    updateTopic(home, old, (fm) => { fm.created = '2020-01-01T00:00:00.000Z'; });
+
+    // 默认队列按 14 天窗口收：2020 那条看不见。
+    await cmdReview({ _: [], flags: {} });
+    expect(logs.join('\n')).not.toContain(old);
+
+    logs.length = 0;
+    await cmdReview({ _: [], flags: { pending: true } });
+    const text = logs.join('\n');
+    expect(text).toContain(fresh);
+    expect(text).toContain(old);
+    expect(text).toContain('omem review --confirm');
+    expect(text).toContain('0.9');
+  });
+
+  it('an entry that carries evidence is not a pending candidate', async () => {
+    const withEvidence = add('note that does have a quoted evidence trail');
+    updateTopic(home, withEvidence, (fm) => { fm.evidence = ['a quote long enough to count as evidence']; });
+    const bare = add('note with nothing backing it');
+
+    await cmdReview({ _: [], flags: { pending: true } });
+    const text = logs.join('\n');
+    expect(text).toContain(bare);
+    expect(text).not.toContain(withEvidence);
+  });
+
+  it('reports an empty pending set explicitly instead of "Queue is empty"', async () => {
+    await cmdReview({ _: [], flags: { pending: true } });
+    expect(logs.join('\n')).toContain('No pending candidates.');
+  });
+});
