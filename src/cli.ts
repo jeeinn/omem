@@ -65,7 +65,7 @@ const COMMANDS: Record<string, Command> = {
   },
   review: {
     desc: 'Review a short queue; open one entry by topic, or review in the browser',
-    usage: 'omem review [<topic>] [--all] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
+    usage: 'omem review [<topic>] [--all] [--pending] [--source X] [--topic X] [--confirm <topic[,topic]>] [--dismiss <topic>] [--stale <topic>] [--gc [--days N]] | omem review --ui [--no-open] [--port N] [--timeout SEC]',
     run: cmdReview,
   },
   topics: {

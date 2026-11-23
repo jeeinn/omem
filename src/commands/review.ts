@@ -25,6 +25,19 @@ export function inReviewInbox(fm: Frontmatter, now = Date.now()): boolean {
   return now - created <= RECENT_DAYS * 86_400_000;
 }
 
+/**
+ * pending candidate：写下了，但这次写入没有任何证据来源（无 evidence、无会话）。
+ *
+ * 为什么单列：这类条目永远拿不到 0.55 以上的分，却会在 14 天后掉出默认队列，
+ * 于是「等人工过目」变成了「悄悄沉底」。`omem review --pending` 跨全部时间列出它们。
+ */
+export function isPendingCandidate(fm: Frontmatter): boolean {
+  if (fm.confirmations > 0 || fm.status !== 'active') return false;
+  if (fm.tags.includes('pending-session')) return true;
+  const sessions = fm.source_sessions?.length ?? 0;
+  return (fm.evidence?.length ?? 0) === 0 && sessions === 0;
+}
+
 export async function cmdReview(args: ParsedArgs): Promise<number> {
   const ctx = openCtx();
   const { home, config, index } = ctx;
@@ -118,12 +131,16 @@ async function reviewBody(
   const all = listEntries(home);
   const unreviewed = all.filter((l) => l.entry.fm.confirmations === 0 && l.entry.fm.status === 'active');
   const inbox = unreviewed.filter((l) => inReviewInbox(l.entry.fm));
+  const pendingOnly = flagBool(args.flags, 'pending');
 
   // D5：主题级策略（review.toml）已删除。队列只按「未过目 + 在时间窗口内或低置信」收，
   // 没有第二条静默通道——静默就是把「要不要看一眼」交给配置文件决定，那正是要删的东西。
-  let queue = inbox;
-  // 只统计 14 天窗口外的旧条目（「older」这个词必须准确）。
-  const olderParked = unreviewed.length - inbox.length;
+  //
+  // --pending 只换筛选口径，不是第二条策略：它把「无证据来源」的条目跨时间捞出来，
+  // 让它们有一个能被批量确认的入口，而不是 14 天后悄悄沉底。
+  let queue = pendingOnly ? unreviewed.filter((l) => isPendingCandidate(l.entry.fm)) : inbox;
+  // 只统计 14 天窗口外的旧条目（「older」这个词必须准确）。--pending 跨全部时间，不适用。
+  const olderParked = pendingOnly ? 0 : unreviewed.length - inbox.length;
 
   const printSilenced = (): void => { /* 策略已删，保留调用点以免大改结构 */ };
   const source = flagStr(args.flags, 'source');
@@ -162,7 +179,7 @@ async function reviewBody(
   const shown = showAll ? queue : queue.slice(0, PAGE);
 
   if (shown.length === 0 && stale.length === 0) {
-    console.log('Queue is empty.');
+    console.log(pendingOnly ? 'No pending candidates.' : 'Queue is empty.');
     printSilenced();
     if (!source && !topic && olderParked > 0) {
       console.log(`${olderParked} older unverified ${olderParked === 1 ? 'entry stays' : 'entries stay'} in the library.`);
@@ -182,6 +199,11 @@ async function reviewBody(
       console.log(`  … ${queue.length - PAGE} more.  omem review --all`);
     }
     console.log('Open one:  omem review <topic>');
+    if (pendingOnly) {
+      // 这批人已经等不到证据了：只能靠人读一遍正文，确认后升到 0.9。
+      const topics = shown.map((l) => l.entry.fm.topic);
+      console.log(`Confirm (raises confidence to 0.9):  omem review --confirm ${topics.slice(0, 8).join(',')}${topics.length > 8 ? '  (batch the rest)' : ''}`);
+    }
   }
   if (stale.length > 0) {
     console.log(`Cooled: ${stale.length} (search weight ×${config.process.stale_weight}). Reviewing does not change status; writing to a cooled topic requires an explicit reactivate.`);
