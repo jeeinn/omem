@@ -18,7 +18,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 
 当前版本 `0.5.0`（`npm install -g @jeeinn/omem`）。`omem sync` 只采集；可选的 API 加工走 `omem process`。
 
-> 升级提示：`0.4.0` 仅打了 git tag、未发 npm 包，本次 `0.5.0` 直接从 `0.3.2` 成为 `latest`。从 `0.3.x` 升级会一次拿到两版变更，0.x 阶段 minor 可能含不兼容变更，升级前请读 [CHANGELOG.md](./CHANGELOG.md) 的 `[0.4.0]` 与 `[0.5.0]` 两节。
+> 升级提示：`0.6.0` 是可用性修复版，无破坏性变更。有两处行为变化要留意：中文整句查询现在会先剥离疑问词、虚词与标点再匹配（`0.5.0` 及以前整句必然 0 命中）；MCP 默认工具面多了一个只读的 `omem_status`。升级前请读 [CHANGELOG.md](./CHANGELOG.md) 的 `[0.6.0]` 一节。
 
 从 v0.1 升上来时，用 `omem init --force` 重建数据仓。`--force` 会先自动打一份快照，再重建 git 仓。npm 上此前的 `latest` 是 `0.1.0-beta.8`；`0.2.0-beta.1` 只打过 git tag。
 

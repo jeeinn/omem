@@ -15,6 +15,12 @@
 
 ## [Unreleased]
 
+暂无。
+
+## [0.6.0] - 2026-11-23
+
+可用性修复版：一次端到端使用中暴露的八个问题，每个一个问题一个 commit。无破坏性变更，但检索行为有一处变化，升级前请读本节「变更」。
+
 ### 新增
 
 - **`omem doctor`**：一条命令输出 Node 版本、omem 版本、存储路径与 config、文档/会话计数、备份仓状态、zstd 后端、九个采集器的根目录与自检结果。默认只读恒返回 0，`--strict` 时才在存在 error 级问题时返回 1。
@@ -187,7 +193,8 @@ npm `latest` 此前停在 `0.1.0-beta.8`；`v0.2.0-beta.1` 只存在于 git tag�
 
 > 更早的 `0.1.0-beta.3` – `0.1.0-beta.7` 为快速迭代期，未留档逐版发布说明；变更明细见对应 git tag。
 
-[Unreleased]: https://github.com/jeeinn/omem/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jeeinn/omem/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jeeinn/omem/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jeeinn/omem/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jeeinn/omem/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/jeeinn/omem/compare/v0.3.1...v0.3.2

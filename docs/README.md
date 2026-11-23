@@ -12,13 +12,13 @@
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 现行分层、数据流、生命周期与检索口径 |
 | [`AGENTS.md`](../AGENTS.md) | Agent / 贡献者不变量与模块边界 |
 | [`CHANGELOG.md`](../CHANGELOG.md) | 版本变更记录（Keep a Changelog 格式） |
-| [`omem-v0.5-Roadmap.md`](./omem-v0.5-Roadmap.md) | **现行开工依据**：v0.5.0 五痛点议题、依赖顺序、验收与 go/no-go 门槛 |
-| [`omem-v0.5-测试保障方案.md`](./omem-v0.5-测试保障方案.md) | Phase 2 质量保障：量化门禁、用例矩阵、A 案断言补齐与复核（**GO**） |
-| [`omem-v0.5-上线发布方案.md`](./omem-v0.5-上线发布方案.md) | Phase 3 上线发布：前置清单、三阶段流程、四种回滚、合规与灰度、go/no-go（已选 A 案全量发布） |
+| [`omem-v0.5-Roadmap.md`](./omem-v0.5-Roadmap.md) | v0.5.0 期开工依据（已交付，留作回溯）：五痛点议题、依赖顺序、验收与 go/no-go 门槛 |
+| [`omem-v0.5-测试保障方案.md`](./omem-v0.5-测试保障方案.md) | v0.5.0 期质量保障（已交付）：量化门禁、用例矩阵、A 案断言补齐与复核（**GO**） |
+| [`omem-v0.5-上线发布方案.md`](./omem-v0.5-上线发布方案.md) | v0.5.0 期上线发布（已交付）：前置清单、三阶段流程、四种回滚、合规与灰度；v0.6.0 沿用同一套流程 |
 | [`手动测试指南.md`](./手动测试指南.md) | CLI 手工回归 |
 | [`记忆可信度的人工核实与Agent协作手册.md`](./记忆可信度的人工核实与Agent协作手册.md) | 人工过目与 Agent 协作测可信度 |
 
-产品边界（不变）：omem 管生命周期 / 安全写入 / 检索基础设施；语义归 Agent。非目标仍是：无向量库、无知识图谱、无 SQLite、无常驻 daemon、无自动遗忘、无文件锁、不扩默认 MCP 工具面。
+产品边界（不变）：omem 管生命周期 / 安全写入 / 检索基础设施；语义归 Agent。非目标仍是：无向量库、无知识图谱、无 SQLite、无常驻 daemon、无自动遗忘、无文件锁。MCP 工具面按「最小必要集」维护：只读诊断类可以进（`omem_status`），写入类或重复 CLI 命令的不进，每次新增都要记录体积代价（`tests/unit/tool-budget.test.ts`）。
 
 ## Archive（背景 only）
 
