@@ -4,7 +4,13 @@ import { mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Encoder } from '@toondepauw/node-zstd';
-import { parseDeepSeekFile, listDeepSeekSessions, defaultDeepSeekRoot } from '../../src/collect/deepseek.js';
+import {
+  parseDeepSeekFile,
+  listDeepSeekSessions,
+  defaultDeepSeekRoot,
+  pickDecompressor,
+  deepseekZstdError,
+} from '../../src/collect/deepseek.js';
 import type { SessionDigest } from '../../src/collect/types.js';
 
 const ZSTD = new Encoder(3);
@@ -197,5 +203,48 @@ describe('collector: DeepSeek Harness session.jsonl.zstd', () => {
     expect(defaultDeepSeekRoot({ OMEM_DEEPSEEK_PROJECTS: '/x/ds' })).toBe('/x/ds');
     const root = defaultDeepSeekRoot({});
     expect(root).toMatch(/\.dsh.sessions$/);
+  });
+});
+
+// 解压器选择是纯函数：三种状态必须各自可钉住。
+// 回归的是真实事故——原生绑定缺失时 @toondepauw/node-zstd 在 import 期就抛，
+// 而当时 deepseek 只是九个采集器之一，却让 `omem --version` 也起不来。
+describe('zstd decompressor selection (must never throw at import time)', () => {
+  it('prefers the built-in zlib decompressor and never touches the native loader', () => {
+    let nativeCalls = 0;
+    const picked = pickDecompressor(
+      (b) => b,
+      () => {
+        nativeCalls++;
+      },
+    );
+    expect(picked.error).toBeUndefined();
+    expect(typeof picked.decompress).toBe('function');
+    expect(nativeCalls).toBe(0);
+  });
+
+  it('falls back to the native loader when the built-in is absent', () => {
+    const picked = pickDecompressor(undefined, () => (b) => b);
+    expect(picked.error).toBeUndefined();
+    expect(picked.decompress?.length).toBe(1);
+  });
+
+  it('reports the loader error instead of propagating it', () => {
+    const picked = pickDecompressor(undefined, () => {
+      throw new Error('Cannot find native binding');
+    });
+    expect(picked.decompress).toBeUndefined();
+    expect(picked.error).toContain('Cannot find native binding');
+  });
+
+  it('reports a reason when the loader yields nothing', () => {
+    const picked = pickDecompressor(undefined, () => undefined);
+    expect(picked.decompress).toBeUndefined();
+    expect(picked.error).toMatch(/no zstd decompressor/);
+  });
+
+  it('the module-level probe is safe to call and returns undefined when usable', () => {
+    // 本机 Node 22.20 内置 zstd，或已安装原生包：两种情况都应为 undefined。
+    expect(deepseekZstdError()).toBeUndefined();
   });
 });

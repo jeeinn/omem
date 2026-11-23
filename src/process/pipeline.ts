@@ -513,6 +513,12 @@ function rootEnvHint(id: string): string {
 /** 缺目录只记提示。一个都不存在时返回 false，调用方不再加工。 */
 function noteMissingRoots(report: RunReport, scan: ScanResult): boolean {
   for (const r of scan.roots) {
+    // 目录在、采集器却跑不起来：必须说清是哪一路缺席，否则「少采了一批」看起来
+    // 和「本来就没有」完全一样。error 优先于 exists——它才是真正的缺席原因。
+    if (r.error) {
+      report.notes.push(`Collector ${r.id} unavailable: ${r.error} (its sessions were skipped)`);
+      continue;
+    }
     if (r.exists) continue;
     report.notes.push(`Session directory not found for ${r.id}: ${r.root} (set it via ${rootEnvHint(r.id)})`);
   }

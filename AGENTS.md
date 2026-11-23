@@ -70,7 +70,7 @@ npm run smoke          # bash tests/smoke.sh, ships with an isolated OMEM_HOME
 
 No database: the index is derived from Markdown in memory (B stage). Do not reintroduce `node:sqlite` or any other native module.
 
-Runtime dependencies are `@modelcontextprotocol/sdk` and `@toondepauw/node-zstd`. The zstd package is the one exception to the "no native modules" rule: DeepSeek Harness stores its sessions as zstd-compressed JSONL, and the collector must decompress them. It ships prebuilt binaries (win32/darwin/linux, x64 and arm64) so no source compilation is required. Do not add further native dependencies without weighing the install cost against the alternative.
+Runtime dependencies are `@modelcontextprotocol/sdk` and `@toondepauw/node-zstd`. zstd decompression is needed because DeepSeek Harness stores its sessions as zstd-compressed JSONL. **Load order is `node:zlib.zstdDecompressSync` first (Node 22.15+), then the prebuilt native package** — so on a modern Node the native module is never touched. The load is lazy and fallible on purpose (`src/collect/deepseek.ts`): a collector's optional dependency must never throw at import time, because that turns "one optional collector is unavailable" into "the whole CLI cannot start" (the published 0.5.0 did exactly that, `omem --version` included). Missing sources are reported per collector through `Collector.preflight` → `ScanRoot.error` → `omem sync` notes, never by failing the run. Do not add further native dependencies without weighing the install cost against the alternative.
 
 ## Code conventions
 

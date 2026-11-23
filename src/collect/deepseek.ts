@@ -3,15 +3,81 @@
 // 行格式是 typed JSONL：首行 {"type":"session", ...}，后续行 {"type":"user/message"|"assistant/message"|..., "data":{...}}。
 // 只保留 user/message 与 assistant/message 的 text 块；跳过 reasoning / tool-call / image 等其余类型。
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { Decoder } from '@toondepauw/node-zstd';
+import * as zlib from 'node:zlib';
 import { expandHome } from '../core/paths.js';
 import type { SessionFile } from './claude-code.js';
 import { stripHarness } from './dialogue.js';
 import type { SessionDigest, UnifiedMessage } from './types.js';
 
-// @toondepauw/node-zstd：预编译原生模块，跨平台（win32/darwin/linux × x64/arm64），无源码编译依赖。
-const ZSTD_DECODER = new Decoder();
+// zstd 解压器必须“可选且可捕获”。
+//
+// 为什么不能在模块顶层 `new Decoder()`：@toondepauw/node-zstd 的 index.js 在 import
+// 阶段就会抛（原生绑定缺失时），而 deepseek 只是九个采集器之一。顶层构造会把
+// 「一个可选采集器的可选原生依赖」放大成「整个 CLI 起不来」——`omem --version`
+// 也救不回来，因为崩溃发生在 import 链上。
+//
+// 顺序：Node 内置 zlib.zstdDecompressSync（22.15+ 起自带，零原生依赖）优先；
+// 老 Node 回退到预编译原生包。两者都不可用时返回 null，由采集器自检上报。
+type Decompress = (raw: Buffer) => Buffer;
+
+interface DecompressorPick {
+  decompress?: Decompress;
+  error?: string;
+}
+
+/**
+ * 纯函数选择器：把「用哪个解压器」与「怎么加载」分开，单测能钉住三种状态。
+ * `native` 是惰性加载器——只有内置不可用时才调用它，避免无谓地碰原生绑定。
+ */
+export function pickDecompressor(
+  builtin: ((raw: Buffer) => Buffer) | undefined,
+  native: () => Decompress | undefined,
+): DecompressorPick {
+  if (typeof builtin === 'function') return { decompress: builtin };
+  try {
+    const decompress = native();
+    if (decompress) return { decompress };
+    return { error: 'no zstd decompressor available' };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+let cached: DecompressorPick | undefined;
+
+function loadDecompressor(): DecompressorPick {
+  if (cached) return cached;
+  // 访问缺失的导出要能兜住：CJS 命名空间通常返回 undefined，
+  // 但某些宿主/桩在属性访问时就抛。两种都不该让启动失败。
+  let builtin: Decompress | undefined;
+  try {
+    const fn = (zlib as unknown as { zstdDecompressSync?: unknown }).zstdDecompressSync;
+    if (typeof fn === 'function') builtin = fn as Decompress;
+  } catch {
+    builtin = undefined;
+  }
+  cached = pickDecompressor(builtin, () => {
+    // createRequire 在模块顶层调用是安全的：它只构造一个解析器，不加载任何模块。
+    const require = createRequire(import.meta.url);
+    const mod = require('@toondepauw/node-zstd') as {
+      Decoder?: new () => { decodeSync(raw: Buffer): Buffer };
+    };
+    if (!mod?.Decoder) throw new Error('@toondepauw/node-zstd has no Decoder export');
+    const decoder = new mod.Decoder();
+    return (raw) => decoder.decodeSync(raw);
+  });
+  return cached;
+}
+
+/**
+ * 采集器自检：undefined 表示可用，否则返回不可用原因。
+ * CLI `omem doctor` 与 `omem sync` 的 notes 都靠它，而不是靠一次失败的解析猜。
+ */
+export function deepseekZstdError(): string | undefined {
+  return loadDecompressor().error;
+}
 
 /** 默认扫描根：Windows / macOS / Linux 统一在 ~/.dsh/sessions/。 */
 export function defaultDeepSeekRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -76,9 +142,11 @@ export function parseDeepSeekFile(path: string): SessionDigest | null {
   } catch {
     return null;
   }
+  const { decompress } = loadDecompressor();
+  if (!decompress) return null; // 解压器不可用：由 preflight 上报，这里只跳过该文件
   let text: string;
   try {
-    text = ZSTD_DECODER.decodeSync(raw).toString('utf8');
+    text = decompress(raw).toString('utf8');
   } catch {
     return null; // 解压失败
   }
