@@ -10,7 +10,7 @@ omem 是本地的个人 AI 记忆层：一条记忆一个 Markdown 文件，没�
 - `omem backup` 用 git 做备份和跨机器同步；冲突只报告，不自动合并
 - 不自动删除。硬删只有 `omem redact`
 - **可逆遗忘**：`omem review --gc` 只把长期未过目的条目标 `stale`，检索时按 `×0.5` 降权（`search.ts:84,99`）；痕迹、git 历史与证据链都保留，`stale` 可被再次写入或人工过目复活。这是「可检索性衰减」而非删除，所以 omem 不引入时间衰减或遗忘算法。MCP 命中行、CLI 检索、`review`、`MEMORY-INDEX.md` 都会显示 `not reviewed (cooled)`（`formatStaleness`）。证据历史链由 `mergeEvidence` 限 8 条 / 2000 字符，并按 `evidence_current` 分层，不会随时间无限膨胀
-- MCP 默认只暴露 `search_memory` / `save_memory`
+- MCP 默认暴露 `search_memory` / `save_memory` / `omem_status`（只读诊断：版本、存储路径、计数、采集器健康）
 
 分层、数据流和目录见 [技术架构](./ARCHITECTURE.md)。文档索引（Current vs Archive）见 [`docs/README.md`](./docs/README.md)；版本变更记录见 [CHANGELOG.md](./CHANGELOG.md)。
 
@@ -93,7 +93,7 @@ omem backup
 
 CodeBuddy 的 MCP 配置在 `~/.codebuddy/mcp.json`（中文版 `~/.codebuddycn/mcp.json`），是普通 JSON 文件，可以直接写：`omem install --target codebuddy`。
 
-接入后，会话里可以直接用 `search_memory` / `save_memory`。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
+接入后，会话里可以直接用 `search_memory` / `save_memory`，以及只读的 `omem_status`（查版本、存储路径、计数与采集器健康——升级 npm 包后 MCP 进程仍是旧代码，这是唯一能确认「跑的是哪个 build」的入口）。`memory_feedback` 要用 `OMEM_MCP_TOOLS=feedback` 才打开。
 
 MCP 侧三个容易踩空的点，现在都在协议里给出了：
 

@@ -9,7 +9,8 @@ import { writeEntry, readEntryFile, listEntries } from '../../src/core/store.js'
 import { newFrontmatter } from '../../src/core/entry.js';
 import { defaultConfig } from '../../src/core/config.js';
 import { contentHash } from '../../src/core/util.js';
-import { makeHome, cleanupHome } from './helpers.js';
+import { makeHome, cleanupHome, isolateAllCollectors } from './helpers.js';
+import { OMEM_VERSION } from '../../src/core/version.js';
 import type { ToolCtx } from '../../src/mcp/tools.js';
 
 let home: string;
@@ -31,9 +32,9 @@ function textOf(r: { content: { type: 'text'; text: string }[] }): string {
 }
 
 describe('mcp: buildTools tool surface', () => {
-  it('lists only search_memory / save_memory by default', () => {
+  it('lists the two memory tools plus one read-only diagnostics tool by default', () => {
     const names = buildTools({}).map((t) => t.name);
-    expect(names).toEqual(['search_memory', 'save_memory']);
+    expect(names).toEqual(['search_memory', 'save_memory', 'omem_status']);
   });
 
   it('appends memory_feedback when OMEM_MCP_TOOLS=feedback', () => {
@@ -445,5 +446,41 @@ describe('mcp: handleTool', () => {
     const r = await handleTool('bogus_tool', {}, ctx);
     expect(r.isError).toBe(true);
     expect(textOf(r)).toContain('Unknown tool');
+  });
+});
+
+describe('mcp: omem_status', () => {
+  it('reports version, store path, counts and collector health', async () => {
+    const e = {
+      fm: newFrontmatter({ type: 'fact', domain: 'coding', topic: 'status-probe' }),
+      body: '一条用于计数的文档',
+    };
+    const { path, content } = writeEntry(home, e);
+    index.upsert(e, path, content);
+
+    // 采集器根全部指向不存在的临时目录：诊断只做 existsSync，绝不读真实会话目录。
+    const config = defaultConfig();
+    isolateAllCollectors(config, join(home, 'absent-collector-roots'));
+    const local: ToolCtx = { home, config, index };
+
+    const r = await handleTool('omem_status', {}, local);
+    const s = r.structuredContent as any;
+    expect(s.version).toBe(OMEM_VERSION);
+    expect(s.home).toBe(home);
+    expect(s.documents.total).toBe(1);
+    expect(s.documents.active).toBe(1);
+    expect(s.collectors).toHaveLength(9);
+    expect(s.collectors.every((c: any) => c.exists === false)).toBe(true);
+expect(textOf(r)).toContain('Collectors available: none');
+    // 顶层字段必须都在 outputSchema 里声明过（与 save/search 同一条纪律）。
+    const schema = buildTools({}).find((t) => t.name === 'omem_status')!.outputSchema as any;
+    const declared = new Set(Object.keys(schema.properties ?? {}));
+    expect(Object.keys(s).filter((k) => s[k] !== undefined && !declared.has(k))).toEqual([]);
+  });
+
+  it('is declared read-only so clients do not prompt for writes', () => {
+    const t = buildTools({}).find((x) => x.name === 'omem_status')!;
+    expect(t.annotations?.readOnlyHint).toBe(true);
+    expect((t.inputSchema as any).properties).toEqual({});
   });
 });

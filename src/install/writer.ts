@@ -263,7 +263,7 @@ export function markerSection(): string {
     '- Search memories: `omem search "<query>"` (equivalent to the MCP search_memory)',
     '- Save a memory: `omem add "<content>" --topic <name>` (the topic is required — it is the document name)',
     '- List the living-document topics: `omem topics list`',
-    '- Prefer the MCP tools search_memory / save_memory when available.',
+    '- Prefer the MCP tools search_memory / save_memory when available; omem_status reports the server version and collector health.',
     '- If PROCESS.md lists groups (by project fingerprint) and sessions not yet absorbed, read those files and update the living document with save_memory. A group is not a topic name: pass your own topic. Writing to an existing topic overwrites that document (git keeps the previous version).',
     MARKER_END,
   ].join('\n');
