@@ -264,6 +264,7 @@ export function buildTools(env: NodeJS.ProcessEnv = process.env): ToolDef[] {
         properties: {
           status: { type: 'string', description: 'written / deduped / excluded / redacted-empty / needs-reactivation / stale-revision. Under dry_run nothing is written regardless of status.' },
           topic: { type: 'string', description: 'The document name written (or deduped against).' },
+          path: { type: 'string', description: 'Absolute path on disk; absent on dry_run.' },
           updated: { type: 'boolean', description: 'true when an existing living document was overwritten.' },
           confidence: { type: 'number', description: 'Evidence-support score used for ranking, not a probability of being true. Derived from quoted evidence, never caller-controlled.' },
           tags: { type: 'array', items: { type: 'string' } },
@@ -860,6 +861,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
     Object.assign(structured, {
       status: result.status,
       topic: result.topic,
+      // 写入方最常问的下一个问题就是「落在哪个文件」；回执里没有就只能再 search 一次。
+      ...(result.path ? { path: result.path } : {}),
       updated: result.updated ?? false,
       // 去重命中时磁盘上的分是既有条目的分；这次算出来的只是「如果写下去会是几分」。
       confidence: result.status === 'deduped' ? (result.existing?.confidence ?? scored.confidence) : scored.confidence,
@@ -917,6 +920,8 @@ function toolSave(args: Record<string, any>, ctx: ToolCtx): { text: string; stru
       const savedType = saved?.fm.type ?? type;
       const verb = result.updated ? 'Updated' : 'Saved';
       parts.push(`${verb} (topic: ${result.topic}, ${domain}/${savedType}, confidence ${scored.confidence}). Not reviewed by a human yet.`);
+      // 落盘位置直接给出：回执里没有它，调用方回读确认就只能再 search 一次。
+      if (result.path) parts.push(`File: ${result.path}`);
       if (result.scoreDropped) parts.push(scoreDropNotice(result.scoreDropped));
       // 锚定结果必须写出来：只报 confidence 时，「举证成功」与「根本没举证」看起来一模一样。
       const anchors = scored.anchors;

@@ -149,6 +149,10 @@ describe('mcp: structuredContent keys are all declared in outputSchema', () => {
     }
     expect((preview.structuredContent as any).dry_run).toBe(true);
     expect((deduped.structuredContent as any).metadata_drift.length).toBeGreaterThan(0);
+    // 写入回执必须自带落盘位置：否则调用方回读只能再 search 一次。
+    expect((written.structuredContent as any).path).toMatch(/decl-a\.md$/);
+    expect(textOf(written)).toContain('File: ');
+    expect((preview.structuredContent as any).path).toBeUndefined();
   });
 });
 
